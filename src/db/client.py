@@ -117,10 +117,16 @@ class DBClient:
 
     # ---- helpers used by /status handler (Plan 03) ----
 
+    _COUNT_TABLES: frozenset[str] = frozenset(
+        {"campaigns", "ad_metrics", "ga4_metrics", "bot_conversations"}
+    )
+
     async def get_row_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for table in ("campaigns", "ad_metrics", "ga4_metrics", "bot_conversations"):
-            row = await self.fetch_one(f"SELECT COUNT(*) AS n FROM {table}")
+            if table not in self._COUNT_TABLES:
+                raise ValueError(f"Table {table!r} not in allowlist")
+            row = await self.fetch_one(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608
             counts[table] = int(row["n"]) if row else 0
         return counts
 
