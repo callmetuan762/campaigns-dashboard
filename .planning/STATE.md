@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 2 — Meta Ads Ingestion + Scheduled Reports + Alerts
 status: executing
-last_updated: "2026-05-19T08:19:54.546Z"
+last_updated: "2026-05-19T08:25:39.628Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 8
-  completed_plans: 8
+  completed_plans: 10
   percent: 100
 ---
 
@@ -38,15 +38,15 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 2 — Meta Ads Ingestion + Scheduled Reports + Alerts
-- **Plan:** 02-04 complete; 02-05 next
+- **Plan:** 02-05 complete; 02-06 next
 - **Status:** Executing Phase 2
-- **Progress:** [████████░░] 80%
+- **Progress:** [████████░░] 62%
 
 ## Performance Metrics
 
 - Phases completed: 1 / 5
-- v1 requirements shipped: 14 / 38
-- Phase 2 plans completed: 4 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files)
+- v1 requirements shipped: 24 / 38
+- Phase 2 plans completed: 5 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file)
 
 ## Accumulated Context
 
@@ -65,6 +65,7 @@ See: .planning/PROJECT.md
 - All campaign data in TL;DR prompt wrapped in <data>...</data> XML tags per CLAUDE.md prompt injection guardrail
 - evaluate_alerts() exception-safe top-level try/except ensures alert failure never aborts meta_ingest_job
 - Budget pacing alert (ALERT-04) uses days_elapsed < 7 guard to avoid false positives early in month
+- Module-globals pattern for APScheduler: register_job_resources() called from main.py before scheduler.start() — avoids PicklingError with SQLAlchemyJobStore
 
 ### Phase 1 Decisions
 
@@ -94,6 +95,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Completed 02-04-PLAN.md (alert engine with 5 alert types) on 2026-05-19
-- Stopped at: Completed 02-04 — 02-05 next
-- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-05-PLAN.md
+- Last action: Completed 02-05-PLAN.md (Meta ingest job, circuit breaker, evaluate_alerts wiring) on 2026-05-19
+- Stopped at: Completed 02-05 — 02-06 next
+- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-06-PLAN.md
