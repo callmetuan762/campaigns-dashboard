@@ -45,12 +45,12 @@ Plans:
 **Plans:** 8 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Foundation extension: Settings + MIGRATION_002_PHASE2 + DBClient helpers + ParseMode.HTML
-- [ ] 02-02-PLAN.md — Meta API client: SDK init, fetch functions, action parsing, tenacity retry
-- [ ] 02-03-PLAN.md — Report builders: HTML splitter, matplotlib charts, daily/weekly assemblers, AI TL;DR
-- [ ] 02-04-PLAN.md — Alert engine: 5 alert types, rolling average SQL, deduplication via alert_log
-- [ ] 02-05-PLAN.md — Meta ingest job: APScheduler zero-arg job, ingestion_log lifecycle, circuit breaker
-- [ ] 02-06-PLAN.md — Report jobs: daily and weekly APScheduler jobs, heartbeat delivery
+- [x] 02-01-PLAN.md — Foundation extension: Settings + MIGRATION_002_PHASE2 + DBClient helpers + ParseMode.HTML
+- [x] 02-02-PLAN.md — Meta API client: SDK init, fetch functions, action parsing, tenacity retry
+- [x] 02-03-PLAN.md — Report builders: HTML splitter, matplotlib charts, daily/weekly assemblers, AI TL;DR
+- [x] 02-04-PLAN.md — Alert engine: 5 alert types, rolling average SQL, deduplication via alert_log
+- [x] 02-05-PLAN.md — Meta ingest job: APScheduler zero-arg job, ingestion_log lifecycle, circuit breaker
+- [x] 02-06-PLAN.md — Report jobs: daily and weekly APScheduler jobs, heartbeat delivery
 - [ ] 02-07-PLAN.md — Wiring: 3 CronTrigger jobs in main.py, /report handler in handlers.py
 - [ ] 02-08-PLAN.md — Tests: full Phase 2 test suite (9 test files, all 16 requirement IDs)
 

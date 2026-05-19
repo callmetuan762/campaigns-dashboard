@@ -38,15 +38,15 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 2 — Meta Ads Ingestion + Scheduled Reports + Alerts
-- **Plan:** 02-05 complete; 02-06 next
+- **Plan:** 02-06 complete; 02-07 next
 - **Status:** Executing Phase 2
-- **Progress:** [████████░░] 62%
+- **Progress:** [█████████░] 75%
 
 ## Performance Metrics
 
 - Phases completed: 1 / 5
-- v1 requirements shipped: 24 / 38
-- Phase 2 plans completed: 5 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file)
+- v1 requirements shipped: 30 / 38
+- Phase 2 plans completed: 6 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files)
 
 ## Accumulated Context
 
@@ -95,6 +95,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Completed 02-05-PLAN.md (Meta ingest job, circuit breaker, evaluate_alerts wiring) on 2026-05-19
-- Stopped at: Completed 02-05 — 02-06 next
-- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-06-PLAN.md
+- Last action: Completed 02-06-PLAN.md (daily + weekly report jobs) on 2026-05-19
+- Stopped at: Completed 02-06 — 02-07 next
+- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-07-PLAN.md

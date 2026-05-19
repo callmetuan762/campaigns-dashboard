@@ -44,12 +44,18 @@
 
 ### Scheduled Reporting (Telegram)
 
-- [ ] **REPORT-01**: Daily digest report is auto-generated and posted to the designated Telegram group each morning (configurable schedule, default 09:00 in account timezone)
-- [ ] **REPORT-02**: Daily digest includes: total spend, ROAS, top 3 and bottom 3 campaigns by ROAS, spend pacing vs daily budget, website sessions and top 3 landing pages by conversions, plain-English AI-generated TL;DR summary
-- [ ] **REPORT-03**: Weekly summary report is posted every Monday with WoW comparisons for all Tier-1 metrics and an AI-generated narrative of key trends
-- [ ] **REPORT-04**: Reports are formatted with Telegram Markdown (bold headers, emoji status indicators 🟢🔴⚠️), respecting the 4096-character message length limit (auto-split if needed)
-- [ ] **REPORT-05**: After each report is successfully delivered (Telegram API returns 200), a dead-man's-switch heartbeat is pinged so monitoring systems can detect silent failures
-- [ ] **REPORT-06**: Chart images (spend trend, ROAS trend, top campaigns bar chart) are generated and sent as Telegram photo messages alongside text reports
+- [x] **REPORT-01
+**: Daily digest report is auto-generated and posted to the designated Telegram group each morning (configurable schedule, default 09:00 in account timezone)
+- [x] **REPORT-02
+**: Daily digest includes: total spend, ROAS, top 3 and bottom 3 campaigns by ROAS, spend pacing vs daily budget, website sessions and top 3 landing pages by conversions, plain-English AI-generated TL;DR summary
+- [x] **REPORT-03
+**: Weekly summary report is posted every Monday with WoW comparisons for all Tier-1 metrics and an AI-generated narrative of key trends
+- [x] **REPORT-04
+**: Reports are formatted with Telegram Markdown (bold headers, emoji status indicators 🟢🔴⚠️), respecting the 4096-character message length limit (auto-split if needed)
+- [x] **REPORT-05
+**: After each report is successfully delivered (Telegram API returns 200), a dead-man's-switch heartbeat is pinged so monitoring systems can detect silent failures
+- [x] **REPORT-06
+**: Chart images (spend trend, ROAS trend, top campaigns bar chart) are generated and sent as Telegram photo messages alongside text reports
 
 ### Alerts
 
