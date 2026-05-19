@@ -2,28 +2,28 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 3 — GA4 Ingestion + Cross-Source Layer
-status: planned
-last_updated: "2026-05-19T16:00:00.000Z"
+current_phase: Phase 4 — Conversational AI + Recommendations
+status: Phase 4 planned — ready for /gsd-execute-phase 4
+last_updated: "2026-05-19T12:58:03.860Z"
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 0
-  percent: 40
+  total_plans: 19
+  completed_plans: 18
+  percent: 95
 ---
 
 # Project State
 
 **Project:** Ads Reporting Agent
-**Current phase:** Phase 3 — GA4 Ingestion + Cross-Source Layer
+**Current phase:** Phase 4 — Conversational AI + Recommendations
 **Last updated:** 2026-05-19
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Marketing teams get actionable campaign and landing-page insights delivered proactively to Telegram and can interrogate the data in natural language.
-**Current focus:** Phase 3 planned (5 plans, 5 waves) — ready to execute
+**Current focus:** Phase 4 planned (6 plans, 3 waves) — ready to execute
 
 ## Phase Status
 
@@ -31,22 +31,24 @@ See: .planning/PROJECT.md
 |-------|------|--------|
 | 1 | Foundation & Walking Skeleton | Complete ✓ (2026-05-19) |
 | 2 | Meta Ads Ingestion + Scheduled Reports + Alerts | Complete ✓ (2026-05-19) — 8 plans, 5 waves, 77 tests |
-| 3 | GA4 Ingestion + Cross-Source Layer | Planned ✓ (2026-05-19) — 5 plans, 5 waves |
-| 4 | Conversational AI + Recommendations | Not started |
+| 3 | GA4 Ingestion + Cross-Source Layer | Complete ✓ (2026-05-19) — 5 plans, 5 waves, 115 tests |
+| 4 | Conversational AI + Recommendations | Planned ✓ (2026-05-19) — 6 plans, 3 waves, ready to execute |
 | 5 | Hardening & Ops | Not started |
 
 ## Current Position
 
-- **Phase:** Phase 3 — GA4 Ingestion + Cross-Source Layer
-- **Plan:** All 5 plans ready (03-01 through 03-05)
-- **Status:** Phase 3 planned and verified — ready to execute
-- **Progress:** [████░░░░░░] 40%
+- **Phase:** Phase 4 — Conversational AI + Recommendations
+- **Plan:** 04-01 complete; 04-02 next
+- **Status:** Executing Phase 4 — 1/6 plans complete
+- **Progress:** [██████░░░░] 60%
 
 ## Performance Metrics
 
-- Phases completed: 2 / 5
-- v1 requirements shipped: 30 / 38
+- Phases completed: 3 / 5
+- v1 requirements shipped: 38 / 38 (all v1 reqs in phases 1-4; phases 1-3 done)
 - Phase 2 plans completed: 8 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files; 02-07 scheduler wiring: 5min, 2 tasks, 2 files; 02-08 test suite: 3min, 2 tasks, 7 files, 43→77 tests)
+- Phase 3 plans completed: 5 / 5 (03-01 foundation: schema+config; 03-02 GA4 package: client+ingest; 03-03 builder: GA4 section; 03-04 wiring: daily+weekly+main; 03-05 test suite: 77→115 tests)
+- Phase 4 plans completed: 1 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files)
 
 ## Accumulated Context
 
@@ -65,6 +67,9 @@ See: .planning/PROJECT.md
 - All campaign data in TL;DR prompt wrapped in <data>...</data> XML tags per CLAUDE.md prompt injection guardrail
 - evaluate_alerts() exception-safe top-level try/except ensures alert failure never aborts meta_ingest_job
 - Budget pacing alert (ALERT-04) uses days_elapsed < 7 guard to avoid false positives early in month
+- COALESCE(SUM(cost_usd), 0.0) in get_monthly_anthropic_cost prevents NoneType budget-gate bug on empty table
+- _deserialize_message is module-level (not class method) so DBClient methods call it without self. prefix; role='tool' remapped to 'user' for Anthropic API
+- get_conversation_history fetches DESC then calls rows.reverse() so LIMIT captures most-recent N turns and output is chronological
 - Module-globals pattern for APScheduler: register_job_resources() called from main.py before scheduler.start() — avoids PicklingError with SQLAlchemyJobStore
 - Module-globals pattern for APScheduler: register_job_resources() called before scheduler.add_job() — /report handler uses same globals set by main.py
 
@@ -79,7 +84,7 @@ See: .planning/PROJECT.md
 
 - Phase 2: Meta Standard tier access status? Ad-account timezone? Webhook vs long-polling for v1 deploy target? Report-failure fallback notification path?
 - Phase 3: Is UTM tagging consistently applied to existing Meta campaigns?
-- Phase 4: Monthly Anthropic budget ceiling? Haiku vs Sonnet trade-off for summaries?
+- Phase 4: Monthly Anthropic budget ceiling? Haiku vs Sonnet trade-off for summaries? — RESOLVED: Sonnet for chat, $20/month ceiling with app-level enforcement
 - Phase 5: Who is on the chat-ID allowlist? Retention window for raw API snapshots?
 
 ### Human UAT Outstanding
@@ -96,6 +101,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 3 planned (2026-05-19) — 5 plans, 5 waves, 8 req IDs covered, verification passed
-- Stopped at: Phase 3 ready to execute
+- Last action: Phase 4 plan 04-01 complete (2026-05-19) — Phase 4 foundation, 2 tasks, 3 files, 1m 28s
+- Stopped at: Phase 4 plan 04-01 complete; 04-02 next
 - Resume file: None
