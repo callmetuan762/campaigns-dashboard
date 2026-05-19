@@ -121,10 +121,50 @@ CREATE INDEX IF NOT EXISTS idx_alert_log_date ON alert_log(date DESC);
 """
 
 # ---------------------------------------------------------------------------
+# Migration 003 — Phase 3: GA4 landing pages table
+# ---------------------------------------------------------------------------
+
+MIGRATION_003_PHASE3: str = """
+CREATE TABLE IF NOT EXISTS ga4_landing_pages (
+    landing_page              TEXT NOT NULL,
+    date                      TEXT NOT NULL,
+    sessions                  INTEGER,
+    total_users               INTEGER,
+    ga4_purchases_lastclick   INTEGER,
+    screen_page_views         INTEGER,
+    avg_engagement_time       REAL,
+    fetched_at                TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (landing_page, date)
+);
+CREATE INDEX IF NOT EXISTS idx_ga4_lp_date ON ga4_landing_pages(date);
+CREATE INDEX IF NOT EXISTS idx_ga4_lp_page ON ga4_landing_pages(landing_page);
+"""
+
+# ---------------------------------------------------------------------------
+# Migration 004 — Phase 4: Anthropic usage tracking
+# ---------------------------------------------------------------------------
+
+MIGRATION_004_PHASE4: str = """
+CREATE TABLE IF NOT EXISTS anthropic_usage_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    model         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd      REAL NOT NULL DEFAULT 0.0,
+    chat_id       INTEGER,
+    user_id       INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_usage_log_month ON anthropic_usage_log(request_at);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
 ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("001_initial", MIGRATION_001_INITIAL),
     ("002_phase2", MIGRATION_002_PHASE2),
+    ("003_phase3", MIGRATION_003_PHASE3),
+    ("004_phase4", MIGRATION_004_PHASE4),
 ]

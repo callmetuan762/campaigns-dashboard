@@ -40,9 +40,11 @@ class Settings(BaseSettings):
     # ---- GA4 (Phase 3) ----
     ga4_property_id: str | None = None
     ga4_service_account_json: Path | None = None
+    ga4_conversion_event: str = "purchase"
 
     # ---- Anthropic (Phase 4) ----
     anthropic_api_key: SecretStr | None = None
+    anthropic_monthly_budget_usd: float = 20.0
 
     # ---- App config ----
     db_path: Path = Path("/data/metrics.db")
