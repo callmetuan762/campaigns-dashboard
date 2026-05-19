@@ -85,6 +85,14 @@ async def _run_weekly_report(bot, db, settings) -> None:
         logger.warning("weekly_report_no_chat_id")
         return
 
+    meta_available = True
+    ga4_available = True
+    this_week_rows: list[dict] = []
+    last_week_rows: list[dict] = []
+    ga4_this_week: list[dict] = []
+    ga4_last_week: list[dict] = []
+
+    # Per-source guarded block: Meta (SC-2 graceful degradation)
     try:
         # D-02: Read exclusively from SQLite for both windows
         this_week_rows = await db.fetch_all(
@@ -95,7 +103,22 @@ async def _run_weekly_report(bot, db, settings) -> None:
             _WEEK_WINDOW_SQL,
             {"start_date": date_ranges["prev_week_start"], "end_date": date_ranges["prev_week_end"]},
         )
+        # Pitfall 5: distinguish failed ingestion from zero-spend weeks via ingestion_log
+        if not this_week_rows:
+            last = await db.fetch_one(
+                "SELECT status FROM ingestion_log WHERE source = :source ORDER BY started_at DESC LIMIT 1",
+                {"source": "meta_ads"},
+            )
+            if last and last["status"] == "failed":
+                meta_available = False
+                logger.warning("weekly_report_meta_unavailable", week_end=week_end)
+    except Exception as exc:  # noqa: BLE001
+        import sentry_sdk; sentry_sdk.capture_exception(exc)
+        meta_available = False
+        logger.warning("weekly_report_meta_query_failed", week_end=week_end, error=str(exc))
 
+    # Per-source guarded block: GA4 (SC-2 graceful degradation)
+    try:
         # GA4 WoW queries (D-05)
         ga4_this_week = await db.fetch_all(
             _GA4_LANDING_WOW_SQL,
@@ -105,7 +128,22 @@ async def _run_weekly_report(bot, db, settings) -> None:
             _GA4_LANDING_WOW_SQL,
             {"start_date": date_ranges["prev_week_start"], "end_date": date_ranges["prev_week_end"]},
         )
+        # Pitfall 5: distinguish failed ingestion from zero-traffic weeks via ingestion_log
+        if not ga4_this_week:
+            last = await db.fetch_one(
+                "SELECT status FROM ingestion_log WHERE source = :source ORDER BY started_at DESC LIMIT 1",
+                {"source": "ga4"},
+            )
+            if last and last["status"] == "failed":
+                ga4_available = False
+                logger.warning("weekly_report_ga4_unavailable", week_end=week_end)
+    except Exception as exc:  # noqa: BLE001
+        import sentry_sdk; sentry_sdk.capture_exception(exc)
+        ga4_available = False
+        logger.warning("weekly_report_ga4_query_failed", error=str(exc))
 
+    # Outer try/except: TL;DR generation, report assembly, Telegram delivery
+    try:
         # TL;DR using this week's rows for context
         tldr: str | None = None
         if settings.anthropic_api_key and this_week_rows:
@@ -121,6 +159,8 @@ async def _run_weekly_report(bot, db, settings) -> None:
             this_week_rows, last_week_rows, tldr, week_end,
             ga4_this_week=ga4_this_week,
             ga4_last_week=ga4_last_week,
+            meta_available=meta_available,
+            ga4_available=ga4_available,
         )
         parts = split_html_message(report_text)
 

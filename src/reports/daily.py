@@ -131,6 +131,15 @@ async def _run_daily_report(bot, db, settings) -> None:
         logger.warning("daily_report_no_chat_id")
         return
 
+    meta_available = True
+    ga4_available = True
+    yesterday_rows: list[dict] = []
+    week_rows: list[dict] = []
+    ga4_campaign_rows: list[dict] = []
+    ga4_landing_rows: list[dict] = []
+    ga4_landing_7day_rows: list[dict] = []
+
+    # Per-source guarded block: Meta (SC-2 graceful degradation)
     try:
         # D-02: Read exclusively from SQLite
         yesterday_rows = await db.fetch_all(
@@ -139,7 +148,22 @@ async def _run_daily_report(bot, db, settings) -> None:
         week_rows = await db.fetch_all(
             _WEEK_METRICS_SQL, {"start_date": week_start, "end_date": yesterday}
         )
+        # Pitfall 5: distinguish failed ingestion from zero-spend days via ingestion_log
+        if not yesterday_rows:
+            last = await db.fetch_one(
+                "SELECT status FROM ingestion_log WHERE source = :source ORDER BY started_at DESC LIMIT 1",
+                {"source": "meta_ads"},
+            )
+            if last and last["status"] == "failed":
+                meta_available = False
+                logger.warning("daily_report_meta_unavailable", date=yesterday)
+    except Exception as exc:  # noqa: BLE001
+        import sentry_sdk; sentry_sdk.capture_exception(exc)
+        meta_available = False
+        logger.warning("daily_report_meta_query_failed", date=yesterday, error=str(exc))
 
+    # Per-source guarded block: GA4 (SC-2 graceful degradation)
+    try:
         # GA4-03: D-2 freshness — GA4 ingest stored D-2, so query D-2 to match
         d2_date = (today - timedelta(days=2)).isoformat()
         # 7-day window for GA4 landing page trend (D-04)
@@ -155,7 +179,22 @@ async def _run_daily_report(bot, db, settings) -> None:
         ga4_landing_7day_rows = await db.fetch_all(
             _GA4_LANDING_7DAY_SQL, {"start_date": ga4_week_start, "end_date": d2_date}
         )
+        # Pitfall 5: distinguish failed ingestion from zero-traffic days via ingestion_log
+        if not ga4_campaign_rows:
+            last = await db.fetch_one(
+                "SELECT status FROM ingestion_log WHERE source = :source ORDER BY started_at DESC LIMIT 1",
+                {"source": "ga4"},
+            )
+            if last and last["status"] == "failed":
+                ga4_available = False
+                logger.warning("daily_report_ga4_unavailable", date=yesterday)
+    except Exception as exc:  # noqa: BLE001
+        import sentry_sdk; sentry_sdk.capture_exception(exc)
+        ga4_available = False
+        logger.warning("daily_report_ga4_query_failed", error=str(exc))
 
+    # Outer try/except: TL;DR generation, report assembly, Telegram delivery
+    try:
         # Generate TL;DR — graceful degradation on failure (D-23)
         tldr: str | None = None
         if settings.anthropic_api_key and yesterday_rows:
@@ -172,6 +211,8 @@ async def _run_daily_report(bot, db, settings) -> None:
             ga4_campaign_rows=ga4_campaign_rows,
             ga4_landing_rows=ga4_landing_rows,
             ga4_landing_7day_rows=ga4_landing_7day_rows,
+            meta_available=meta_available,
+            ga4_available=ga4_available,
         )
 
         # Split if > 4096 chars (CLAUDE.md pitfall)
