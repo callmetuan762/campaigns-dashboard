@@ -15,6 +15,7 @@ import html
 from datetime import date, timedelta
 from enum import StrEnum
 
+import sentry_sdk
 import structlog
 from aiogram import Bot
 from aiogram.enums import ParseMode
@@ -265,4 +266,5 @@ async def evaluate_alerts(db, bot: Bot, settings, target_date: str) -> None:
         logger.info("evaluate_alerts_complete", date=target_date, sent=sent_count)
 
     except Exception as exc:  # noqa: BLE001
+        sentry_sdk.capture_exception(exc)
         logger.error("evaluate_alerts_error", error=str(exc), date=target_date)

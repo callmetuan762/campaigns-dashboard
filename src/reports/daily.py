@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
+import sentry_sdk
 import structlog
 from aiogram.enums import ParseMode
 from aiogram.types import BufferedInputFile
@@ -215,6 +216,7 @@ async def _run_daily_report(bot, db, settings) -> None:
         logger.info("daily_report_complete", date=yesterday, parts=len(parts))
 
     except Exception as exc:  # noqa: BLE001
+        sentry_sdk.capture_exception(exc)
         logger.error("daily_report_failed", date=yesterday, error=str(exc))
         # Never propagate — scheduled job must not crash the scheduler
 

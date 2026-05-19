@@ -19,6 +19,7 @@ import html
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import sentry_sdk
 import structlog
 from aiogram.enums import ParseMode
 
@@ -146,6 +147,7 @@ async def _run_meta_ingest(bot, db, settings) -> None:
         await evaluate_alerts(db, bot, settings, date_iso)
 
     except Exception as exc:  # noqa: BLE001
+        sentry_sdk.capture_exception(exc)
         logger.error("ingest_failed", source="meta_ads", date=date_iso, error=str(exc))
         if log_id is not None:
             await db.log_ingestion_finish(log_id, "failed", error=str(exc))

@@ -15,6 +15,7 @@ import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import sentry_sdk
 import structlog
 from aiogram.enums import ParseMode
 from aiogram.types import BufferedInputFile
@@ -161,6 +162,7 @@ async def _run_weekly_report(bot, db, settings) -> None:
         logger.info("weekly_report_complete", week_end=week_end, parts=len(parts))
 
     except Exception as exc:  # noqa: BLE001
+        sentry_sdk.capture_exception(exc)
         logger.error("weekly_report_failed", week_end=week_end, error=str(exc))
 
 
