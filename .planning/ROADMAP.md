@@ -9,8 +9,8 @@
 ## Phases
 
 - [x] **Phase 1: Foundation & Walking Skeleton** - Secure, deployable scaffold with config, storage, allowlisted Telegram bot, and structured logging — completed 2026-05-19
-- [ ] **Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts** - Daily/weekly Meta-driven Telegram reports with charts, heartbeat, and alert engine
-- [ ] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings
+- [x] **Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts** - Daily/weekly Meta-driven Telegram reports with charts, heartbeat, and alert engine — completed 2026-05-19
+- [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
 - [ ] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice
 - [ ] **Phase 5: Hardening & Ops** - (Reserved for post-v1 hardening; all 38 v1 requirements ship in phases 1-4)
 
@@ -51,8 +51,8 @@ Plans:
 - [x] 02-04-PLAN.md — Alert engine: 5 alert types, rolling average SQL, deduplication via alert_log
 - [x] 02-05-PLAN.md — Meta ingest job: APScheduler zero-arg job, ingestion_log lifecycle, circuit breaker
 - [x] 02-06-PLAN.md — Report jobs: daily and weekly APScheduler jobs, heartbeat delivery
-- [ ] 02-07-PLAN.md — Wiring: 3 CronTrigger jobs in main.py, /report handler in handlers.py
-- [ ] 02-08-PLAN.md — Tests: full Phase 2 test suite (9 test files, all 16 requirement IDs)
+- [x] 02-07-PLAN.md — Wiring: 3 CronTrigger jobs in main.py, /report handler in handlers.py
+- [x] 02-08-PLAN.md — Tests: full Phase 2 test suite (9 test files, all 16 requirement IDs)
 
 **UI hint:** yes
 
@@ -87,7 +87,15 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
   2. Multi-turn follow-up questions work without re-stating context (conversation state is persisted per chat session in SQLite) and inline keyboard buttons ("Drill down", "Compare to last week", "Why is this happening?", "Show chart") appear after each answer
   3. Claude reaches data only through the validated tool surface (`query_metrics`, `compare_periods`, `get_campaign_detail`, `list_underperformers`, `get_landing_page_performance`) — no raw SQL is ever exposed to the model; all user text and ingested ad strings are wrapped in delimited data tags
   4. Per-request token caps and a configurable monthly Anthropic spend ceiling are enforced (calls auto-shut-down when exceeded); generated recommendations cite the specific triggering metric values and distinguish Meta-side vs GA4-side signals
-**Plans:** TBD
+**Plans:** 6 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Foundation: Settings.anthropic_monthly_budget_usd, MIGRATION_004 (anthropic_usage_log), 5 new DBClient methods + _deserialize_message helper
+- [ ] 04-02-PLAN.md — AI tools: src/ai/tools.py with 5 SQLite-backed tools, Anthropic schemas, calculate_cost (Haiku 4.5 corrected to $1.00/$5.00), frozenset allowlists, dispatch_tool
+- [ ] 04-03-PLAN.md — Chat orchestrator: src/ai/chat.py tool-use loop, _SYSTEM_PROMPT, budget gate + operator alert, history persistence; generate_tldr gains optional db parameter
+- [ ] 04-04-PLAN.md — Chat router: src/bot/chat_router.py catch-all + inline keyboard + CallbackQuery; /clear command added to handlers.py
+- [ ] 04-05-PLAN.md — Wiring: setup.py registers chat_router AFTER command router; daily.py/weekly.py pass db= to generate_tldr
+- [ ] 04-06-PLAN.md — Test suite: 4 new test files (ai_tools, ai_chat, chat_router, phase4_handlers) — all 11 CHAT/REC IDs covered
 **UI hint:** yes
 
 ### Phase 5: Hardening & Ops
@@ -152,7 +160,7 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
-| 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 0/8 | Planned | - |
-| 3. GA4 Ingestion + Cross-Source Layer | 0/5 | Planned | - |
+| 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 8/8 | Complete | 2026-05-19 |
+| 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
 | 4. Conversational AI + Recommendations | 0/0 | Not started | - |
 | 5. Hardening & Ops | 0/0 | Not started | - |
