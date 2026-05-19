@@ -12,6 +12,9 @@ import html as _html
 import structlog
 from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
 
+from src.ai.tools import calculate_cost
+from src.db.client import DBClient
+
 logger = structlog.get_logger(__name__)
 
 _TLDR_MODEL = "claude-haiku-4-5"
@@ -19,7 +22,10 @@ _TLDR_MAX_TOKENS = 300
 
 
 async def generate_tldr(
-    api_key: str, campaign_rows: list[dict], date: str
+    api_key: str,
+    campaign_rows: list[dict],
+    date: str,
+    db: DBClient | None = None,
 ) -> str | None:
     """Generate a 3-bullet plain-English TL;DR of campaign performance.
 
@@ -29,6 +35,11 @@ async def generate_tldr(
 
     Returns None on any Anthropic API error (graceful degradation per D-23).
     The caller should include a "TL;DR unavailable" notice when None is returned.
+
+    D-04 (Phase 4): When `db` is provided, the call's token usage is logged to
+    anthropic_usage_log so it counts against ANTHROPIC_MONTHLY_BUDGET_USD.
+    Pass `None` (default) for backward compatibility with callers that have not
+    yet been updated.
     """
     if not campaign_rows:
         return None
@@ -61,6 +72,21 @@ async def generate_tldr(
             messages=[{"role": "user", "content": prompt}],
         )
         tldr_text = response.content[0].text
+        # D-04 / Pitfall 8: scheduled TL;DR calls count against the monthly ceiling.
+        if db is not None:
+            cost = calculate_cost(
+                _TLDR_MODEL, response.usage.input_tokens, response.usage.output_tokens
+            )
+            try:
+                await db.log_anthropic_usage(
+                    model=_TLDR_MODEL,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                    cost_usd=cost,
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Usage logging failure must NOT poison the report — log + continue.
+                logger.warning("tldr_usage_log_failed", date=date, error=str(exc))
         logger.info("tldr_generated", date=date, campaigns=len(campaign_rows))
         return tldr_text
     except (APIStatusError, APIConnectionError) as exc:
