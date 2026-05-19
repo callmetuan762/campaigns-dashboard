@@ -54,6 +54,10 @@
 **Goal:** Allowlisted users can ask free-text marketing questions in Telegram and receive data-grounded, source-cited answers with concrete optimization recommendations.
 **Depends on:** Phase 3
 **Requirements:** CHAT-01, CHAT-02, CHAT-03, CHAT-04, CHAT-05, CHAT-06, CHAT-07, CHAT-08, REC-01, REC-02, REC-03
+
+**Design Note — Meta Ads MCP (considered 2026-05-19):**
+Meta launched official MCP support for the Ads API (https://www.facebook.com/business/help/1456422242197840). Decision: **do not replace the ingestion pipeline** with MCP calls. Scheduled reports and historical trend analysis require a local SQLite cache — live MCP calls on every Claude query would break scheduled digests, burn API quota per conversation turn, and remove the ability to compare across arbitrary historical windows. **Optional addition:** expose a `query_meta_live` tool in the Claude tool set (Phase 4) that delegates to the Meta Ads MCP for real-time spot-checks (e.g. "what is the live spend right now?") alongside the existing SQLite-backed tools. This gives real-time capability without dismantling the offline analysis layer. Evaluate at Phase 4 planning time whether the MCP is stable enough to include.
+
 **Success Criteria** (what must be TRUE):
   1. A user on the allowlist can ask "which landing pages drive most conversions?", "which campaigns are underperforming and why?", or "give recommendations for optimizing campaign performance" in Telegram and receive a data-grounded answer that cites its source and timestamp
   2. Multi-turn follow-up questions work without re-stating context (conversation state is persisted per chat session in SQLite) and inline keyboard buttons ("Drill down", "Compare to last week", "Why is this happening?", "Show chart") appear after each answer

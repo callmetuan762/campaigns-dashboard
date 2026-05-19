@@ -54,9 +54,10 @@ Marketing teams get actionable campaign and landing-page insights delivered proa
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Telegram as report delivery channel | Already the team's communication hub; no new tool adoption required | — Pending |
-| GA4 + Meta Ads API (not Looker Studio scraping) | Looker Studio has no official programmatic export API; going directly to source APIs is more reliable and maintainable | — Pending |
+| GA4 + Meta Ads API (not Looker Studio scraping) | Looker Studio has no official programmatic export API; it is a visualization layer over GA4/Meta APIs — the agent goes to the same underlying sources. GA4 BigQuery export is not configured, so GA4 Data API is the correct path. | — Pending |
 | Claude as conversational AI backend | Natural fit for the project; handles multi-source context and nuanced marketing questions well | — Pending |
 | Read-only API access | Avoids accidental ad changes; separates analysis from execution | — Pending |
+| Meta Ads MCP — augment, don't replace (Phase 4) | Meta launched official MCP support (2026-05-19). Keeping the SQLite ingestion pipeline for scheduled reports and historical analysis; MCP is a candidate for an additional real-time `query_meta_live` tool in the Claude tool surface alongside the SQLite-backed tools. MCP cannot replace ingestion because scheduled digests require cached data and historical windows. Evaluate at Phase 4 planning. | — Pending |
 
 ---
 *Last updated: 2026-05-19 after initialization*
