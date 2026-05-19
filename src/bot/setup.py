@@ -16,6 +16,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from src.bot.handlers import build_router
+from src.bot.chat_router import build_chat_router
 from src.bot.middleware import AllowlistMiddleware
 from src.config import Settings
 from src.db.client import DBClient
@@ -40,6 +41,8 @@ def create_bot_and_dispatcher(
 
     # Inject DBClient so handlers can declare `db: DBClient` as a parameter.
     dp["db"] = db_client
+    # Phase 4: chat_router handlers declare `settings: Settings` as a parameter.
+    dp["settings"] = settings
 
     # STEP 1: Register allowlist BEFORE any router. Order is security-critical.
     allowlist = AllowlistMiddleware(
@@ -49,11 +52,16 @@ def create_bot_and_dispatcher(
     dp.message.middleware(allowlist)
     dp.callback_query.middleware(allowlist)
 
-    # STEP 2: Include handler router AFTER middleware registration.
-    dp.include_router(build_router())
+    # STEP 2: Include routers in priority order — command router FIRST,
+    # catch-all SECOND. If chat_router were included before build_router(),
+    # the F.text catch-all would intercept /commands before the Command()
+    # filters see them (RESEARCH Pitfall 4).
+    dp.include_router(build_router())          # commands: /start /status /help /report /clear
+    dp.include_router(build_chat_router())     # catch-all: non-command text + inline buttons (Phase 4)
 
     logger.info(
         "bot_dispatcher_ready",
+        phase=4,
         allowed_chats=len(settings.telegram_allowed_chat_ids),
         allowed_users=len(settings.telegram_allowed_user_ids),
     )
