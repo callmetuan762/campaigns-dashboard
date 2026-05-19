@@ -65,7 +65,14 @@ Plans:
   2. Meta and GA4 rows are joinable by exact UTM campaign-name match in the canonical store, and the daily/weekly digest surfaces website sessions and top 3 landing pages by conversions
   3. When Meta and GA4 conversion numbers disagree, both are shown side-by-side in reports with a brief attribution-model explanation — never blended into one number
   4. When Meta campaigns cannot be matched to GA4 data (missing or inconsistent UTM tagging), a UTM-coverage warning is included in the affected report
-**Plans:** TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Foundation extension: MIGRATION_003 (ga4_landing_pages), upsert_ga4_landing_pages, ga4_conversion_event config
+- [ ] 03-02-PLAN.md — GA4 package: BetaAnalyticsDataClient, two RunReportRequest functions, ingest job (module-globals APScheduler pattern)
+- [ ] 03-03-PLAN.md — Report builder extension: GA4 section, attribution comparison, UTM coverage warning
+- [ ] 03-04-PLAN.md — Report + scheduler wiring: daily/weekly GA4 SQL queries, main.py CronTrigger at 01:00
+- [ ] 03-05-PLAN.md — Phase 3 test suite: test_ga4_client, test_ga4_ingest, test_cross_source (all 8 req IDs)
 
 ### Phase 4: Conversational AI + Recommendations
 **Goal:** Allowlisted users can ask free-text marketing questions in Telegram and receive data-grounded, source-cited answers with concrete optimization recommendations.
@@ -146,6 +153,6 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
 |-------|----------------|--------|-----------|
 | 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 0/8 | Planned | - |
-| 3. GA4 Ingestion + Cross-Source Layer | 0/0 | Not started | - |
+| 3. GA4 Ingestion + Cross-Source Layer | 0/5 | Planned | - |
 | 4. Conversational AI + Recommendations | 0/0 | Not started | - |
 | 5. Hardening & Ops | 0/0 | Not started | - |
