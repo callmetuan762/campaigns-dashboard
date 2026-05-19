@@ -34,7 +34,7 @@ def create_bot_and_dispatcher(
     """
     bot = Bot(
         token=settings.telegram_bot_token.get_secret_value(),
-        default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()
 

@@ -115,6 +115,82 @@ class DBClient:
         await self.conn.commit()
         return len(rows)
 
+    # ---- Phase 2 helpers ----
+
+    _UPSERT_CAMPAIGN_SQL = """
+        INSERT INTO campaigns (id, source, name, status)
+        VALUES (:id, :source, :name, :status)
+        ON CONFLICT(id) DO UPDATE SET
+            name   = excluded.name,
+            status = excluded.status;
+    """
+
+    async def upsert_campaign(self, rows: list[dict]) -> int:
+        """Upsert campaign dimension rows. Returns count of rows processed."""
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_CAMPAIGN_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    _INSERT_INGESTION_LOG_SQL = """
+        INSERT INTO ingestion_log (source, started_at, status, rows_upserted)
+        VALUES (:source, datetime('now'), 'running', 0)
+    """
+
+    _FINISH_INGESTION_LOG_SQL = """
+        UPDATE ingestion_log
+        SET finished_at   = datetime('now'),
+            status        = :status,
+            rows_upserted = :rows_upserted,
+            error_message = :error_message
+        WHERE id = :id
+    """
+
+    async def log_ingestion_start(self, source: str) -> int:
+        """Insert a 'running' ingestion_log row. Returns the new row id."""
+        async with self.conn.execute(
+            self._INSERT_INGESTION_LOG_SQL, {"source": source}
+        ) as cur:
+            await self.conn.commit()
+            return cur.lastrowid  # type: ignore[return-value]
+
+    async def log_ingestion_finish(
+        self,
+        log_id: int,
+        status: str,
+        rows_upserted: int = 0,
+        error: str | None = None,
+    ) -> None:
+        """Update an ingestion_log row to success/failed/partial."""
+        await self.conn.execute(
+            self._FINISH_INGESTION_LOG_SQL,
+            {
+                "id": log_id,
+                "status": status,
+                "rows_upserted": rows_upserted,
+                "error_message": error,
+            },
+        )
+        await self.conn.commit()
+
+    _INSERT_ALERT_LOG_SQL = """
+        INSERT OR IGNORE INTO alert_log (alert_type, campaign_id, date, fired_at)
+        VALUES (:alert_type, :campaign_id, :date, datetime('now'))
+    """
+
+    async def log_alert(self, alert_type: str, campaign_id: str, date: str) -> bool:
+        """Insert into alert_log with deduplication. Returns True if newly fired, False if duplicate.
+
+        D-18: UNIQUE(alert_type, campaign_id, date) constraint prevents re-alerting per day.
+        """
+        async with self.conn.execute(
+            self._INSERT_ALERT_LOG_SQL,
+            {"alert_type": alert_type, "campaign_id": campaign_id, "date": date},
+        ) as cur:
+            await self.conn.commit()
+            return cur.rowcount == 1
+
     # ---- helpers used by /status handler (Plan 03) ----
 
     _COUNT_TABLES: frozenset[str] = frozenset(

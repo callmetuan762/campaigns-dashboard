@@ -4,6 +4,7 @@ Handlers access DBClient via dispatcher.workflow_data['db'] — wired in setup.p
 """
 from __future__ import annotations
 
+import html
 import structlog
 from aiogram import Router
 from aiogram.filters import Command, CommandStart
@@ -27,15 +28,15 @@ def build_router() -> Router:
         last = await db.get_last_sync()
         counts = await db.get_row_counts()
         lines = [
-            "*Status*",
-            f"Meta last sync: `{last.get('meta_ads') or 'never'}`",
-            f"GA4 last sync: `{last.get('ga4') or 'never'}`",
+            "<b>Status</b>",
+            f"Meta last sync: <code>{html.escape(str(last.get('meta_ads') or 'never'))}</code>",
+            f"GA4 last sync: <code>{html.escape(str(last.get('ga4') or 'never'))}</code>",
             "",
-            "*Row counts*",
-            f"campaigns: `{counts.get('campaigns', 0)}`",
-            f"ad_metrics: `{counts.get('ad_metrics', 0)}`",
-            f"ga4_metrics: `{counts.get('ga4_metrics', 0)}`",
-            f"bot_conversations: `{counts.get('bot_conversations', 0)}`",
+            "<b>Row counts</b>",
+            f"campaigns: <code>{counts.get('campaigns', 0)}</code>",
+            f"ad_metrics: <code>{counts.get('ad_metrics', 0)}</code>",
+            f"ga4_metrics: <code>{counts.get('ga4_metrics', 0)}</code>",
+            f"bot_conversations: <code>{counts.get('bot_conversations', 0)}</code>",
         ]
         logger.info("cmd_status", chat_id=message.chat.id)
         await message.answer("\n".join(lines))
@@ -44,11 +45,11 @@ def build_router() -> Router:
     async def cmd_help(message: Message) -> None:
         logger.info("cmd_help", chat_id=message.chat.id)
         await message.answer(
-            "*Available commands*\n"
+            "<b>Available commands</b>\n"
             "/start — confirm bot is online\n"
             "/status — show last sync time and row counts\n"
             "/help — show this message\n"
-            "_(more commands ship in Phase 2)_"
+            "<i>(more commands ship in Phase 2)</i>"
         )
 
     return router
