@@ -12,7 +12,7 @@
 - [x] **Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts** - Daily/weekly Meta-driven Telegram reports with charts, heartbeat, and alert engine — completed 2026-05-19
 - [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
 - [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
-- [ ] **Phase 5: Hardening & Ops** - (Reserved for post-v1 hardening; all 38 v1 requirements ship in phases 1-4)
+- [x] **Phase 5: Hardening & Ops** - Sentry error capture, per-source graceful degradation with unavailability notices, and backfill CLI — completed 2026-05-19
 
 ## Phase Details
 
@@ -109,9 +109,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Sentry integration: sentry-sdk dependency, Settings fields, conditional init in main.py, capture_exception at all catch-and-suppress sites, test suite
-- [ ] 05-02-PLAN.md — Graceful per-source degradation: builder availability flags, per-source guarded fetch blocks in daily/weekly jobs, ingestion_log availability detection, test suite
-- [ ] 05-03-PLAN.md — Backfill CLI: date_override + suppress_alerts + skip_cache ingest params, public wrappers, src/backfill.py argparse CLI with date loop and structured logging, test suite
+- [x] 05-01-PLAN.md — Sentry integration: sentry-sdk dependency, Settings fields, conditional init in main.py, capture_exception at all catch-and-suppress sites, test suite
+- [x] 05-02-PLAN.md — Graceful per-source degradation: builder availability flags, per-source guarded fetch blocks in daily/weekly jobs, ingestion_log availability detection, test suite
+- [x] 05-03-PLAN.md — Backfill CLI: date_override + suppress_alerts + skip_cache ingest params, public wrappers, src/backfill.py argparse CLI with date loop and structured logging, test suite
 
 ## Coverage
 
@@ -168,4 +168,4 @@ Plans:
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 8/8 | Complete | 2026-05-19 |
 | 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
 | 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
-| 5. Hardening & Ops | 0/3 | Not started | - |
+| 5. Hardening & Ops | 3/3 | Complete | 2026-05-19 |

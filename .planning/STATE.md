@@ -4,26 +4,26 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 5 — Hardening & Ops
 status: complete
-last_updated: "2026-05-19T22:00:00.000Z"
+last_updated: "2026-05-19T23:00:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 25
-  completed_plans: 25
-  percent: 80
+  completed_phases: 5
+  total_plans: 28
+  completed_plans: 28
+  percent: 100
 ---
 
 # Project State
 
 **Project:** Ads Reporting Agent
-**Current phase:** Phase 4 — Conversational AI + Recommendations
+**Current phase:** Phase 5 — Hardening & Ops
 **Last updated:** 2026-05-19
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Marketing teams get actionable campaign and landing-page insights delivered proactively to Telegram and can interrogate the data in natural language.
-**Current focus:** Phase 4 complete (6 plans, 3 waves, 156 tests, all 38 v1 requirements shipped) — Phase 5 next
+**Current focus:** All 5 phases complete. 175 tests passing. v1.0 milestone delivered.
 
 ## Phase Status
 
@@ -33,22 +33,23 @@ See: .planning/PROJECT.md
 | 2 | Meta Ads Ingestion + Scheduled Reports + Alerts | Complete ✓ (2026-05-19) — 8 plans, 5 waves, 77 tests |
 | 3 | GA4 Ingestion + Cross-Source Layer | Complete ✓ (2026-05-19) — 5 plans, 5 waves, 115 tests |
 | 4 | Conversational AI + Recommendations | Complete ✓ (2026-05-19) — 6 plans, 3 waves, 156 tests |
-| 5 | Hardening & Ops | Not started |
+| 5 | Hardening & Ops | Complete ✓ (2026-05-19) — 3 plans, 1 wave, 175 tests |
 
 ## Current Position
 
-- **Phase:** Phase 5 — Hardening & Ops (next)
-- **Plan:** Phase 4 complete; Phase 5 not started
-- **Status:** Phase 4 complete — all 38 v1 requirements shipped
-- **Progress:** [████████░░] 80%
+- **Phase:** Phase 5 — Hardening & Ops (COMPLETE)
+- **Plan:** All 28 plans complete across 5 phases
+- **Status:** v1.0 milestone complete — all 38 v1 requirements shipped + Hardening & Ops
+- **Progress:** [██████████] 100%
 
 ## Performance Metrics
 
-- Phases completed: 4 / 5
+- Phases completed: 5 / 5
 - v1 requirements shipped: 38 / 38 (all v1 reqs in phases 1-4; phases 1-3 done)
 - Phase 2 plans completed: 8 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files; 02-07 scheduler wiring: 5min, 2 tasks, 2 files; 02-08 test suite: 3min, 2 tasks, 7 files, 43→77 tests)
 - Phase 3 plans completed: 5 / 5 (03-01 foundation: schema+config; 03-02 GA4 package: client+ingest; 03-03 builder: GA4 section; 03-04 wiring: daily+weekly+main; 03-05 test suite: 77→115 tests)
 - Phase 4 plans completed: 6 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files; 04-06 test suite: 115→156 tests, 4 files, all 11 req IDs covered, Haiku pricing + loop cap regression-guarded; ~12m, 2 tasks, 4 files)
+- Phase 5 plans completed: 3 / 3 (05-01 Sentry: sentry-sdk + Settings + init + 5 capture sites + test suite; 2m 32s, 3 tasks, 9 files, 156→160 tests; 05-02 Graceful degradation: builder flags + per-source daily/weekly refactor + test suite; ~12m, 3 tasks, 4 files, 160→167 tests; 05-03 Backfill CLI: ingest param extensions + public wrappers + src/backfill.py + test suite; 2m 33s, 3 tasks, 4 files, 167→175 tests)
 
 ## Accumulated Context
 
@@ -108,8 +109,22 @@ See: .planning/PROJECT.md
 
 (none)
 
+### Phase 5 Decisions
+
+- sentry_sdk.init() called inside async main() (after load_settings, before configure_logging) — AsyncioIntegration requires event loop to exist (Pitfall 1 avoided)
+- sentry_sdk.capture_exception(exc) at all 5 outer catch-and-suppress sites; no per-call DSN guard needed (SDK is a no-op when uninitialized in 2.x)
+- SENTRY_DSN stored as SecretStr; .get_secret_value() used only at init site; send_default_pii=False
+- sentry_sdk.init() skipped entirely when SENTRY_DSN is absent — optional integration pattern
+- Per-source graceful degradation: Meta and GA4 data queries in independent try/except blocks; each sets meta_available/ga4_available flag
+- ingestion_log queried (source='meta_ads'|'ga4') to distinguish failed ingestion from zero-spend days — empty rows alone do NOT flag unavailability (Pitfall 5)
+- ping_heartbeat stays inside outermost try block after Telegram send — never in finally (D-20 ordering invariant)
+- Backfill suppresses alerts (suppress_alerts=True in run_meta_ingest_for_date) and bypasses GA4 6-hour cache (skip_cache=True in run_ga4_ingest_for_date)
+- APScheduler job entry points unchanged — new params have defaults preserving existing behavior
+- date.fromisoformat() in argparse __main__ block provides date validation fail-fast before any DB access
+- Dead-man's-switch: no new code — ping_heartbeat already implemented; operator must configure external service (healthchecks.io) with HEARTBEAT_URL
+
 ## Session Continuity
 
-- Last action: Phase 4 plan 04-06 complete (2026-05-19) — 4 test files, 41 new tests, 115→156 total, all 11 req IDs covered
-- Stopped at: Phase 4 complete (all 6 plans); Phase 5 next
+- Last action: Phase 5 plan 05-03 complete (2026-05-19) — backfill CLI, 167→175 tests, all 3 plans verified
+- Stopped at: Phase 5 complete (all 28 plans across all 5 phases); v1.0 milestone delivered
 - Resume file: None
