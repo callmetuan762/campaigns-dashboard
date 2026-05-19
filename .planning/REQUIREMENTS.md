@@ -52,11 +52,16 @@
 
 ### Alerts
 
-- [ ] **ALERT-01**: Spend spike alert fires when any campaign's daily spend exceeds its average by a configurable threshold (default: +50%)
-- [ ] **ALERT-02**: ROAS drop alert fires when a campaign's ROAS falls below a configurable floor (default: 1.0 / break-even)
-- [ ] **ALERT-03**: Zero-conversion alert fires when a campaign has spent above a configurable threshold with zero reported conversions
-- [ ] **ALERT-04**: Budget pacing alert fires when cumulative monthly spend is tracking to over- or under-deliver by >20% vs the monthly budget
-- [ ] **ALERT-05**: CPC spike alert fires when a campaign's CPC exceeds its 7-day average by a configurable multiplier (default: 2×)
+- [x] **ALERT-01
+**: Spend spike alert fires when any campaign's daily spend exceeds its average by a configurable threshold (default: +50%)
+- [x] **ALERT-02
+**: ROAS drop alert fires when a campaign's ROAS falls below a configurable floor (default: 1.0 / break-even)
+- [x] **ALERT-03
+**: Zero-conversion alert fires when a campaign has spent above a configurable threshold with zero reported conversions
+- [x] **ALERT-04
+**: Budget pacing alert fires when cumulative monthly spend is tracking to over- or under-deliver by >20% vs the monthly budget
+- [x] **ALERT-05
+**: CPC spike alert fires when a campaign's CPC exceeds its 7-day average by a configurable multiplier (default: 2×)
 
 ### Conversational AI (Chat Interface)
 
