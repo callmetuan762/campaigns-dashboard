@@ -1,12 +1,12 @@
 """Application lifecycle for Phase 1: foundation & walking skeleton.
 
 Order (do not reorder -- each step depends on the previous):
-    1. load_settings       -- fail fast on missing required env vars
-    2. configure_logging   -- every subsequent component logs through this pipeline
-    3. db.connect          -- opens aiosqlite, applies migrations
-    4. bot + dispatcher    -- Bot + Dispatcher with allowlist registered
-    5. delete_webhook      -- avoids Pitfall 6 (409 Conflict)
-    6. AsyncIOScheduler    -- built INSIDE the loop (Pitfall 2)
+    1. load_settings            -- fail fast on missing required env vars
+    2. configure_logging        -- every subsequent component logs through this pipeline
+    3. db.connect               -- opens aiosqlite, applies migrations
+    4. create_bot_and_dispatcher -- Bot + Dispatcher with allowlist registered
+    5. delete_webhook           -- avoids Pitfall 6 (409 Conflict)
+    6. AsyncIOScheduler         -- built INSIDE the loop (Pitfall 2)
     7. scheduler.start + dp.start_polling
     8. finally: scheduler.shutdown -> bot.session.close -> db.close
 """
