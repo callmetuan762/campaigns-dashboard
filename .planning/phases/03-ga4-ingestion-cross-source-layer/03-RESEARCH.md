@@ -694,22 +694,19 @@ def _build_ga4_section(
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `keyEvents` in RunReportRequest count ALL key events or only the configured event?**
    - What we know: `keyEvents` is a session-scoped metric counting total key events
-   - What's unclear: Whether it auto-filters to the specific conversion event configured in GA4, or counts all key events
-   - Recommendation: Add `dimension_filter` on `eventName` = `settings.ga4_conversion_event` OR use `eventCount` metric with `eventName` filter. Test against a real GA4 property during execution. As a safe default, filter by the conversion event name.
+   - RESOLVED: Both `_fetch_campaign_metrics_sync` and `_fetch_landing_page_metrics_sync` in `src/ga4/client.py` add a `metric_filter` using `FilterExpression(filter=Filter(field_name="eventName", string_filter=Filter.StringFilter(match_type=EXACT, value=conversion_event)))` to filter `keyEvents` to only `settings.ga4_conversion_event` (D-08). This ensures `ga4_purchases_lastclick` counts only the configured event.
 
 2. **Are `sessionCampaignName` + `landingPagePlusQueryString` compatible in one request?**
-   - What we know: Both are documented as session-scoped dimensions [CITED: developers.google.com/analytics/devguides/reporting/data/v1/api-schema]
-   - What's unclear: GA4 dimension compatibility isn't fully documented as a matrix; the API may accept them together or return an error
-   - Recommendation: Implement as two separate requests (safe regardless); if the planner wants to attempt a single request as optimization, test during Wave 0
+   - What we know: Both are documented as session-scoped dimensions
+   - RESOLVED: Two-request approach adopted regardless (architecturally cleaner; each result maps to a different DB table with different PK shape). Compatibility question is moot.
 
 3. **Phase 3 Open from STATE.md: Is UTM tagging consistently applied to existing Meta campaigns?**
    - What we know: This is a data quality question, not a code question
-   - What's unclear: Real-world UTM consistency for this specific deployment
-   - Recommendation: The UTM coverage warning (D-06) is specifically designed to surface this; the code should report coverage accurately and let the operator act on it
+   - RESOLVED: Data quality question — the UTM coverage warning (D-06, D-07) is the code mitigation. `src/reports/builder.py` computes matched/unmatched counts and surfaces the warning line when unmatched > 0. No code fix needed; operator acts on the warning.
 
 ---
 
