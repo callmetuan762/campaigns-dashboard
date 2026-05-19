@@ -48,6 +48,18 @@ _WEEK_WINDOW_SQL = """
     ORDER BY m.date ASC, m.spend DESC;
 """
 
+# GA4 weekly queries — named params (CLAUDE.md: no f-string SQL)
+_GA4_LANDING_WOW_SQL = """
+    SELECT landing_page,
+           SUM(sessions) AS sessions,
+           SUM(ga4_purchases_lastclick) AS ga4_purchases_lastclick
+    FROM ga4_landing_pages
+    WHERE date BETWEEN :start_date AND :end_date
+    GROUP BY landing_page
+    ORDER BY ga4_purchases_lastclick DESC
+    LIMIT 10;
+"""
+
 
 def register_job_resources(bot, db, settings) -> None:
     """Store resources in module globals. Called from main.py before scheduler.start()."""
@@ -83,19 +95,31 @@ async def _run_weekly_report(bot, db, settings) -> None:
             {"start_date": date_ranges["prev_week_start"], "end_date": date_ranges["prev_week_end"]},
         )
 
+        # GA4 WoW queries (D-05)
+        ga4_this_week = await db.fetch_all(
+            _GA4_LANDING_WOW_SQL,
+            {"start_date": date_ranges["week_start"], "end_date": date_ranges["week_end"]},
+        )
+        ga4_last_week = await db.fetch_all(
+            _GA4_LANDING_WOW_SQL,
+            {"start_date": date_ranges["prev_week_start"], "end_date": date_ranges["prev_week_end"]},
+        )
+
         # TL;DR using this week's rows for context
         tldr: str | None = None
         if settings.anthropic_api_key and this_week_rows:
             try:
                 api_key = settings.anthropic_api_key.get_secret_value()
-                tldr = await generate_tldr(api_key, this_week_rows, f"week ending {week_end}")
+                tldr = await generate_tldr(api_key, this_week_rows, f"week ending {week_end}", db=db)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("weekly_report_tldr_failed", error=str(exc))
                 tldr = None
 
         # Assemble HTML report with WoW comparisons
         report_text = build_weekly_report_html(
-            this_week_rows, last_week_rows, tldr, week_end
+            this_week_rows, last_week_rows, tldr, week_end,
+            ga4_this_week=ga4_this_week,
+            ga4_last_week=ga4_last_week,
         )
         parts = split_html_message(report_text)
 

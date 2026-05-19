@@ -60,6 +60,34 @@ _WEEK_METRICS_SQL = """
     ORDER BY m.date ASC, m.spend DESC;
 """
 
+# GA4 queries for daily report — named params (CLAUDE.md: no f-string SQL)
+_GA4_CAMPAIGN_SQL = """
+    SELECT campaign_utm, sessions, users, ga4_purchases_lastclick
+    FROM ga4_metrics
+    WHERE date = :target_date
+    ORDER BY sessions DESC;
+"""
+
+_GA4_LANDING_SQL = """
+    SELECT landing_page, sessions, total_users,
+           ga4_purchases_lastclick, screen_page_views
+    FROM ga4_landing_pages
+    WHERE date = :target_date
+    ORDER BY ga4_purchases_lastclick DESC
+    LIMIT 3;
+"""
+
+_GA4_LANDING_7DAY_SQL = """
+    SELECT landing_page,
+           SUM(sessions) AS sessions,
+           SUM(ga4_purchases_lastclick) AS ga4_purchases_lastclick
+    FROM ga4_landing_pages
+    WHERE date BETWEEN :start_date AND :end_date
+    GROUP BY landing_page
+    ORDER BY ga4_purchases_lastclick DESC
+    LIMIT 10;
+"""
+
 
 def register_job_resources(bot, db, settings) -> None:
     """Store resources in module globals. Called from main.py before scheduler.start()."""
@@ -111,18 +139,39 @@ async def _run_daily_report(bot, db, settings) -> None:
             _WEEK_METRICS_SQL, {"start_date": week_start, "end_date": yesterday}
         )
 
+        # GA4-03: D-2 freshness — GA4 ingest stored D-2, so query D-2 to match
+        d2_date = (today - timedelta(days=2)).isoformat()
+        # 7-day window for GA4 landing page trend (D-04)
+        ga4_week_start = (today - timedelta(days=8)).isoformat()
+
+        ga4_campaign_rows = await db.fetch_all(
+            _GA4_CAMPAIGN_SQL, {"target_date": d2_date}
+        )
+        ga4_landing_rows = await db.fetch_all(
+            _GA4_LANDING_SQL, {"target_date": d2_date}
+        )
+        # D-04: 7-day landing page trend
+        ga4_landing_7day_rows = await db.fetch_all(
+            _GA4_LANDING_7DAY_SQL, {"start_date": ga4_week_start, "end_date": d2_date}
+        )
+
         # Generate TL;DR — graceful degradation on failure (D-23)
         tldr: str | None = None
         if settings.anthropic_api_key and yesterday_rows:
             try:
                 api_key = settings.anthropic_api_key.get_secret_value()
-                tldr = await generate_tldr(api_key, yesterday_rows, yesterday)
+                tldr = await generate_tldr(api_key, yesterday_rows, yesterday, db=db)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("daily_report_tldr_failed", error=str(exc))
                 tldr = None
 
         # Assemble HTML report
-        report_text = build_daily_report_html(yesterday_rows, tldr, yesterday)
+        report_text = build_daily_report_html(
+            yesterday_rows, tldr, yesterday,
+            ga4_campaign_rows=ga4_campaign_rows,
+            ga4_landing_rows=ga4_landing_rows,
+            ga4_landing_7day_rows=ga4_landing_7day_rows,
+        )
 
         # Split if > 4096 chars (CLAUDE.md pitfall)
         parts = split_html_message(report_text)
