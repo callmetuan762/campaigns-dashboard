@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — Conversational AI + Recommendations
 status: executing
-last_updated: "2026-05-19T13:04:31.799Z"
+last_updated: "2026-05-19T13:08:51.374Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 21
+  completed_plans: 22
   percent: 100
 ---
 
@@ -38,9 +38,9 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 4 — Conversational AI + Recommendations
-- **Plan:** 04-04 complete; 04-05 next
-- **Status:** Executing Phase 4 — 4/6 plans complete
-- **Progress:** [████████░░] 72%
+- **Plan:** 04-05 complete; 04-06 next
+- **Status:** Executing Phase 4 — 5/6 plans complete
+- **Progress:** [█████████░] 83%
 
 ## Performance Metrics
 
@@ -48,7 +48,7 @@ See: .planning/PROJECT.md
 - v1 requirements shipped: 38 / 38 (all v1 reqs in phases 1-4; phases 1-3 done)
 - Phase 2 plans completed: 8 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files; 02-07 scheduler wiring: 5min, 2 tasks, 2 files; 02-08 test suite: 3min, 2 tasks, 7 files, 43→77 tests)
 - Phase 3 plans completed: 5 / 5 (03-01 foundation: schema+config; 03-02 GA4 package: client+ingest; 03-03 builder: GA4 section; 03-04 wiring: daily+weekly+main; 03-05 test suite: 77→115 tests)
-- Phase 4 plans completed: 4 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files)
+- Phase 4 plans completed: 5 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files)
 
 ## Accumulated Context
 
@@ -78,6 +78,9 @@ See: .planning/PROJECT.md
 - handle_chat_message deferred import inside handler bodies in chat_router.py — avoids import failure when chat.py is created concurrently in Wave 2 (04-03 and 04-04 are both Wave 2)
 - show_chart button bypasses Claude entirely and delegates directly to generate_spend_trend_chart (D-16 — no Anthropic cost for chart requests)
 - /clear scopes by BOTH chat_id AND user_id — in group chats, one user clearing must not wipe another user's thread (D-06)
+- Chat router included AFTER command router in setup.py to prevent F.text catch-all intercepting /commands (Pitfall 4)
+- dp["settings"] = settings injected at dispatcher init so chat_router handlers resolve settings: Settings parameter
+- generate_tldr called with db=db in daily + weekly report jobs so TL;DR token usage counted against monthly budget ceiling (Pitfall 8)
 
 ### Phase 1 Decisions
 
@@ -107,6 +110,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 4 plan 04-04 complete (2026-05-19) — chat_router.py + handlers.py /clear + /help, 2 tasks, 2 files, ~2m
-- Stopped at: Phase 4 plan 04-04 complete; 04-05 next
+- Last action: Phase 4 plan 04-05 complete (2026-05-19) — setup.py wiring + daily.py/weekly.py db=db, 2 tasks, 3 files, 103s
+- Stopped at: Phase 4 plan 04-05 complete; 04-06 next
 - Resume file: None

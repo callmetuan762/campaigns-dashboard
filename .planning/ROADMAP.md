@@ -162,5 +162,5 @@ Plans:
 | 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 8/8 | Complete | 2026-05-19 |
 | 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
-| 4. Conversational AI + Recommendations | 0/0 | Not started | - |
+| 4. Conversational AI + Recommendations | 5/6 | In progress | - |
 | 5. Hardening & Ops | 0/0 | Not started | - |
