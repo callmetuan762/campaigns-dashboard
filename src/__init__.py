@@ -1,1 +1,1 @@
-"""Ads Reporting Agent source package."""
+"""Ads reporting agent package."""
