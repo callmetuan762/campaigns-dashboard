@@ -20,13 +20,14 @@ See: .planning/PROJECT.md
 
 ## Current Position
 - **Phase:** Phase 2 — Meta Ads Ingestion + Scheduled Reports + Alerts
-- **Plan:** 8 plans, 5 waves — ready to execute
-- **Status:** Ready to execute Phase 2
+- **Plan:** 02-01 complete; 02-02 next
+- **Status:** Executing Phase 2
 - **Progress:** 5 / 38 v1 requirements complete (INFRA-01 through INFRA-05)
 
 ## Performance Metrics
 - Phases completed: 1 / 5
 - v1 requirements shipped: 5 / 38
+- Phase 2 plans completed: 1 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files)
 
 ## Accumulated Context
 
@@ -42,7 +43,7 @@ See: .planning/PROJECT.md
 - pydantic-settings v2.14 requires `str | list[int]` union type + validator branch for CSV env values (bare integer JSON handling)
 - ad_metrics PK widened to (campaign_id, date, ad_set_id, ad_id) with NOT NULL DEFAULT '' sentinels — avoids costly table rebuild in Phase 2 META-03
 - Table name allowlist frozenset added to DBClient.get_row_counts() to satisfy no-f-string-SQL rule
-- ParseMode.MARKDOWN used for Phase 1 simplicity; Phase 2 should add _md_escape() helper for campaign names
+- ParseMode.MARKDOWN used for Phase 1 simplicity; Phase 2 replaced with ParseMode.HTML + html.escape() in /status handler (02-01)
 
 ### Open Questions (from research)
 - Phase 2: Meta Standard tier access status? Ad-account timezone? Webhook vs long-polling for v1 deploy target? Report-failure fallback notification path?
@@ -60,6 +61,6 @@ See: .planning/PROJECT.md
 (none)
 
 ## Session Continuity
-- Last action: Phase 2 planned on 2026-05-19 (8 plans, 5 waves, 0 blockers, 2 warnings)
-- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-PLAN-01-foundation-extension.md
-- Next action: `/gsd-execute-phase 2` to execute Phase 2
+- Last action: Completed 02-01-PLAN.md (foundation extension) on 2026-05-19
+- Stopped at: Completed 02-01 — 02-02 next
+- Resume file: .planning/phases/02-meta-ads-ingestion-scheduled-reports-alerts/02-02-PLAN.md
