@@ -25,7 +25,13 @@
   2. The Telegram bot responds only to chat IDs and user IDs on the configured allowlist; all other senders are silently rejected and logged
   3. A SQLite database exists with the canonical metrics schema and idempotent UPSERT semantics verified by re-running an insert with no row duplication
   4. Structured logs capture startup, API call outcomes, and errors without leaking PII or raw ad data
-**Plans:** TBD
+**Plans:** 4 plans
+
+Plans:
+- [x] 01-PLAN-scaffold.md — Python project scaffold, config, structured logging
+- [x] 01-PLAN-database.md — SQLite schema, migrations, DBClient UPSERT helpers
+- [x] 01-PLAN-telegram-bot.md — aiogram bot, AllowlistMiddleware, handlers
+- [x] 01-PLAN-entrypoint-docker.md — main.py lifecycle, APScheduler placeholder, Dockerfile
 
 ### Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts
 **Goal:** Marketing team receives an automated daily digest, weekly summary, and threshold-based alerts about Meta Ads performance in their Telegram group.
@@ -36,7 +42,18 @@
   2. A formatted daily digest (and Monday weekly summary with WoW deltas) is posted to the configured Telegram group on schedule, including a plain-English AI-generated TL;DR, top/bottom campaigns, spend pacing, and chart images — splitting at the 4096-char limit when needed
   3. After each successful Telegram delivery, a dead-man's-switch heartbeat is pinged so silent failures become detectable
   4. The five alert types (spend spike, ROAS drop, zero-conversion, budget pacing, CPC spike) fire to Telegram when configurable thresholds are breached against ingested Meta data
-**Plans:** TBD
+**Plans:** 8 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Foundation extension: Settings + MIGRATION_002_PHASE2 + DBClient helpers + ParseMode.HTML
+- [ ] 02-02-PLAN.md — Meta API client: SDK init, fetch functions, action parsing, tenacity retry
+- [ ] 02-03-PLAN.md — Report builders: HTML splitter, matplotlib charts, daily/weekly assemblers, AI TL;DR
+- [ ] 02-04-PLAN.md — Alert engine: 5 alert types, rolling average SQL, deduplication via alert_log
+- [ ] 02-05-PLAN.md — Meta ingest job: APScheduler zero-arg job, ingestion_log lifecycle, circuit breaker
+- [ ] 02-06-PLAN.md — Report jobs: daily and weekly APScheduler jobs, heartbeat delivery
+- [ ] 02-07-PLAN.md — Wiring: 3 CronTrigger jobs in main.py, /report handler in handlers.py
+- [ ] 02-08-PLAN.md — Tests: full Phase 2 test suite (9 test files, all 16 requirement IDs)
+
 **UI hint:** yes
 
 ### Phase 3: GA4 Ingestion + Cross-Source Layer
@@ -128,7 +145,7 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
-| 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 0/0 | Not started | - |
+| 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 0/8 | Planned | - |
 | 3. GA4 Ingestion + Cross-Source Layer | 0/0 | Not started | - |
 | 4. Conversational AI + Recommendations | 0/0 | Not started | - |
 | 5. Hardening & Ops | 0/0 | Not started | - |
