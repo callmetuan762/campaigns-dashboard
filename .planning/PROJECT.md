@@ -17,17 +17,25 @@ Marketing teams get actionable campaign and landing-page insights delivered proa
 - [x] SQLite database with idempotent UPSERT semantics; re-runs never duplicate data (INFRA-03 — validated Phase 1)
 - [x] Structured JSON logging with PII/secret redaction; aiogram and APScheduler bridged through redaction pipeline (INFRA-05 — validated Phase 1)
 
+### Validated (Phases 2-5)
+
+- [x] Daily Meta campaign metrics ingested via System User token with idempotent UPSERTs (META-01..05 — validated Phase 2)
+- [x] Daily digest and Monday weekly summary auto-posted to Telegram with charts, AI TL;DR, top/bottom campaigns, spend pacing (REPORT-01..06 — validated Phase 2)
+- [x] Dead-man's-switch heartbeat pinged after every successful Telegram delivery (REPORT-05 — validated Phase 2)
+- [x] Five alert types fire on configurable thresholds: spend spike, ROAS drop, zero-conversion, budget pacing, CPC spike (ALERT-01..05 — validated Phase 2)
+- [x] GA4 metrics pulled via Viewer service account with D-2 freshness and 6-hour cache (GA4-01..05 — validated Phase 3)
+- [x] Meta and GA4 rows joinable by UTM campaign name; side-by-side attribution in reports; UTM coverage warnings (CROSS-01..03 — validated Phase 3)
+- [x] Conversational Q&A via Claude tool-use; 5 validated tools; multi-turn context; prompt injection guardrails (CHAT-01..08 — validated Phase 4)
+- [x] Monthly Anthropic spend ceiling ($20 default); per-request token cap; operator alert on budget hit (CHAT-06 — validated Phase 4)
+- [x] Inline keyboard with 4 follow-up buttons; /clear command scoped per user+chat (CHAT-07 — validated Phase 4)
+- [x] Evidence-backed optimization recommendations citing specific Meta vs GA4 signals (REC-01..03 — validated Phase 4)
+- [x] Sentry error capture with AsyncioIntegration; capture_exception at all 5 catch-and-suppress sites (Phase 5)
+- [x] Per-source graceful degradation with "data unavailable" notices in reports (Phase 5)
+- [x] Backfill CLI (`python -m src.backfill`) for historical Meta/GA4 data recovery (Phase 5)
+
 ### Active
 
-- [ ] Automatically pull metrics from Looker Studio (Google Analytics — traffic, engagement, landing pages)
-- [ ] Automatically pull metrics from Looker Studio (Meta Ads integration layer)
-- [ ] Pull all available metrics directly from the Meta Ads API dashboard
-- [ ] Schedule and auto-generate summary reports (campaign performance, website engagement, optimization opportunities)
-- [ ] Deliver formatted reports to a designated Telegram group on a configurable schedule
-- [ ] Conversational AI chat interface for follow-up questions and deeper insights
-- [ ] Answer natural-language queries such as "which landing pages drive most conversions?" and "which ad campaigns are underperforming and why?"
-- [ ] Provide AI-generated optimization recommendations based on cross-source data
-- [ ] Cross-reference Looker Studio and Meta Ads data in a unified data layer
+(none — all v1.0 requirements delivered)
 
 ### Out of Scope
 
@@ -63,7 +71,7 @@ Marketing teams get actionable campaign and landing-page insights delivered proa
 | Meta Ads MCP — augment, don't replace (Phase 4) | Meta launched official MCP support (2026-05-19). Keeping the SQLite ingestion pipeline for scheduled reports and historical analysis; MCP is a candidate for an additional real-time `query_meta_live` tool in the Claude tool surface alongside the SQLite-backed tools. MCP cannot replace ingestion because scheduled digests require cached data and historical windows. Evaluate at Phase 4 planning. | — Pending |
 
 ---
-*Last updated: 2026-05-19 after Phase 1 completion*
+*Last updated: 2026-05-19 — v1.0 milestone complete (all 5 phases, 28 plans, 38 requirements + hardening)*
 
 ## Evolution
 
