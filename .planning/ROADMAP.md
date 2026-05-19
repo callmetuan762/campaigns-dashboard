@@ -11,7 +11,7 @@
 - [x] **Phase 1: Foundation & Walking Skeleton** - Secure, deployable scaffold with config, storage, allowlisted Telegram bot, and structured logging — completed 2026-05-19
 - [x] **Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts** - Daily/weekly Meta-driven Telegram reports with charts, heartbeat, and alert engine — completed 2026-05-19
 - [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
-- [ ] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice
+- [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
 - [ ] **Phase 5: Hardening & Ops** - (Reserved for post-v1 hardening; all 38 v1 requirements ship in phases 1-4)
 
 ## Phase Details
@@ -90,12 +90,12 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
 **Plans:** 6 plans
 
 Plans:
-- [ ] 04-01-PLAN.md — Foundation: Settings.anthropic_monthly_budget_usd, MIGRATION_004 (anthropic_usage_log), 5 new DBClient methods + _deserialize_message helper
-- [ ] 04-02-PLAN.md — AI tools: src/ai/tools.py with 5 SQLite-backed tools, Anthropic schemas, calculate_cost (Haiku 4.5 corrected to $1.00/$5.00), frozenset allowlists, dispatch_tool
-- [ ] 04-03-PLAN.md — Chat orchestrator: src/ai/chat.py tool-use loop, _SYSTEM_PROMPT, budget gate + operator alert, history persistence; generate_tldr gains optional db parameter
-- [ ] 04-04-PLAN.md — Chat router: src/bot/chat_router.py catch-all + inline keyboard + CallbackQuery; /clear command added to handlers.py
-- [ ] 04-05-PLAN.md — Wiring: setup.py registers chat_router AFTER command router; daily.py/weekly.py pass db= to generate_tldr
-- [ ] 04-06-PLAN.md — Test suite: 4 new test files (ai_tools, ai_chat, chat_router, phase4_handlers) — all 11 CHAT/REC IDs covered
+- [x] 04-01-PLAN.md — Foundation: Settings.anthropic_monthly_budget_usd, MIGRATION_004 (anthropic_usage_log), 5 new DBClient methods + _deserialize_message helper
+- [x] 04-02-PLAN.md — AI tools: src/ai/tools.py with 5 SQLite-backed tools, Anthropic schemas, calculate_cost (Haiku 4.5 corrected to $1.00/$5.00), frozenset allowlists, dispatch_tool
+- [x] 04-03-PLAN.md — Chat orchestrator: src/ai/chat.py tool-use loop, _SYSTEM_PROMPT, budget gate + operator alert, history persistence; generate_tldr gains optional db parameter
+- [x] 04-04-PLAN.md — Chat router: src/bot/chat_router.py catch-all + inline keyboard + CallbackQuery; /clear command added to handlers.py
+- [x] 04-05-PLAN.md — Wiring: setup.py registers chat_router AFTER command router; daily.py/weekly.py pass db= to generate_tldr
+- [x] 04-06-PLAN.md — Test suite: 4 new test files (ai_tools, ai_chat, chat_router, phase4_handlers) — all 11 CHAT/REC IDs covered
 **UI hint:** yes
 
 ### Phase 5: Hardening & Ops
@@ -162,5 +162,5 @@ Plans:
 | 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 8/8 | Complete | 2026-05-19 |
 | 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
-| 4. Conversational AI + Recommendations | 5/6 | In progress | - |
+| 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
 | 5. Hardening & Ops | 0/0 | Not started | - |
