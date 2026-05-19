@@ -25,6 +25,18 @@ class Settings(BaseSettings):
     meta_access_token: SecretStr | None = None
     meta_ad_account_id: str | None = None
 
+    # ---- Report scheduling (Phase 2) ----
+    meta_ingest_hour: int = 2
+    daily_report_hour: int = 9
+    heartbeat_url: str | None = None
+
+    # ---- Alert thresholds (Phase 2, D-16) ----
+    alert_spend_spike_pct: float = 50.0
+    alert_roas_floor: float = 1.0
+    alert_zero_conv_spend_threshold: float = 50.0
+    alert_budget_pacing_pct: float = 20.0
+    alert_cpc_spike_multiplier: float = 2.0
+
     # ---- GA4 (Phase 3) ----
     ga4_property_id: str | None = None
     ga4_service_account_json: Path | None = None

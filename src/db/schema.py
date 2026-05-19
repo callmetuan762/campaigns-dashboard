@@ -104,9 +104,27 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_log_source ON ingestion_log(source, sta
 """
 
 # ---------------------------------------------------------------------------
+# Migration 002 — Phase 2: alert deduplication log
+# ---------------------------------------------------------------------------
+
+MIGRATION_002_PHASE2: str = """
+-- Alert deduplication: one alert per campaign per alert-type per calendar day.
+CREATE TABLE IF NOT EXISTS alert_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_type   TEXT NOT NULL,
+    campaign_id  TEXT NOT NULL,
+    date         TEXT NOT NULL,
+    fired_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(alert_type, campaign_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_log_date ON alert_log(date DESC);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
 ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("001_initial", MIGRATION_001_INITIAL),
+    ("002_phase2", MIGRATION_002_PHASE2),
 ]
