@@ -66,25 +66,33 @@ async def _check_circuit_breaker(db, source: str, threshold: int = 3) -> bool:
     return all(r.get("status") == "failed" for r in rows)
 
 
-async def _run_ga4_ingest(bot, db, settings) -> None:
+async def _run_ga4_ingest(
+    bot,
+    db,
+    settings,
+    date_override: str | None = None,
+    skip_cache: bool = False,
+) -> None:
     """Core GA4 ingest logic — called by ga4_ingest_job()."""
-    date_iso = _get_d2_iso(settings.report_timezone)
+    date_iso = date_override if date_override is not None else _get_d2_iso(settings.report_timezone)
     log_id: int | None = None
 
     try:
         # Step 1: Credential guard — skip without logging if not configured
+        # CRITICAL: This must remain BEFORE the cache check and UNCONDITIONAL
         if not settings.ga4_property_id or not settings.ga4_service_account_json:
             logger.warning("ga4_ingest_skipped_no_credentials", date=date_iso)
             return
 
-        # Step 2: 6-hour cache check (D-12) — BEFORE log_ingestion_start
-        recent = await db.fetch_one(
-            "SELECT id FROM ingestion_log WHERE source = 'ga4' AND status = 'success' "
-            "AND started_at > datetime('now', '-6 hours')"
-        )
-        if recent:
-            logger.info("ga4_ingest_skipped_cache_hit")
-            return
+        # Step 2: 6-hour cache check — bypassed when skip_cache=True (backfill mode)
+        if not skip_cache:
+            recent = await db.fetch_one(
+                "SELECT id FROM ingestion_log WHERE source = 'ga4' AND status = 'success' "
+                "AND started_at > datetime('now', '-6 hours')"
+            )
+            if recent:
+                logger.info("ga4_ingest_skipped_cache_hit")
+                return
 
         # Step 3: Start ingestion log
         log_id = await db.log_ingestion_start("ga4")
@@ -151,6 +159,14 @@ async def _run_ga4_ingest(bot, db, settings) -> None:
                     logger.warning("circuit_breaker_alert_sent", source="ga4")
         except Exception as cb_exc:  # noqa: BLE001
             logger.error("circuit_breaker_alert_failed", error=str(cb_exc))
+
+
+async def run_ga4_ingest_for_date(db, settings, date_iso: str) -> None:
+    """Public entry point for backfill. Skips bot and bypasses 6-hour cache."""
+    await _run_ga4_ingest(
+        bot=None, db=db, settings=settings,
+        date_override=date_iso, skip_cache=True,
+    )
 
 
 async def ga4_ingest_job() -> None:

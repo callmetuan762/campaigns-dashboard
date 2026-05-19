@@ -81,9 +81,15 @@ async def _check_circuit_breaker(db, source: str, threshold: int = 3) -> bool:
     return all(r.get("status") == "failed" for r in rows)
 
 
-async def _run_meta_ingest(bot, db, settings) -> None:
+async def _run_meta_ingest(
+    bot,
+    db,
+    settings,
+    date_override: str | None = None,
+    suppress_alerts: bool = False,
+) -> None:
     """Core ingest logic — called by meta_ingest_job()."""
-    date_iso = _get_yesterday_iso(settings.report_timezone)
+    date_iso = date_override if date_override is not None else _get_yesterday_iso(settings.report_timezone)
     log_id: int | None = None
 
     try:
@@ -144,7 +150,8 @@ async def _run_meta_ingest(bot, db, settings) -> None:
         )
 
         # D-17: Alert evaluation runs as the FINAL step after successful writes
-        await evaluate_alerts(db, bot, settings, date_iso)
+        if not suppress_alerts:
+            await evaluate_alerts(db, bot, settings, date_iso)
 
     except Exception as exc:  # noqa: BLE001
         sentry_sdk.capture_exception(exc)
@@ -170,6 +177,14 @@ async def _run_meta_ingest(bot, db, settings) -> None:
                     logger.warning("circuit_breaker_alert_sent", source="meta_ads")
         except Exception as cb_exc:  # noqa: BLE001
             logger.error("circuit_breaker_alert_failed", error=str(cb_exc))
+
+
+async def run_meta_ingest_for_date(db, settings, date_iso: str) -> None:
+    """Public entry point for backfill. Skips bot, heartbeat, and alerts."""
+    await _run_meta_ingest(
+        bot=None, db=db, settings=settings,
+        date_override=date_iso, suppress_alerts=True,
+    )
 
 
 async def meta_ingest_job() -> None:
