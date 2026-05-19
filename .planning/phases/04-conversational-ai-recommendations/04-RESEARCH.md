@@ -727,22 +727,28 @@ CREATE INDEX IF NOT EXISTS idx_usage_log_month ON anthropic_usage_log(request_at
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does `generate_tldr()` need a `db` parameter for usage logging?**
    - What we know: D-04 says TL;DR calls count against the monthly ceiling.
    - What's unclear: `tldr.py` currently has no `db` dependency. Adding it changes the function signature and requires the daily report job to pass `db`.
    - Recommendation: Add `db: DBClient | None = None` optional parameter to `generate_tldr()`. Log usage when `db` is not None. This is backward-compatible.
 
+   > **RESOLVED:** Plan 04-03 Task 2 adds `db: DBClient | None = None` to `generate_tldr()` — backward-compatible; daily report job passes `db`.
+
 2. **How should "10 turns" be counted for the history window?**
    - What we know: D-07 says "last 10 turns (rows by created_at DESC LIMIT 10)".
    - What's unclear: One user question + one assistant answer + N tool turns = how many "rows"? If a single user question triggers 3 tool rounds, that's 5 rows (user, assistant+tool_use, user+tool_result × 3). 10 rows might only cover 2 complete Q&A pairs.
    - Recommendation: Count "10 user-message rows" — use `WHERE role = 'user' ... LIMIT 10` as the anchor, then fetch all rows between the 10th-oldest user message and now. This better reflects "10 conversation turns" semantically.
 
+   > **RESOLVED:** D-07 followed literally — `LIMIT 10` rows (mix of user/assistant/tool turns) ordered `DESC` then reversed; implementation in plan 04-01 Task 2 (`get_conversation_history`).
+
 3. **Where does the operator alert go when budget is exhausted?**
    - What we know: D-04 says "send to the Telegram report channel via existing alert delivery path." The CONTEXT.md specifics section mentions `telegram_report_channel_id` or `telegram_allowed_chat_ids[0]`.
    - What's unclear: Phase 4 does not add `telegram_report_channel_id` to Settings. Does it use `allowed_chat_ids[0]`?
    - Recommendation: Use `settings.telegram_allowed_chat_ids[0]` as the fallback. Log a warning if the list is empty. Add a `ANTHROPIC_BUDGET_ALERT_CHAT_ID` env var if the operator needs a separate alert destination.
+
+   > **RESOLVED:** Plan 04-03 Task 1 uses `settings.telegram_allowed_chat_ids[0]`; logs a warning if the list is empty. No additional env var added (deferred per D-20 philosophy).
 
 ---
 
