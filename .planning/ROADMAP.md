@@ -99,14 +99,19 @@ Plans:
 **UI hint:** yes
 
 ### Phase 5: Hardening & Ops
-**Goal:** (Reserved) Post-v1 reliability, observability, and operability work — backfill commands, Sentry, graceful per-source degradation, anomaly explanations. All 38 v1 requirements ship in Phases 1-4; this phase exists as a placeholder for the wrap-up work recommended by research.
+**Goal:** Post-v1 reliability, observability, and operability work — backfill commands, Sentry error capture, and graceful per-source degradation. All 38 v1 requirements ship in Phases 1-4; this phase adds three operational capabilities over the complete system.
 **Depends on:** Phase 4
-**Requirements:** (none — all v1 requirements are mapped to Phases 1-4)
+**Requirements:** (none — all v1 requirements are mapped to Phases 1-4; this phase maps to 3 success criteria)
 **Success Criteria** (what must be TRUE):
   1. Operator has a documented backfill command to replay historical Meta/GA4 windows into the canonical store
   2. Per-source ingestion failures degrade gracefully — Meta failure does not block GA4 reports and vice versa, with explicit "data unavailable" notices in the digest
   3. Errors are forwarded to Sentry (or equivalent) and the dead-man's-switch alerts the operator when heartbeats stop
-**Plans:** TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md — Sentry integration: sentry-sdk dependency, Settings fields, conditional init in main.py, capture_exception at all catch-and-suppress sites, test suite
+- [ ] 05-02-PLAN.md — Graceful per-source degradation: builder availability flags, per-source guarded fetch blocks in daily/weekly jobs, ingestion_log availability detection, test suite
+- [ ] 05-03-PLAN.md — Backfill CLI: date_override + suppress_alerts + skip_cache ingest params, public wrappers, src/backfill.py argparse CLI with date loop and structured logging, test suite
 
 ## Coverage
 
@@ -163,4 +168,4 @@ Plans:
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 8/8 | Complete | 2026-05-19 |
 | 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
 | 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
-| 5. Hardening & Ops | 0/0 | Not started | - |
+| 5. Hardening & Ops | 0/3 | Not started | - |
