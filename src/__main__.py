@@ -1,6 +1,7 @@
-"""Entrypoint stub. Plan 04 wires this to src.main:main()."""
-import sys
+"""Module entrypoint: `python -m src` -> asyncio.run(main())."""
+import asyncio
+
+from src.main import main
 
 if __name__ == "__main__":
-    print("ads-reporting: scaffold installed. Run main() to be wired in Plan 04.", file=sys.stderr)
-    sys.exit(0)
+    asyncio.run(main())
