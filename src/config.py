@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     anthropic_monthly_budget_usd: float = 20.0
 
+    # ---- Sentry (Phase 5) ----
+    sentry_dsn: SecretStr | None = None
+    sentry_environment: str = "production"
+
     # ---- App config ----
     db_path: Path = Path("/data/metrics.db")
     log_level: str = "INFO"

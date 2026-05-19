@@ -20,6 +20,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+import src.ga4.ingest as ga4_ingest_module
 import src.meta.ingest as meta_ingest_module
 import src.reports.daily as daily_report_module
 import src.reports.weekly as weekly_report_module
@@ -32,6 +33,18 @@ from src.logging_setup import configure_logging
 async def main() -> None:
     # 1. Config (fail fast on missing required env)
     settings = load_settings()
+
+    # 1b. Sentry (Phase 5) — conditional on DSN presence; lazy import avoids overhead when absent
+    if settings.sentry_dsn:
+        import sentry_sdk
+        from sentry_sdk.integrations.asyncio import AsyncioIntegration
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn.get_secret_value(),
+            integrations=[AsyncioIntegration()],
+            environment=settings.sentry_environment,
+            traces_sample_rate=0.0,
+            send_default_pii=False,
+        )
 
     # 2. Logging (everything below this point logs through redaction)
     configure_logging(level=settings.log_level, fmt="json")
@@ -53,6 +66,7 @@ async def main() -> None:
     # Phase 2: Register module-level resources for APScheduler jobs.
     # Must be called BEFORE scheduler.add_job() and scheduler.start().
     # CRITICAL: Resources are NOT passed as job args (PicklingError with SQLAlchemyJobStore).
+    ga4_ingest_module.register_job_resources(bot, db, settings)
     meta_ingest_module.register_job_resources(bot, db, settings)
     daily_report_module.register_job_resources(bot, db, settings)
     weekly_report_module.register_job_resources(bot, db, settings)
@@ -62,6 +76,15 @@ async def main() -> None:
     scheduler = AsyncIOScheduler(
         jobstores={"default": jobstore},
         timezone=settings.report_timezone,
+    )
+    scheduler.add_job(
+        ga4_ingest_module.ga4_ingest_job,
+        trigger=CronTrigger(hour=1, minute=0, timezone=settings.report_timezone),
+        id="ga4_ingest",
+        replace_existing=True,
+        misfire_grace_time=300,
+        coalesce=True,
+        max_instances=1,
     )
     scheduler.add_job(
         meta_ingest_module.meta_ingest_job,
