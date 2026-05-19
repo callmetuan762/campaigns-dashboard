@@ -5,6 +5,7 @@ making re-runs idempotent at the SQL layer (no Python-side read-modify-write).
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import aiosqlite
@@ -13,6 +14,25 @@ import structlog
 from src.db.migrations import run_migrations
 
 logger = structlog.get_logger(__name__)
+
+
+def _deserialize_message(role: str, raw_message: str) -> dict:
+    """Convert a stored bot_conversations row into an Anthropic messages-API dict.
+
+    D-08: message stored as plain string for text turns, JSON-encoded list for
+    tool_use / tool_result turns. Falls back to raw string on JSONDecodeError.
+    Role 'tool' is remapped to 'user' for Anthropic API (tool_result lives inside user turns).
+    """
+    try:
+        content = json.loads(raw_message)
+        if isinstance(content, str):
+            # json.loads of a quoted string yields a string — treat as plain text
+            content = raw_message
+    except (json.JSONDecodeError, ValueError):
+        content = raw_message
+
+    api_role = "user" if role == "tool" else role
+    return {"role": api_role, "content": content}
 
 
 class DBClient:
@@ -115,6 +135,30 @@ class DBClient:
         await self.conn.commit()
         return len(rows)
 
+    _UPSERT_GA4_LANDING_PAGES_SQL = """
+        INSERT INTO ga4_landing_pages (
+            landing_page, date, sessions, total_users,
+            ga4_purchases_lastclick, screen_page_views, avg_engagement_time
+        ) VALUES (
+            :landing_page, :date, :sessions, :total_users,
+            :ga4_purchases_lastclick, :screen_page_views, :avg_engagement_time
+        )
+        ON CONFLICT(landing_page, date) DO UPDATE SET
+            sessions                = excluded.sessions,
+            total_users             = excluded.total_users,
+            ga4_purchases_lastclick = excluded.ga4_purchases_lastclick,
+            screen_page_views       = excluded.screen_page_views,
+            avg_engagement_time     = excluded.avg_engagement_time,
+            fetched_at              = datetime('now');
+    """
+
+    async def upsert_ga4_landing_pages(self, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_GA4_LANDING_PAGES_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
     # ---- Phase 2 helpers ----
 
     _UPSERT_CAMPAIGN_SQL = """
@@ -213,3 +257,99 @@ class DBClient:
         out["meta_ads"] = meta["t"] if meta else None
         out["ga4"] = ga4["t"] if ga4 else None
         return out
+
+    # ---- Phase 4: Anthropic usage + conversation persistence ----
+
+    _INSERT_USAGE_LOG_SQL = """
+        INSERT INTO anthropic_usage_log
+            (model, input_tokens, output_tokens, cost_usd, chat_id, user_id)
+        VALUES
+            (:model, :input_tokens, :output_tokens, :cost_usd, :chat_id, :user_id)
+    """
+
+    async def log_anthropic_usage(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cost_usd: float,
+        chat_id: int | None = None,
+        user_id: int | None = None,
+    ) -> None:
+        """Insert a row into anthropic_usage_log. D-03."""
+        await self.conn.execute(
+            self._INSERT_USAGE_LOG_SQL,
+            {
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost_usd": cost_usd,
+                "chat_id": chat_id,
+                "user_id": user_id,
+            },
+        )
+        await self.conn.commit()
+
+    _MONTHLY_COST_SQL = """
+        SELECT COALESCE(SUM(cost_usd), 0.0) AS total
+        FROM anthropic_usage_log
+        WHERE request_at >= datetime('now', 'start of month')
+    """
+
+    async def get_monthly_anthropic_cost(self) -> float:
+        """Return total cost_usd this calendar month. D-04 budget gate uses this."""
+        row = await self.fetch_one(self._MONTHLY_COST_SQL)
+        return float(row["total"]) if row else 0.0
+
+    _GET_CONV_HISTORY_SQL = """
+        SELECT role, message
+        FROM bot_conversations
+        WHERE chat_id = :chat_id AND user_id = :user_id
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """
+
+    async def get_conversation_history(
+        self, chat_id: int, user_id: int, limit: int = 10
+    ) -> list[dict]:
+        """Return last `limit` turns in chronological order as Anthropic-API dicts.
+
+        D-06: scoped to (chat_id, user_id) — each user has an independent thread.
+        D-07: limit=10 rows by default; older turns are dropped from context but
+        remain in SQLite for auditing.
+        D-08: rows whose message is JSON-encoded content list are parsed; plain
+        strings are used verbatim. role='tool' rows are remapped to role='user'.
+        """
+        rows = await self.fetch_all(
+            self._GET_CONV_HISTORY_SQL,
+            {"chat_id": chat_id, "user_id": user_id, "limit": limit},
+        )
+        rows.reverse()  # oldest first for Anthropic messages array
+        return [_deserialize_message(r["role"], r["message"]) for r in rows]
+
+    _INSERT_CONV_SQL = """
+        INSERT INTO bot_conversations (chat_id, user_id, role, message)
+        VALUES (:chat_id, :user_id, :role, :message)
+    """
+
+    async def save_conversation_turn(
+        self, chat_id: int, user_id: int, role: str, message: str
+    ) -> None:
+        """Insert one row. Caller is responsible for json.dumps when message is non-text."""
+        await self.conn.execute(
+            self._INSERT_CONV_SQL,
+            {"chat_id": chat_id, "user_id": user_id, "role": role, "message": message},
+        )
+        await self.conn.commit()
+
+    _CLEAR_CONV_SQL = """
+        DELETE FROM bot_conversations
+        WHERE chat_id = :chat_id AND user_id = :user_id
+    """
+
+    async def clear_conversation(self, chat_id: int, user_id: int) -> None:
+        """Remove all conversation rows for (chat_id, user_id). D-09 /clear command."""
+        await self.execute(
+            self._CLEAR_CONV_SQL,
+            {"chat_id": chat_id, "user_id": user_id},
+        )
