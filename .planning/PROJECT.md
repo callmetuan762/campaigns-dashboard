@@ -12,7 +12,10 @@ Marketing teams get actionable campaign and landing-page insights delivered proa
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Single Docker container deployable via environment variables only — no credentials in source (INFRA-01, INFRA-04 — validated Phase 1)
+- [x] Telegram bot enforces chat-ID/user-ID allowlist before any handler; non-allowlisted senders silently dropped (INFRA-02 — validated Phase 1)
+- [x] SQLite database with idempotent UPSERT semantics; re-runs never duplicate data (INFRA-03 — validated Phase 1)
+- [x] Structured JSON logging with PII/secret redaction; aiogram and APScheduler bridged through redaction pipeline (INFRA-05 — validated Phase 1)
 
 ### Active
 
@@ -60,7 +63,7 @@ Marketing teams get actionable campaign and landing-page insights delivered proa
 | Meta Ads MCP — augment, don't replace (Phase 4) | Meta launched official MCP support (2026-05-19). Keeping the SQLite ingestion pipeline for scheduled reports and historical analysis; MCP is a candidate for an additional real-time `query_meta_live` tool in the Claude tool surface alongside the SQLite-backed tools. MCP cannot replace ingestion because scheduled digests require cached data and historical windows. Evaluate at Phase 4 planning. | — Pending |
 
 ---
-*Last updated: 2026-05-19 after initialization*
+*Last updated: 2026-05-19 after Phase 1 completion*
 
 ## Evolution
 

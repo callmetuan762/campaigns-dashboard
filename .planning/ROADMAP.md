@@ -8,7 +8,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Foundation & Walking Skeleton** - Secure, deployable scaffold with config, storage, allowlisted Telegram bot, and structured logging
+- [x] **Phase 1: Foundation & Walking Skeleton** - Secure, deployable scaffold with config, storage, allowlisted Telegram bot, and structured logging — completed 2026-05-19
 - [ ] **Phase 2: Meta Ads Ingestion + Scheduled Reports + Alerts** - Daily/weekly Meta-driven Telegram reports with charts, heartbeat, and alert engine
 - [ ] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings
 - [ ] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice
@@ -127,7 +127,7 @@ Meta launched official MCP support for the Ads API (https://www.facebook.com/bus
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation & Walking Skeleton | 0/0 | Not started | - |
+| 1. Foundation & Walking Skeleton | 4/4 | Complete | 2026-05-19 |
 | 2. Meta Ads Ingestion + Scheduled Reports + Alerts | 0/0 | Not started | - |
 | 3. GA4 Ingestion + Cross-Source Layer | 0/0 | Not started | - |
 | 4. Conversational AI + Recommendations | 0/0 | Not started | - |
