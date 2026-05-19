@@ -129,8 +129,11 @@ async def test_spend_spike_fires_when_spend_above_threshold(db_client):
     settings = _make_settings(spend_spike_pct=50.0)
     await evaluate_alerts(db_client, bot, settings, "2026-05-19")
     bot.send_message.assert_called()
-    call_kwargs = bot.send_message.call_args
-    assert "Spend Spike" in call_kwargs.kwargs.get("text", "") or "Spend Spike" in str(call_kwargs)
+    # Check across ALL calls (budget pacing may also fire)
+    all_texts = " ".join(
+        c.kwargs.get("text", "") or str(c) for c in bot.send_message.call_args_list
+    )
+    assert "Spend Spike" in all_texts
 
 
 @pytest.mark.asyncio
