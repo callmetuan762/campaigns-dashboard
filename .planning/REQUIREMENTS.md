@@ -17,10 +17,14 @@
 
 ### Meta Ads Data Ingestion
 
-- [ ] **META-01**: Agent authenticates to Meta Marketing API v24+ using a long-lived System User token
-- [ ] **META-02**: Agent pulls campaign-level metrics daily: spend, impressions, clicks, CTR, CPC, CPM, ROAS, purchases, cost-per-purchase, reach, frequency
-- [ ] **META-03**: Agent pulls ad-set and ad-level breakdowns on demand or on a configurable schedule
-- [ ] **META-04**: All Meta API calls use exponential backoff with circuit breaker to handle rate limits and transient failures gracefully
+- [x] **META-01
+**: Agent authenticates to Meta Marketing API v24+ using a long-lived System User token
+- [x] **META-02
+**: Agent pulls campaign-level metrics daily: spend, impressions, clicks, CTR, CPC, CPM, ROAS, purchases, cost-per-purchase, reach, frequency
+- [x] **META-03
+**: Agent pulls ad-set and ad-level breakdowns on demand or on a configurable schedule
+- [x] **META-04
+**: All Meta API calls use exponential backoff with circuit breaker to handle rate limits and transient failures gracefully
 - [ ] **META-05**: Meta data is stored per-campaign per-date in the canonical metrics store with `meta_` prefixed conversion fields to avoid source confusion
 
 ### Google Analytics 4 Data Ingestion
