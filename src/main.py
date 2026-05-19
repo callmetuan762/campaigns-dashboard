@@ -1,4 +1,4 @@
-"""Application lifecycle for Phase 1: foundation & walking skeleton.
+"""Application lifecycle for Phase 2: Meta Ads ingestion, scheduled reports, and alerts.
 
 Order (do not reorder -- each step depends on the previous):
     1. load_settings            -- fail fast on missing required env vars
@@ -6,9 +6,10 @@ Order (do not reorder -- each step depends on the previous):
     3. db.connect               -- opens aiosqlite, applies migrations
     4. create_bot_and_dispatcher -- Bot + Dispatcher with allowlist registered
     5. delete_webhook           -- avoids Pitfall 6 (409 Conflict)
-    6. AsyncIOScheduler         -- built INSIDE the loop (Pitfall 2)
-    7. scheduler.start + dp.start_polling
-    8. finally: scheduler.shutdown -> bot.session.close -> db.close
+    6. register_job_resources   -- wire module globals BEFORE scheduler.add_job
+    7. AsyncIOScheduler         -- built INSIDE the loop (Pitfall 2)
+    8. scheduler.start + dp.start_polling
+    9. finally: scheduler.shutdown -> bot.session.close -> db.close
 """
 from __future__ import annotations
 
@@ -19,19 +20,13 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+import src.meta.ingest as meta_ingest_module
+import src.reports.daily as daily_report_module
+import src.reports.weekly as weekly_report_module
 from src.bot.setup import create_bot_and_dispatcher
 from src.config import load_settings
 from src.db.client import DBClient
 from src.logging_setup import configure_logging
-
-
-async def _scheduler_heartbeat() -> None:
-    """Phase 1 placeholder job -- proves the scheduler is wired and firing.
-
-    Phase 2 replaces this with the real Meta ingest job; Phase 2/3 add the
-    daily digest / weekly summary jobs.
-    """
-    structlog.get_logger(__name__).info("scheduler_heartbeat")
 
 
 async def main() -> None:
@@ -41,7 +36,7 @@ async def main() -> None:
     # 2. Logging (everything below this point logs through redaction)
     configure_logging(level=settings.log_level, fmt="json")
     log = structlog.get_logger(__name__)
-    log.info("boot", phase=1, timezone=settings.report_timezone, db_path=str(settings.db_path))
+    log.info("boot", phase=2, timezone=settings.report_timezone, db_path=str(settings.db_path))
 
     # 3. Storage
     db = DBClient(settings.db_path)
@@ -55,6 +50,13 @@ async def main() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
     log.info("webhook_cleared")
 
+    # Phase 2: Register module-level resources for APScheduler jobs.
+    # Must be called BEFORE scheduler.add_job() and scheduler.start().
+    # CRITICAL: Resources are NOT passed as job args (PicklingError with SQLAlchemyJobStore).
+    meta_ingest_module.register_job_resources(bot, db, settings)
+    daily_report_module.register_job_resources(bot, db, settings)
+    weekly_report_module.register_job_resources(bot, db, settings)
+
     # 6. Scheduler (constructed INSIDE the running loop -- Pitfall 2)
     jobstore = SQLAlchemyJobStore(url=f"sqlite:///{settings.db_path}")
     scheduler = AsyncIOScheduler(
@@ -62,11 +64,29 @@ async def main() -> None:
         timezone=settings.report_timezone,
     )
     scheduler.add_job(
-        _scheduler_heartbeat,
-        trigger=CronTrigger(minute="*/15", timezone=settings.report_timezone),
-        id="phase1_heartbeat",
+        meta_ingest_module.meta_ingest_job,
+        trigger=CronTrigger(hour=settings.meta_ingest_hour, minute=0, timezone=settings.report_timezone),
+        id="meta_ingest",
         replace_existing=True,
-        misfire_grace_time=60,
+        misfire_grace_time=300,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        daily_report_module.daily_report_job,
+        trigger=CronTrigger(hour=settings.daily_report_hour, minute=0, timezone=settings.report_timezone),
+        id="daily_report",
+        replace_existing=True,
+        misfire_grace_time=300,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        weekly_report_module.weekly_report_job,
+        trigger=CronTrigger(day_of_week="mon", hour=settings.daily_report_hour, minute=0, timezone=settings.report_timezone),
+        id="weekly_report",
+        replace_existing=True,
+        misfire_grace_time=300,
         coalesce=True,
         max_instances=1,
     )
