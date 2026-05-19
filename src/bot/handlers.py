@@ -51,8 +51,9 @@ def build_router() -> Router:
             "/start — confirm bot is online\n"
             "/status — show last sync time and row counts\n"
             "/report — generate and send the latest daily report\n"
+            "/clear — clear your AI conversation history\n"
             "/help — show this message\n"
-            "<i>(Phase 2: automated reports, alerts enabled)</i>"
+            "<i>(Phase 4: conversational AI enabled — send any non-command text to ask a question.)</i>"
         )
 
     @router.message(Command("report"))
@@ -72,5 +73,23 @@ def build_router() -> Router:
             daily_report_module._db,
             daily_report_module._settings,
         )
+
+    @router.message(Command("clear"))
+    async def cmd_clear(message: Message, db: DBClient) -> None:
+        """Phase 4 D-09: clear the caller's AI conversation history.
+
+        Deletes rows from bot_conversations WHERE chat_id = caller's chat
+        AND user_id = caller's user. Other users in a group keep their history.
+        """
+        user_id = message.from_user.id if message.from_user else None
+        if user_id is None:
+            await message.answer("Cannot identify user.")
+            return
+        await db.clear_conversation(message.chat.id, user_id)
+        logger.info(
+            "conversation_cleared",
+            chat_id=message.chat.id, user_id=user_id,
+        )
+        await message.answer("Conversation cleared.")
 
     return router
