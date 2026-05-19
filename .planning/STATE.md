@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 4 — Conversational AI + Recommendations
-status: Phase 4 planned — ready for /gsd-execute-phase 4
-last_updated: "2026-05-19T12:58:03.860Z"
+status: executing
+last_updated: "2026-05-19T12:59:13.137Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 18
-  percent: 95
+  completed_plans: 19
+  percent: 100
 ---
 
 # Project State
@@ -38,9 +38,9 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 4 — Conversational AI + Recommendations
-- **Plan:** 04-01 complete; 04-02 next
-- **Status:** Executing Phase 4 — 1/6 plans complete
-- **Progress:** [██████░░░░] 60%
+- **Plan:** 04-02 complete; 04-03 next
+- **Status:** Executing Phase 4 — 2/6 plans complete
+- **Progress:** [███████░░░] 65%
 
 ## Performance Metrics
 
@@ -48,7 +48,7 @@ See: .planning/PROJECT.md
 - v1 requirements shipped: 38 / 38 (all v1 reqs in phases 1-4; phases 1-3 done)
 - Phase 2 plans completed: 8 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files; 02-07 scheduler wiring: 5min, 2 tasks, 2 files; 02-08 test suite: 3min, 2 tasks, 7 files, 43→77 tests)
 - Phase 3 plans completed: 5 / 5 (03-01 foundation: schema+config; 03-02 GA4 package: client+ingest; 03-03 builder: GA4 section; 03-04 wiring: daily+weekly+main; 03-05 test suite: 77→115 tests)
-- Phase 4 plans completed: 1 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files)
+- Phase 4 plans completed: 2 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file)
 
 ## Accumulated Context
 
@@ -69,6 +69,9 @@ See: .planning/PROJECT.md
 - Budget pacing alert (ALERT-04) uses days_elapsed < 7 guard to avoid false positives early in month
 - COALESCE(SUM(cost_usd), 0.0) in get_monthly_anthropic_cost prevents NoneType budget-gate bug on empty table
 - _deserialize_message is module-level (not class method) so DBClient methods call it without self. prefix; role='tool' remapped to 'user' for Anthropic API
+- Haiku 4.5 pricing in tools.py: $1.00/$5.00 per MTok (corrected from erroneous $0.80/$4.00 Haiku 3.5 rate)
+- dispatch_tool catches TypeError + Exception and returns error strings so Claude self-corrects without crashing the agentic loop
+- Dynamic SQL columns in compare_periods/list_underperformers/get_landing_page_performance validated against frozensets before f-string; # noqa: S608 marks intentional dynamic columns
 - get_conversation_history fetches DESC then calls rows.reverse() so LIMIT captures most-recent N turns and output is chronological
 - Module-globals pattern for APScheduler: register_job_resources() called from main.py before scheduler.start() — avoids PicklingError with SQLAlchemyJobStore
 - Module-globals pattern for APScheduler: register_job_resources() called before scheduler.add_job() — /report handler uses same globals set by main.py
@@ -101,6 +104,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 4 plan 04-01 complete (2026-05-19) — Phase 4 foundation, 2 tasks, 3 files, 1m 28s
-- Stopped at: Phase 4 plan 04-01 complete; 04-02 next
+- Last action: Phase 4 plan 04-02 complete (2026-05-19) — AI tools module, 2 tasks, 1 file, ~15m
+- Stopped at: Phase 4 plan 04-02 complete; 04-03 next
 - Resume file: None
