@@ -2,7 +2,7 @@
 name = "ads-reporting"
 version = "0.1.0"
 description = "AI-powered ads reporting agent (Meta Ads + GA4 → Telegram)"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12"
 dependencies = [
     "aiogram>=3.28,<4",
     "aiosqlite>=0.20,<1",

@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.pyo
 data/
+secrets/
 *.db
 *.db-journal
 *.db-wal
