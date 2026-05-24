@@ -13,6 +13,7 @@ import pytest
 from src.dashboard.db import (
     get_kpi_summary, get_ga4_kpi, get_daily_trend, get_campaign_table,
     get_attribution_comparison, get_data_freshness, get_campaign_names,
+    get_campaign_daily,
 )
 
 
@@ -215,3 +216,116 @@ def test_campaign_names_alphabetical(db: Path) -> None:
     assert names == sorted(names)
     assert "Brand" in names
     assert "Convert" in names
+
+
+# --- get_campaign_daily (DASH-07) ------------------------------------------
+
+def test_campaign_daily_empty_db_returns_empty(tmp_path: Path) -> None:
+    """Test 1: get_campaign_daily on empty DB returns []."""
+    db_empty = tmp_path / "empty.db"
+    con = sqlite3.connect(str(db_empty))
+    con.executescript("""
+        CREATE TABLE campaigns (id TEXT PRIMARY KEY, source TEXT, name TEXT,
+                                status TEXT, created_at TEXT);
+        CREATE TABLE ad_metrics (
+            campaign_id TEXT NOT NULL, date TEXT NOT NULL,
+            ad_set_id TEXT NOT NULL DEFAULT '', ad_id TEXT NOT NULL DEFAULT '',
+            spend REAL, impressions INTEGER, clicks INTEGER, ctr REAL,
+            cpc REAL, cpm REAL, roas REAL,
+            meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
+            reach INTEGER, frequency REAL,
+            meta_form_submit_deposit INTEGER NOT NULL DEFAULT 0,
+            fetched_at TEXT,
+            PRIMARY KEY (campaign_id, date, ad_set_id, ad_id)
+        );
+        CREATE TABLE ga4_metrics (
+            campaign_utm TEXT NOT NULL, date TEXT NOT NULL,
+            sessions INTEGER, users INTEGER, new_users INTEGER,
+            bounce_rate REAL, avg_engagement_time REAL,
+            ga4_purchases_lastclick INTEGER, fetched_at TEXT,
+            PRIMARY KEY (campaign_utm, date)
+        );
+    """)
+    con.commit()
+    con.close()
+    rows = get_campaign_daily(db_empty, "Brand", "2026-05-01", "2026-05-31")
+    assert rows == []
+
+
+def test_campaign_daily_returns_3_rows_ordered(db: Path) -> None:
+    """Test 2: 3 campaign-level rows for Brand across 3 dates, ordered ascending."""
+    # Brand in fixture has 2 dates; add a third
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO ad_metrics(campaign_id, date, ad_set_id, ad_id, spend, roas, "
+        "meta_form_submit_deposit, meta_purchases_7dclick, fetched_at) "
+        "VALUES ('c1','2026-05-03','','',120.0,3.0,6,2,'2026-05-04T00:00:00')"
+    )
+    con.commit()
+    con.close()
+
+    rows = get_campaign_daily(db, "Brand", "2026-05-01", "2026-05-03")
+    assert len(rows) == 3
+    dates = [r["date"] for r in rows]
+    assert dates == sorted(dates)
+    expected_keys = {"date", "spend", "deposits", "sessions", "roas", "meta_purchases", "ga4_purchases"}
+    assert expected_keys <= set(rows[0].keys())
+
+
+def test_campaign_daily_ga4_join_populated_and_unmatched_zero(db: Path) -> None:
+    """Test 3: GA4-matched dates populate sessions/ga4_purchases; unmatched dates show 0."""
+    # Brand has ga4_metrics for 2026-05-01 and 2026-05-02, but we add a date with no GA4
+    con = sqlite3.connect(str(db))
+    con.execute(
+        "INSERT INTO ad_metrics(campaign_id, date, ad_set_id, ad_id, spend, roas, "
+        "meta_form_submit_deposit, meta_purchases_7dclick, fetched_at) "
+        "VALUES ('c1','2026-05-03','','',90.0,2.5,3,1,'2026-05-04T00:00:00')"
+    )
+    con.commit()
+    con.close()
+
+    rows = get_campaign_daily(db, "Brand", "2026-05-01", "2026-05-03")
+    assert len(rows) == 3
+
+    # 2026-05-01 and 2026-05-02 have GA4 rows — sessions should be populated
+    row_01 = next(r for r in rows if r["date"] == "2026-05-01")
+    row_03 = next(r for r in rows if r["date"] == "2026-05-03")
+
+    assert row_01["sessions"] == 500  # from fixture ga4_metrics
+    assert row_01["ga4_purchases"] == 3  # from fixture ga4_metrics
+
+    assert row_03["sessions"] == 0   # no GA4 row for 2026-05-03 — LEFT JOIN → 0
+    assert row_03["ga4_purchases"] == 0
+
+
+def test_campaign_daily_excludes_adset_level_rows(db: Path) -> None:
+    """Test 4: ad_set_id != '' rows are excluded; only campaign-level rows count."""
+    # The fixture already has an ad-set-level row for c1 on 2026-05-01 with spend=50
+    # Campaign-level spend for Brand on 2026-05-01 is 100.0 only
+    rows = get_campaign_daily(db, "Brand", "2026-05-01", "2026-05-01")
+    assert len(rows) == 1
+    assert rows[0]["spend"] == pytest.approx(100.0)  # NOT 150.0 (would include ad-set row)
+
+
+def test_campaign_daily_date_bounds_inclusive(db: Path) -> None:
+    """Test 5: start_date and end_date bounds are inclusive; rows outside excluded."""
+    rows = get_campaign_daily(db, "Brand", "2026-05-02", "2026-05-02")
+    assert len(rows) == 1
+    assert rows[0]["date"] == "2026-05-02"
+    assert rows[0]["spend"] == pytest.approx(150.0)
+
+    # Completely outside range
+    rows_outside = get_campaign_daily(db, "Brand", "2026-04-01", "2026-04-30")
+    assert rows_outside == []
+
+
+def test_campaign_daily_no_cross_campaign_leakage(db: Path) -> None:
+    """Test 6: Different campaign_name returns 0 rows — no cross-campaign leakage."""
+    rows = get_campaign_daily(db, "NonexistentCampaign", "2026-05-01", "2026-05-02")
+    assert rows == []
+
+    # Convert is real but results should only contain Convert rows, not Brand
+    convert_rows = get_campaign_daily(db, "Convert", "2026-05-01", "2026-05-02")
+    for r in convert_rows:
+        # Convert only has 1 campaign-level row (2026-05-01), spend=200.0
+        assert r["spend"] == pytest.approx(200.0)
