@@ -43,6 +43,12 @@ COLOR_DEPOSITS = "#34d399"
 COLOR_META = "#60a5fa"
 COLOR_GA4 = "#a78bfa"
 
+# TIER tag palette (D-05) — campaign-table action labels
+COLOR_TIER_SCALE = "#34d399"     # reuses COLOR_DEPOSITS green
+COLOR_TIER_MAINTAIN = "#facc15"
+COLOR_TIER_REDUCE = "#f87171"
+COLOR_TIER_PAUSED = "#6b7280"
+
 # ROAS thresholds (match src/reports/builder.py + D-05)
 ROAS_GOOD = 2.0
 ROAS_BAD = 1.0
@@ -153,6 +159,27 @@ def _make_attribution_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
 
 # ---------------------------------------------------------------------------
+# TIER action tags (D-03, D-04, DASH-06) — pure function, unit-testable
+# ---------------------------------------------------------------------------
+def _tier_tag(cpd: float | None, deposits: int, cpd_target: float) -> str:
+    """Classify a campaign row into ★ SCALE / MAINTAIN / REDUCE / PAUSED.
+
+    Returns empty string when cpd_target <= 0.0 (TIER column hidden — D-04).
+    PAUSED takes precedence over any CPD comparison so zero-conversion
+    campaigns never appear under SCALE/MAINTAIN/REDUCE.
+    """
+    if cpd_target <= 0.0:
+        return ""
+    if deposits == 0 or cpd is None:
+        return "PAUSED"
+    if cpd <= cpd_target:
+        return "★ SCALE"
+    if cpd <= cpd_target * 1.3:
+        return "MAINTAIN"
+    return "REDUCE"
+
+
+# ---------------------------------------------------------------------------
 # Campaign table helper (D-08)
 # ---------------------------------------------------------------------------
 def _roas_indicator(v: float | None) -> str:
@@ -165,10 +192,15 @@ def _roas_indicator(v: float | None) -> str:
     return f"⚠️ {v:.2f}"
 
 
-def _format_campaign_df(rows: list[dict[str, Any]]) -> pd.DataFrame:
+def _format_campaign_df(
+    rows: list[dict[str, Any]],
+    cpd_target: float = 0.0,
+) -> pd.DataFrame:
+    base_cols = ["Campaign", "Spend", "ROAS", "Impressions",
+                 "Deposits", "CPD", "GA4 Sessions"]
     if not rows:
-        return pd.DataFrame(columns=["Campaign", "Spend", "ROAS", "Impressions",
-                                     "Deposits", "CPD", "GA4 Sessions"])
+        cols = base_cols + (["TIER"] if cpd_target > 0.0 else [])
+        return pd.DataFrame(columns=cols)
     df = pd.DataFrame(rows)
     df["ROAS"] = df["weighted_roas"].apply(_roas_indicator)
     df = df.rename(columns={
@@ -179,8 +211,17 @@ def _format_campaign_df(rows: list[dict[str, Any]]) -> pd.DataFrame:
         "cpd": "CPD",
         "ga4_sessions": "GA4 Sessions",
     })
-    return df[["Campaign", "Spend", "ROAS", "Impressions",
-               "Deposits", "CPD", "GA4 Sessions"]]
+    if cpd_target > 0.0:
+        df["TIER"] = df.apply(
+            lambda r: _tier_tag(
+                r["CPD"] if pd.notna(r["CPD"]) else None,
+                int(r["Deposits"] or 0),
+                cpd_target,
+            ),
+            axis=1,
+        )
+        return df[base_cols + ["TIER"]]
+    return df[base_cols]
 
 
 _CAMPAIGN_COLUMN_CONFIG = {
@@ -363,7 +404,7 @@ st.subheader("Campaign performance")
 campaign_rows = _cached_campaigns(db_path_str, start_iso, end_iso)
 if campaign_rows:
     st.dataframe(
-        _format_campaign_df(campaign_rows),
+        _format_campaign_df(campaign_rows, settings.cpd_target),
         hide_index=True,
         use_container_width=True,
         column_config=_CAMPAIGN_COLUMN_CONFIG,
