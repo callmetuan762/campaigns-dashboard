@@ -152,6 +152,7 @@ def test_parse_row_all_keys_present(sample_campaign_row):
         "ad_set_id", "ad_id",
         "spend", "impressions", "clicks", "ctr", "cpc", "cpm",
         "roas", "meta_purchases_7dclick", "meta_cost_per_purchase",
+        "meta_form_submit_deposit",
         "reach", "frequency",
     }
     assert set(row.keys()) == expected_keys

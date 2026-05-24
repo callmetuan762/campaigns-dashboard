@@ -29,7 +29,7 @@ def test_build_followup_keyboard_shape():
         "Drill down",
         "Compare to last week",
         "Why is this happening?",
-        "Show chart",
+        "Show spend chart",
     ], f"Button labels mismatch: {texts}"
 
 

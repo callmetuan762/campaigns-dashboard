@@ -28,6 +28,7 @@ async def test_ad_metrics_upsert_is_idempotent(db_client):
         "roas": 3.0,
         "meta_purchases_7dclick": 5,
         "meta_cost_per_purchase": 20.0,
+        "meta_form_submit_deposit": 3,
         "reach": 800,
         "frequency": 1.25,
     }
