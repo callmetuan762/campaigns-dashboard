@@ -96,3 +96,93 @@ def test_format_campaign_df_empty() -> None:
     assert list(df.columns) == ["Campaign", "Spend", "ROAS", "Impressions",
                                  "Deposits", "CPD", "GA4 Sessions"]
     assert len(df) == 0
+
+
+# ---------------------------------------------------------------------------
+# TIER tag tests (07-02, D-03, D-04, DASH-06)
+# ---------------------------------------------------------------------------
+
+def test_tier_tag_paused_no_deposits_with_cpd() -> None:
+    """cpd is set but deposits==0 → PAUSED (zero-conversion guard)."""
+    app = _import_app()
+    assert app._tier_tag(50.0, 0, 25.0) == "PAUSED"
+
+
+def test_tier_tag_paused_none_cpd() -> None:
+    """cpd is None and deposits==0 → PAUSED."""
+    app = _import_app()
+    assert app._tier_tag(None, 0, 25.0) == "PAUSED"
+
+
+def test_tier_tag_scale_below_target() -> None:
+    """cpd < cpd_target → ★ SCALE."""
+    app = _import_app()
+    assert app._tier_tag(20.0, 5, 25.0) == "★ SCALE"
+
+
+def test_tier_tag_scale_at_target_boundary() -> None:
+    """cpd == cpd_target (inclusive) → ★ SCALE."""
+    app = _import_app()
+    assert app._tier_tag(25.0, 5, 25.0) == "★ SCALE"
+
+
+def test_tier_tag_maintain_above_target() -> None:
+    """cpd <= cpd_target * 1.3 → MAINTAIN."""
+    app = _import_app()
+    assert app._tier_tag(30.0, 5, 25.0) == "MAINTAIN"
+
+
+def test_tier_tag_maintain_at_upper_boundary() -> None:
+    """cpd == cpd_target * 1.3 (32.5) → MAINTAIN (inclusive upper boundary)."""
+    app = _import_app()
+    assert app._tier_tag(32.5, 5, 25.0) == "MAINTAIN"
+
+
+def test_tier_tag_reduce_over_threshold() -> None:
+    """cpd > cpd_target * 1.3 → REDUCE."""
+    app = _import_app()
+    assert app._tier_tag(33.0, 5, 25.0) == "REDUCE"
+
+
+def test_tier_tag_disabled_returns_empty_string() -> None:
+    """cpd_target == 0.0 (TIER disabled) → '' regardless of cpd."""
+    app = _import_app()
+    assert app._tier_tag(50.0, 5, 0.0) == ""
+
+
+# ---------------------------------------------------------------------------
+# _format_campaign_df with cpd_target (07-02, D-04)
+# ---------------------------------------------------------------------------
+
+def test_format_campaign_df_no_tier_when_cpd_target_zero() -> None:
+    """cpd_target == 0.0 → 7-column Phase-6-parity DataFrame, no TIER column."""
+    app = _import_app()
+    df = app._format_campaign_df([], cpd_target=0.0)
+    assert list(df.columns) == ["Campaign", "Spend", "ROAS", "Impressions",
+                                 "Deposits", "CPD", "GA4 Sessions"]
+
+
+def test_format_campaign_df_has_tier_when_cpd_target_set() -> None:
+    """cpd_target > 0.0 → 8-column DataFrame with TIER as last column."""
+    app = _import_app()
+    df = app._format_campaign_df([], cpd_target=25.0)
+    assert list(df.columns)[-1] == "TIER"
+    assert len(df.columns) == 8
+
+
+def test_format_campaign_df_tier_scale_value() -> None:
+    """Row with cpd=20, deposits=5, cpd_target=25 → TIER == '★ SCALE'."""
+    app = _import_app()
+    rows = [{"campaign_name": "x", "spend": 100.0, "weighted_roas": 2.0,
+             "impressions": 1000, "deposits": 5, "cpd": 20.0, "ga4_sessions": 50}]
+    df = app._format_campaign_df(rows, cpd_target=25.0)
+    assert df.iloc[0]["TIER"] == "★ SCALE"
+
+
+def test_format_campaign_df_tier_paused_no_deposits() -> None:
+    """Row with deposits=0, cpd=None → TIER == 'PAUSED'."""
+    app = _import_app()
+    rows = [{"campaign_name": "y", "spend": 50.0, "weighted_roas": 0.0,
+             "impressions": 500, "deposits": 0, "cpd": None, "ga4_sessions": 10}]
+    df = app._format_campaign_df(rows, cpd_target=25.0)
+    assert df.iloc[0]["TIER"] == "PAUSED"
