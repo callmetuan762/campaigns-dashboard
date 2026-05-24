@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 5 — Hardening & Ops
-status: completed
-last_updated: "2026-05-24T10:35:08.784Z"
+current_phase: Phase 6 — Streamlit Performance Dashboard
+status: in_progress
+last_updated: "2026-05-24T10:42:00.000Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 26
-  completed_plans: 28
+  completed_plans: 29
   percent: 100
 ---
 
@@ -88,6 +88,9 @@ See: .planning/PROJECT.md
 - dashboard/tools.py query_metrics uses SUM(spend*roas)/SUM(spend) weighted ROAS, not AVG — matches builder.py so KPI cards agree with AI chat answers (D-13)
 - dashboard/chat.py uses sync anthropic.Anthropic() not AsyncAnthropic — Streamlit is sync (D-15)
 - run_chat() budget gate reads anthropic_usage_log via sync sqlite3, same $20/month ceiling as Telegram /ask — resolves Open Q1 from 06-RESEARCH.md
+- D-10 dark theme palette defined as module-level constants in app.py — single source of truth for all chart colors
+- Cache wrappers live in app.py with str db_path for cache key stability — never in db.py
+- test_app_first_streamlit_call_is_set_page_config uses tokenize module to skip docstring occurrences of st.*
 
 ### Phase 1 Decisions
 
@@ -131,6 +134,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 6 plan 06-02 complete (2026-05-24) — dashboard AI surface (tools.py + chat.py), 175→191 tests passing (16 new dashboard tests + pre-existing failures unchanged)
-- Stopped at: Phase 6 plan 06-02 complete; 06-03 (Streamlit app) is next
+- Last action: Phase 6 plan 06-03 complete (2026-05-24) — src/dashboard/app.py Streamlit Overview page, 191→198 tests passing (7 new tests: isolation + smoke)
+- Stopped at: Phase 6 plan 06-03 complete; 06-04 (integration tests + phase closure) is next
 - Resume file: None
