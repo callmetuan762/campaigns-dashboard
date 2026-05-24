@@ -159,6 +159,14 @@ CREATE INDEX IF NOT EXISTS idx_usage_log_month ON anthropic_usage_log(request_at
 """
 
 # ---------------------------------------------------------------------------
+# Migration 005 — Phase 3: form_submit_deposit column
+# ---------------------------------------------------------------------------
+
+MIGRATION_005_FORM_SUBMIT: str = """
+ALTER TABLE ad_metrics ADD COLUMN meta_form_submit_deposit INTEGER NOT NULL DEFAULT 0;
+"""
+
+# ---------------------------------------------------------------------------
 # Migration 006 — Phase 8: MMM results (append-only)
 # ---------------------------------------------------------------------------
 
@@ -189,5 +197,6 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("002_phase2", MIGRATION_002_PHASE2),
     ("003_phase3", MIGRATION_003_PHASE3),
     ("004_phase4", MIGRATION_004_PHASE4),
+    ("005_form_submit", MIGRATION_005_FORM_SUBMIT),
     ("006_phase8", MIGRATION_006_PHASE8),
 ]

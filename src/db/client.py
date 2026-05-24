@@ -20,6 +20,46 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+def _is_tool_result_turn(msg: dict) -> bool:
+    """Return True if this is a user turn whose content consists entirely of tool_result blocks."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return all(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+
+
+def _is_tool_use_turn(msg: dict) -> bool:
+    """Return True if this assistant turn contains at least one tool_use block."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
+
+
+def _sanitize_history(messages: list[dict]) -> list[dict]:
+    """Remove tool_result / tool_use turns that would cause a 400 from Anthropic.
+
+    Invariant: a user turn with tool_result blocks must be immediately preceded by
+    an assistant turn with tool_use blocks. Violations occur when the history window
+    cuts a conversation mid-loop or a crash left orphaned turns.
+    """
+    if not messages:
+        return messages
+    # Drop leading user turns that are pure tool_result (no preceding tool_use)
+    while messages and _is_tool_result_turn(messages[0]):
+        messages = messages[1:]
+    # Drop trailing assistant turns that still have tool_use (no following tool_result)
+    while messages and messages[-1].get("role") == "assistant" and _is_tool_use_turn(messages[-1]):
+        messages = messages[:-1]
+    # Drop any adjacent pair where a tool_result user turn follows a non-tool-use assistant turn
+    clean: list[dict] = []
+    for msg in messages:
+        if _is_tool_result_turn(msg) and (not clean or not _is_tool_use_turn(clean[-1])):
+            continue  # orphaned tool_result — drop it
+        clean.append(msg)
+    return clean
+
+
 def _deserialize_message(role: str, raw_message: str) -> dict:
     """Convert a stored bot_conversations row into an Anthropic messages-API dict.
 
@@ -87,24 +127,25 @@ class DBClient:
     _UPSERT_AD_METRICS_SQL = """
         INSERT INTO ad_metrics (
             campaign_id, date, ad_set_id, ad_id, spend, impressions, clicks, ctr, cpc, cpm, roas,
-            meta_purchases_7dclick, meta_cost_per_purchase, reach, frequency
+            meta_purchases_7dclick, meta_cost_per_purchase, reach, frequency, meta_form_submit_deposit
         ) VALUES (
             :campaign_id, :date, :ad_set_id, :ad_id, :spend, :impressions, :clicks, :ctr, :cpc, :cpm, :roas,
-            :meta_purchases_7dclick, :meta_cost_per_purchase, :reach, :frequency
+            :meta_purchases_7dclick, :meta_cost_per_purchase, :reach, :frequency, :meta_form_submit_deposit
         )
         ON CONFLICT(campaign_id, date, ad_set_id, ad_id) DO UPDATE SET
-            spend                  = excluded.spend,
-            impressions            = excluded.impressions,
-            clicks                 = excluded.clicks,
-            ctr                    = excluded.ctr,
-            cpc                    = excluded.cpc,
-            cpm                    = excluded.cpm,
-            roas                   = excluded.roas,
-            meta_purchases_7dclick = excluded.meta_purchases_7dclick,
-            meta_cost_per_purchase = excluded.meta_cost_per_purchase,
-            reach                  = excluded.reach,
-            frequency              = excluded.frequency,
-            fetched_at             = datetime('now');
+            spend                      = excluded.spend,
+            impressions                = excluded.impressions,
+            clicks                     = excluded.clicks,
+            ctr                        = excluded.ctr,
+            cpc                        = excluded.cpc,
+            cpm                        = excluded.cpm,
+            roas                       = excluded.roas,
+            meta_purchases_7dclick     = excluded.meta_purchases_7dclick,
+            meta_cost_per_purchase     = excluded.meta_cost_per_purchase,
+            reach                      = excluded.reach,
+            frequency                  = excluded.frequency,
+            meta_form_submit_deposit   = excluded.meta_form_submit_deposit,
+            fetched_at                 = datetime('now');
     """
 
     _UPSERT_GA4_METRICS_SQL = """
@@ -309,7 +350,7 @@ class DBClient:
         SELECT role, message
         FROM bot_conversations
         WHERE chat_id = :chat_id AND user_id = :user_id
-        ORDER BY created_at DESC
+        ORDER BY id DESC
         LIMIT :limit
     """
 
@@ -329,7 +370,8 @@ class DBClient:
             {"chat_id": chat_id, "user_id": user_id, "limit": limit},
         )
         rows.reverse()  # oldest first for Anthropic messages array
-        return [_deserialize_message(r["role"], r["message"]) for r in rows]
+        messages = [_deserialize_message(r["role"], r["message"]) for r in rows]
+        return _sanitize_history(messages)
 
     _INSERT_CONV_SQL = """
         INSERT INTO bot_conversations (chat_id, user_id, role, message)
