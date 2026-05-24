@@ -163,3 +163,42 @@ def get_campaign_names(db_path: Path) -> list[str]:
     with _conn(db_path) as con:
         rows = con.execute("SELECT name FROM campaigns ORDER BY name").fetchall()
     return [r["name"] for r in rows]
+
+
+def get_campaign_daily(
+    db_path: Path,
+    campaign_name: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict[str, Any]]:
+    """Daily Meta + GA4 rows for one campaign within [start_date, end_date].
+
+    - Campaign-level only (ad_set_id = '' AND ad_id = '').
+    - Exact UTM join (g.campaign_utm = c.name AND g.date = m.date).
+    - Never blends Meta vs GA4 conversion counts (CLAUDE.md data model rule):
+      meta_purchases and ga4_purchases are returned as separate keys.
+    - Campaign name is bound via positional ? param — never interpolated into SQL.
+    """
+    sql = '''
+        SELECT
+            m.date                                           AS date,
+            COALESCE(SUM(m.spend), 0)                        AS spend,
+            COALESCE(SUM(m.meta_form_submit_deposit), 0)     AS deposits,
+            COALESCE(SUM(g.sessions), 0)                     AS sessions,
+            CASE WHEN SUM(m.spend) > 0
+                 THEN SUM(m.spend * m.roas) / SUM(m.spend)
+                 ELSE 0 END                                  AS roas,
+            COALESCE(SUM(m.meta_purchases_7dclick), 0)       AS meta_purchases,
+            COALESCE(SUM(g.ga4_purchases_lastclick), 0)      AS ga4_purchases
+        FROM ad_metrics m
+        JOIN campaigns c ON m.campaign_id = c.id
+        LEFT JOIN ga4_metrics g ON g.campaign_utm = c.name AND g.date = m.date
+        WHERE m.ad_set_id = '' AND m.ad_id = ''
+          AND c.name = ?
+          AND m.date BETWEEN ? AND ?
+        GROUP BY m.date
+        ORDER BY m.date
+    '''
+    with _conn(db_path) as con:
+        rows = con.execute(sql, (campaign_name, start_date, end_date)).fetchall()
+    return [dict(r) for r in rows]
