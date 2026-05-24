@@ -202,3 +202,78 @@ def get_campaign_daily(
     with _conn(db_path) as con:
         rows = con.execute(sql, (campaign_name, start_date, end_date)).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Phase 8: MMM results read helpers (DASH-12)
+# ---------------------------------------------------------------------------
+
+def get_latest_mmm_result(db_path: Path) -> dict[str, Any] | None:
+    """Most-recent row of mmm_results, or None when the table is empty/missing.
+
+    The table is created by MIGRATION_006_PHASE8. On a fresh DB that hasn't been
+    opened by the bot yet (no migrations applied), the table may not exist —
+    catch OperationalError and return None so the dashboard renders the
+    "MMM has not run yet" empty state (D-13) instead of crashing.
+    """
+    sql = "SELECT * FROM mmm_results ORDER BY run_date DESC LIMIT 1"
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(sql).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return dict(row) if row is not None else None
+
+
+def get_weekly_contributions(
+    db_path: Path, weeks: int = 12
+) -> list[dict[str, Any]]:
+    """Per-ISO-week stacked contribution data for the dashboard chart.
+
+    Two-step:
+      1. Fetch the latest MMM result for the media_pct ratio. If absent, return [].
+      2. Aggregate ad_metrics by ISO week (strftime('%Y-%W', date)) at the
+         campaign level (ad_set_id='' AND ad_id=''). Split total deposits per
+         week into baseline vs media using the stored media_pct ratio.
+
+    Returns list of dicts {week, avg_daily_spend, baseline_deposits, media_deposits}
+    ordered ASC by week (oldest first) for stacked-bar consumption.
+    """
+    latest = get_latest_mmm_result(db_path)
+    if latest is None:
+        return []
+
+    media_ratio = float(latest["media_pct"]) / 100.0
+
+    sql = """
+        SELECT strftime('%Y-%W', date)                        AS week,
+               AVG(spend)                                     AS avg_daily_spend,
+               SUM(meta_form_submit_deposit)                  AS total_deposits
+        FROM ad_metrics
+        WHERE ad_set_id = '' AND ad_id = ''
+        GROUP BY week
+        ORDER BY week DESC
+        LIMIT ?
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (weeks,)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        total = float(r["total_deposits"] or 0)
+        media_deposits = total * media_ratio
+        baseline_deposits = total - media_deposits
+        out.append(
+            {
+                "week": r["week"],
+                "avg_daily_spend": float(r["avg_daily_spend"] or 0),
+                "baseline_deposits": baseline_deposits,
+                "media_deposits": media_deposits,
+            }
+        )
+    # Returned DESC from SQL; reverse to ASC for stacked-bar oldest-first display.
+    out.reverse()
+    return out

@@ -159,6 +159,28 @@ CREATE INDEX IF NOT EXISTS idx_usage_log_month ON anthropic_usage_log(request_at
 """
 
 # ---------------------------------------------------------------------------
+# Migration 006 — Phase 8: MMM results (append-only)
+# ---------------------------------------------------------------------------
+
+MIGRATION_006_PHASE8: str = """
+CREATE TABLE IF NOT EXISTS mmm_results (
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_date                 TEXT NOT NULL,
+    weeks_of_data            INTEGER NOT NULL,
+    media_pct                REAL NOT NULL,
+    baseline_pct             REAL NOT NULL,
+    incremental_roas_per_1k  REAL,
+    optimal_daily_spend      REAL NOT NULL,
+    theta                    REAL NOT NULL,
+    km                       REAL NOT NULL,
+    n                        REAL NOT NULL,
+    maturity_label           TEXT NOT NULL,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mmm_results_run_date ON mmm_results(run_date DESC);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -167,4 +189,5 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("002_phase2", MIGRATION_002_PHASE2),
     ("003_phase3", MIGRATION_003_PHASE3),
     ("004_phase4", MIGRATION_004_PHASE4),
+    ("006_phase8", MIGRATION_006_PHASE8),
 ]

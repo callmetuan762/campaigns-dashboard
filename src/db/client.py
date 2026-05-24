@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiosqlite
 import structlog
 
 from src.db.migrations import run_migrations
+
+if TYPE_CHECKING:
+    from src.mmm.model import MMMResult
 
 logger = structlog.get_logger(__name__)
 
@@ -353,3 +357,34 @@ class DBClient:
             self._CLEAR_CONV_SQL,
             {"chat_id": chat_id, "user_id": user_id},
         )
+
+    # ---- Phase 8: MMM results (append-only) ----
+
+    _INSERT_MMM_RESULT_SQL = """
+        INSERT INTO mmm_results (
+            run_date, weeks_of_data, media_pct, baseline_pct,
+            incremental_roas_per_1k, optimal_daily_spend,
+            theta, km, n, maturity_label
+        ) VALUES (
+            :run_date, :weeks_of_data, :media_pct, :baseline_pct,
+            :incremental_roas_per_1k, :optimal_daily_spend,
+            :theta, :km, :n, :maturity_label
+        )
+    """
+
+    async def upsert_mmm_result(self, result: "MMMResult") -> None:
+        """Insert one row into mmm_results from a MMMResult dataclass.
+
+        Append-only — no ON CONFLICT clause. Each weekly run produces a new row;
+        the dashboard reads ORDER BY run_date DESC LIMIT 1.
+        """
+        await self.conn.execute(self._INSERT_MMM_RESULT_SQL, result.to_dict())
+        await self.conn.commit()
+
+    _SELECT_MMM_RESULTS_SQL = """
+        SELECT * FROM mmm_results ORDER BY run_date DESC LIMIT ?
+    """
+
+    async def get_mmm_results(self, limit: int = 10) -> list[dict]:
+        """Return mmm_results rows ordered by run_date DESC, capped at `limit`."""
+        return await self.fetch_all(self._SELECT_MMM_RESULTS_SQL, (limit,))
