@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 5 — Hardening & Ops
 status: completed
-last_updated: "2026-05-24T10:27:28.810Z"
+last_updated: "2026-05-24T10:35:08.784Z"
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 26
-  completed_plans: 27
+  completed_plans: 28
   percent: 100
 ---
 
@@ -84,6 +84,10 @@ See: .planning/PROJECT.md
 - generate_tldr called with db=db in daily + weekly report jobs so TL;DR token usage counted against monthly budget ceiling (Pitfall 8)
 - WAL mode set idempotently on every _conn() open — protects dashboard against fresh DB not yet written by bot
 - streamlit + plotly added as runtime (not dev) deps per D-03 in 06-CONTEXT.md
+- dashboard/tools.py TOOLS schema copied verbatim from src/ai/tools.py — same Anthropic API call shape for /ask and dashboard chat
+- dashboard/tools.py query_metrics uses SUM(spend*roas)/SUM(spend) weighted ROAS, not AVG — matches builder.py so KPI cards agree with AI chat answers (D-13)
+- dashboard/chat.py uses sync anthropic.Anthropic() not AsyncAnthropic — Streamlit is sync (D-15)
+- run_chat() budget gate reads anthropic_usage_log via sync sqlite3, same $20/month ceiling as Telegram /ask — resolves Open Q1 from 06-RESEARCH.md
 
 ### Phase 1 Decisions
 
@@ -127,6 +131,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 5 plan 05-03 complete (2026-05-19) — backfill CLI, 167→175 tests, all 3 plans verified
-- Stopped at: Phase 5 complete (all 28 plans across all 5 phases); v1.0 milestone delivered
+- Last action: Phase 6 plan 06-02 complete (2026-05-24) — dashboard AI surface (tools.py + chat.py), 175→191 tests passing (16 new dashboard tests + pre-existing failures unchanged)
+- Stopped at: Phase 6 plan 06-02 complete; 06-03 (Streamlit app) is next
 - Resume file: None
