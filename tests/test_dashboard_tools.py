@@ -177,3 +177,45 @@ def test_module_has_no_forbidden_imports() -> None:
     assert "import aiogram" not in src
     assert "import aiosqlite" not in src
     assert "import asyncio" not in src
+
+
+# ---------------------------------------------------------------------------
+# Task 1 — 3-agent architecture additions: GA4_TOOLS + ga4_query_metrics
+# ---------------------------------------------------------------------------
+
+def test_ga4_tools_list_length_and_names() -> None:
+    """GA4_TOOLS must contain exactly 2 schemas: get_landing_page_performance + ga4_query_metrics."""
+    from src.dashboard.tools import GA4_TOOLS
+    assert len(GA4_TOOLS) == 2
+    names = {t["name"] for t in GA4_TOOLS}
+    assert names == {"get_landing_page_performance", "ga4_query_metrics"}
+
+
+def test_dispatch_ga4_query_metrics_forces_ga4_source(tmp_path: Path) -> None:
+    """dispatch_tool('ga4_query_metrics', ...) must return a string containing 'GA4'."""
+    db = _make_db(tmp_path)
+    out = dispatch_tool(
+        "ga4_query_metrics",
+        {"start_date": "2026-05-01", "end_date": "2026-05-02"},
+        str(db),
+    )
+    assert isinstance(out, str)
+    assert "GA4" in out
+
+
+def test_ga4_query_metrics_schema_has_no_source_property() -> None:
+    """ga4_query_metrics schema must NOT expose a 'source' property (D-22)."""
+    from src.dashboard.tools import GA4_TOOLS
+    schema = next(t for t in GA4_TOOLS if t["name"] == "ga4_query_metrics")
+    properties = schema["input_schema"]["properties"]
+    assert "source" not in properties
+
+
+def test_tools_list_still_length_5() -> None:
+    """Original TOOLS list must remain exactly 5 schemas — ga4_query_metrics is NOT added to it."""
+    assert len(TOOLS) == 5
+    names = {t["name"] for t in TOOLS}
+    assert names == {
+        "query_metrics", "compare_periods", "get_campaign_detail",
+        "list_underperformers", "get_landing_page_performance",
+    }

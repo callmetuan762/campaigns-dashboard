@@ -511,6 +511,35 @@ def get_landing_page_performance(
 
 
 # ---------------------------------------------------------------------------
+# 3-agent architecture additions (D-22, D-23)
+# ---------------------------------------------------------------------------
+_GA4_QUERY_METRICS_SCHEMA: dict[str, Any] = {
+    "name": "ga4_query_metrics",
+    "description": (
+        "Query aggregated GA4 metrics for a date range. Returns one row per "
+        "campaign (UTM) with sessions, users, bounce rate, and last-click "
+        "purchases. GA4-only — for Meta data, request the user route via "
+        "MetaAgent. Always cite source (GA4) and date range."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "start_date": {"type": "string", "description": "ISO 8601 YYYY-MM-DD (inclusive)."},
+            "end_date":   {"type": "string", "description": "ISO 8601 YYYY-MM-DD (inclusive)."},
+            "campaign_name": {"type": "string", "description": "Optional exact-match UTM filter."},
+        },
+        "required": ["start_date", "end_date"],
+    },
+}
+
+# Tool surface for GA4Agent (D-16). MetaAgent uses TOOLS (the existing 5).
+GA4_TOOLS: list[dict[str, Any]] = [
+    next(t for t in TOOLS if t["name"] == "get_landing_page_performance"),
+    _GA4_QUERY_METRICS_SCHEMA,
+]
+
+
+# ---------------------------------------------------------------------------
 # dispatch_tool — sync router called by src/dashboard/chat.py
 # ---------------------------------------------------------------------------
 def dispatch_tool(name: str, tool_input: dict[str, Any], db_path: str) -> str:
@@ -525,6 +554,9 @@ def dispatch_tool(name: str, tool_input: dict[str, Any], db_path: str) -> str:
     strings, which is what the Anthropic loop expects for self-correction.
     """
     try:
+        if name == "ga4_query_metrics":
+            # D-23: forces source="ga4" — schema does not expose source to the model
+            return query_metrics(db_path, source="ga4", **tool_input)
         if name == "query_metrics":
             return query_metrics(db_path, **tool_input)
         if name == "compare_periods":
