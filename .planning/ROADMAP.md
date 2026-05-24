@@ -1,10 +1,10 @@
 # Roadmap: Ads Reporting Agent
 
-**Version:** 2.0
-**Total phases:** 7
-**Requirements:** 38 v1 + 5 v2 requirements
+**Version:** 3.0
+**Total phases:** 8
+**Requirements:** 38 v1 + 5 v2 + 6 v3 requirements
 **Granularity:** coarse (5 phases)
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-24
 
 ## Phases
 
@@ -14,7 +14,8 @@
 - [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
 - [x] **Phase 5: Hardening & Ops** - Sentry error capture, per-source graceful degradation with unavailability notices, and backfill CLI — completed 2026-05-19
 - [x] **Phase 6: Streamlit Performance Dashboard** - completed 2026-05-24
-- [ ] **Phase 7: Dashboard v2 + 3-Agent AI** - Campaigns drill-down page, TIER action tags (★ SCALE/MAINTAIN/REDUCE), 3-agent AI architecture (Meta Agent + GA4 Agent + Attribution Agent + Orchestrator) for higher-accuracy recommendations, and dedicated AI Chat page - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask — completed 2026-05-24
+- [x] **Phase 7: Dashboard v2 + 3-Agent AI** - Campaigns drill-down page, TIER action tags (★ SCALE/MAINTAIN/REDUCE), 3-agent AI architecture (Meta Agent + GA4 Agent + Attribution Agent + Orchestrator) for higher-accuracy recommendations, and dedicated AI Chat page — completed 2026-05-24
+- [ ] **Phase 8: MMM + Attribution Intelligence** - Lightweight Python Marketing Mix Model (adstock + Hill saturation + OLS decomposition), weekly Telegram budget recommendation, saturation curve chart, and expanded Attribution dashboard page
 
 ## Phase Details
 
@@ -150,6 +151,26 @@ Plans:
 - [ ] 07-06-PLAN.md — Phase 7 test suite + regression sweep
 **UI hint:** yes
 
+### Phase 8: MMM + Attribution Intelligence
+**Goal:** Add a lightweight Python Marketing Mix Model that decomposes spend into baseline + Meta media contribution, fits a Hill saturation curve to estimate diminishing returns, and publishes a weekly budget recommendation to Telegram. Expand the dashboard with a dedicated Attribution Intelligence page showing incremental ROAS estimates, the saturation curve chart, and an optimal spend recommendation.
+**Depends on:** Phase 7 (dashboard), Phase 3 (GA4 data), Phase 2 (Meta data)
+**Requirements:** MMM-01, MMM-02, MMM-03, DASH-11, DASH-12, DASH-13
+
+**Success Criteria:**
+  1. `src/mmm/` package: geometric adstock transform + Hill saturation fit + OLS decomposition of deposits into baseline + media contribution
+  2. Weekly APScheduler job runs MMM; skips silently if < 8 weeks of data, runs with "directional only" warning if < 12 weeks
+  3. Telegram weekly message: media contribution %, incremental ROAS estimate, and optimal daily spend recommendation
+  4. Streamlit `pages/3_Attribution.py`: saturation curve chart + contribution breakdown + optimal spend callout
+  5. All Phase 7 functionality remains intact; 312+ tests still pass
+
+**Plans:** 4 plans
+
+Plans:
+- [ ] 08-01-PLAN.md — MMM model core: adstock + Hill saturation + OLS fit
+- [ ] 08-02-PLAN.md — Scheduler job: weekly MMM run + Telegram output
+- [ ] 08-03-PLAN.md — Attribution dashboard page (3_Attribution.py)
+- [ ] 08-04-PLAN.md — Test suite + regression gate
+
 ## Coverage
 
 | Requirement | Phase |
@@ -201,7 +222,14 @@ Plans:
 | DASH-09 | 7 |
 | DASH-10 | 7 |
 
-**Total:** 43 mapped, 0 unmapped ✓
+| MMM-01 | 8 |
+| MMM-02 | 8 |
+| MMM-03 | 8 |
+| DASH-11 | 8 |
+| DASH-12 | 8 |
+| DASH-13 | 8 |
+
+**Total:** 49 mapped, 0 unmapped ✓
 
 ## Progress
 
@@ -213,4 +241,5 @@ Plans:
 | 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
 | 5. Hardening & Ops | 3/3 | Complete | 2026-05-19 |
 | 6. Streamlit Performance Dashboard | 4/4 | Complete | 2026-05-24 |
-| 7. Dashboard v2 + 3-Agent AI | 0/? | Not started | — |
+| 7. Dashboard v2 + 3-Agent AI | 6/6 | Complete | 2026-05-24 |
+| 8. MMM + Attribution Intelligence | 0/? | Not started | — |
