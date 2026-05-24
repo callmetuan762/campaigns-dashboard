@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     anthropic_monthly_budget_usd: float = 20.0
 
+    # MMM: monetary value of one deposit in USD; 0.0 = report in deposits-per-$1000 units (D-09)
+    deposit_value_usd: float = 0.0
+
     # ---- Sentry (Phase 5) ----
     sentry_dsn: SecretStr | None = None
     sentry_environment: str = "production"
