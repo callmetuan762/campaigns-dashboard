@@ -228,3 +228,49 @@ def run_chat(
         pass
 
     return final_text, messages
+
+
+def run_chat_3agent(
+    user_text: str,
+    history: list[dict[str, Any]],
+    db_path: str,
+    api_key: str,
+    settings: DashboardSettings,
+) -> tuple[str, list[dict[str, Any]]]:
+    """3-agent variant of run_chat (D-18, DASH-09).
+
+    Uses src.dashboard.agents.Orchestrator. Same signature + return shape as run_chat
+    so the Streamlit UI can swap entry points with a single import change.
+
+    D-20: only the final synthesized assistant text is persisted into history --
+    agent-internal tool traces are dropped to prevent context-window bloat.
+    """
+    # Lazy import to avoid a circular ref (agents.py imports from chat.py)
+    from src.dashboard.agents import Orchestrator, BudgetExhaustedError  # noqa: PLC0415
+
+    if not api_key:
+        msg = "AI chat is not configured. ANTHROPIC_API_KEY is missing."
+        new_history = list(history) + [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": msg},
+        ]
+        return msg, new_history
+
+    try:
+        final_text, _cost = Orchestrator().run(
+            user_text, db_path, api_key, settings
+        )
+    except BudgetExhaustedError:
+        new_history = list(history) + [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": BUDGET_EXHAUSTED_USER_MSG},
+        ]
+        return BUDGET_EXHAUSTED_USER_MSG, new_history
+    except Exception as exc:  # noqa: BLE001
+        final_text = f"AI service error: {exc}"
+
+    new_history = list(history) + [
+        {"role": "user", "content": user_text},
+        {"role": "assistant", "content": final_text},
+    ]
+    return final_text, new_history

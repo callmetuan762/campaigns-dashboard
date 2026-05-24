@@ -463,7 +463,7 @@ if prompt := st.chat_input("Ask about campaign performance, ROAS, deposits…"):
     else:
         st.chat_message("user").markdown(prompt)
         with st.spinner("Thinking…"):
-            final_text, new_history = chat_mod.run_chat(
+            final_text, new_history = chat_mod.run_chat_3agent(
                 user_text=prompt,
                 history=st.session_state.chat_history,
                 db_path=db_path_str,
