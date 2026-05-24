@@ -17,6 +17,8 @@ class DashboardSettings(BaseSettings):
     report_timezone: str = "UTC"
     anthropic_monthly_budget_usd: float = 20.0
     cpd_target: float = 0.0
+    # MMM: monetary value of one deposit in USD; 0.0 = report in deposits-per-$1000 units (D-09)
+    deposit_value_usd: float = 0.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

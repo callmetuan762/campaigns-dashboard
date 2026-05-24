@@ -22,6 +22,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 import src.ga4.ingest as ga4_ingest_module
 import src.meta.ingest as meta_ingest_module
+import src.mmm.scheduler as mmm_scheduler_module
 import src.reports.daily as daily_report_module
 import src.reports.weekly as weekly_report_module
 from src.bot.setup import create_bot_and_dispatcher
@@ -70,6 +71,7 @@ async def main() -> None:
     meta_ingest_module.register_job_resources(bot, db, settings)
     daily_report_module.register_job_resources(bot, db, settings)
     weekly_report_module.register_job_resources(bot, db, settings)
+    mmm_scheduler_module.register_job_resources(bot, db, settings)
 
     # 6. Scheduler (constructed INSIDE the running loop -- Pitfall 2)
     jobstore = SQLAlchemyJobStore(url=f"sqlite:///{settings.db_path}")
@@ -110,6 +112,15 @@ async def main() -> None:
         id="weekly_report",
         replace_existing=True,
         misfire_grace_time=300,
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        mmm_scheduler_module.run_mmm_weekly_job,
+        trigger=CronTrigger(day_of_week="sun", hour=23, minute=0, timezone=settings.report_timezone),
+        id="mmm_weekly",
+        replace_existing=True,
+        misfire_grace_time=600,
         coalesce=True,
         max_instances=1,
     )
