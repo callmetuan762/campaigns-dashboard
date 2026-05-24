@@ -76,3 +76,29 @@ def test_settings_does_not_import_src_config() -> None:
     assert "src.config" not in imports
     assert not any(m.startswith("src.bot") for m in imports)
     assert not any(m.startswith("src.ai") for m in imports)
+
+
+# --- cpd_target field (DASH-06) -------------------------------------------
+
+def test_cpd_target_default_is_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test 1: DashboardSettings() with no env loads cpd_target == 0.0."""
+    monkeypatch.delenv("CPD_TARGET", raising=False)
+    Settings = _reload_settings_module()
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.cpd_target == 0.0
+
+
+def test_cpd_target_set_directly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test 2: DashboardSettings(cpd_target=25.0) sets the value."""
+    monkeypatch.delenv("CPD_TARGET", raising=False)
+    Settings = _reload_settings_module()
+    s = Settings(_env_file=None, cpd_target=25.0)  # type: ignore[call-arg]
+    assert s.cpd_target == 25.0
+
+
+def test_cpd_target_loaded_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test 3: CPD_TARGET=12.5 in monkeypatched env loads cpd_target == 12.5."""
+    monkeypatch.setenv("CPD_TARGET", "12.5")
+    Settings = _reload_settings_module()
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.cpd_target == pytest.approx(12.5)
