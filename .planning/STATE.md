@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 6 — Streamlit Performance Dashboard
-status: completed
-last_updated: "2026-05-24T14:52:27.663Z"
+status: TIER action tags delivered — _tier_tag + conditional TIER column in campaign table
+last_updated: "2026-05-24T14:56:38.017Z"
 progress:
   total_phases: 7
   completed_phases: 5
   total_plans: 32
-  completed_plans: 32
+  completed_plans: 33
   percent: 100
 ---
 
@@ -40,8 +40,8 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 7 — Dashboard v2 + 3-Agent AI (In Progress)
-- **Plan:** 07-02 complete (2/6 Phase 7 plans done)
-- **Status:** TIER action tags delivered — _tier_tag + conditional TIER column in campaign table
+- **Plan:** 07-03 complete (3/6 Phase 7 plans done)
+- **Status:** Campaign Detail drill-down page with URL query param navigation and dual Plotly charts delivered
 - **Progress:** [██████████] 100%
 
 ## Performance Metrics
@@ -53,7 +53,7 @@ See: .planning/PROJECT.md
 - Phase 4 plans completed: 6 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files; 04-06 test suite: 115→156 tests, 4 files, all 11 req IDs covered, Haiku pricing + loop cap regression-guarded; ~12m, 2 tasks, 4 files)
 - Phase 5 plans completed: 3 / 3 (05-01 Sentry: sentry-sdk + Settings + init + 5 capture sites + test suite; 2m 32s, 3 tasks, 9 files, 156→160 tests; 05-02 Graceful degradation: builder flags + per-source daily/weekly refactor + test suite; ~12m, 3 tasks, 4 files, 160→167 tests; 05-03 Backfill CLI: ingest param extensions + public wrappers + src/backfill.py + test suite; 2m 33s, 3 tasks, 4 files, 167→175 tests)
 - Phase 6 plans completed: 4 / 4 (06-01 db.py WAL scaffold: 4 tests, 191 total; 06-02 AI surface: tools.py + chat.py sync, 25 tests, 191→198 total; 06-03 app.py Streamlit Overview: auth + KPIs + charts + chat bar, 7 tests; 06-04 test pyramid closure: db + settings + charts + auth unit tests, 29 new tests, 64 dashboard tests total; ~3min, 3 tasks, 4 files)
-- Phase 7 plans completed: 2 / 6 (07-01 data+config foundation: cpd_target field + get_campaign_daily query + .env.example doc, 9 new tests, 219→248 total; ~3min, 2 TDD tasks, 5 files; 07-02 TIER tags: _tier_tag pure function + COLOR_TIER_* constants + conditional TIER column, 12 new tests, 248→260 total; ~5min, 2 TDD tasks, 2 files)
+- Phase 7 plans completed: 3 / 6 (07-01 data+config foundation: cpd_target field + get_campaign_daily query + .env.example doc, 9 new tests, 219→248 total; ~3min, 2 TDD tasks, 5 files; 07-02 TIER tags: _tier_tag pure function + COLOR_TIER_* constants + conditional TIER column, 12 new tests, 248→260 total; ~5min, 2 TDD tasks, 2 files; 07-03 campaign drill-down: pages/__init__.py + 1_Campaign_Detail.py + Overview nav, 260 tests pass, ~2min, 3 tasks, 3 files)
 
 ## Accumulated Context
 
@@ -96,6 +96,8 @@ See: .planning/PROJECT.md
 - Cache wrappers live in app.py with str db_path for cache key stability — never in db.py
 - test_app_first_streamlit_call_is_set_page_config uses tokenize module to skip docstring occurrences of st.*
 - _tier_tag uses cpd_target=0.0 default to preserve Phase 6 7-column _format_campaign_df shape; PAUSED guard runs before CPD comparison
+- Campaign Detail page re-declares palette constants (D-19 standalone rule) — each Streamlit page is an independent script; no cross-page imports
+- Overview selectbox uses campaign_rows already fetched for table (no extra DB call); st.query_params + st.switch_page pattern for URL-shareable drill-down
 
 ### Phase 1 Decisions
 
@@ -152,6 +154,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 7 plan 07-02 complete (2026-05-24) — _tier_tag function + TIER column in campaign table, 260 tests passing
-- Stopped at: 07-02 complete; next is 07-03 (campaign drill-down page using get_campaign_daily) or 07-04 (dedicated AI chat page)
+- Last action: Phase 7 plan 07-03 complete (2026-05-24) — Campaign Detail drill-down page (pages/1_Campaign_Detail.py) + Overview selectbox navigation, 260 tests passing
+- Stopped at: 07-03 complete; next is 07-04 (dedicated AI chat page) or 07-05
 - Resume file: None
