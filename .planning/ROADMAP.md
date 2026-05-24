@@ -13,7 +13,7 @@
 - [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
 - [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
 - [x] **Phase 5: Hardening & Ops** - Sentry error capture, per-source graceful degradation with unavailability notices, and backfill CLI — completed 2026-05-19
-- [ ] **Phase 6: Streamlit Performance Dashboard** - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask
+- [x] **Phase 6: Streamlit Performance Dashboard** - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask — completed 2026-05-24
 
 ## Phase Details
 
@@ -124,7 +124,8 @@ Plans:
   3. AI chat bar at the bottom of the page accepts free-text queries and returns data-grounded answers using all 5 existing Claude tools (query_metrics, compare_periods, get_campaign_detail, list_underperformers, get_landing_page_performance) — same behavior as Telegram /ask
   4. Password auth gate (DASHBOARD_PASSWORD env var) protects the dashboard; empty = open access for local dev
   5. Dashboard is fully standalone — zero aiogram/Telegram imports; imports only sqlite3, streamlit, plotly, anthropic, and src/dashboard/* modules
-**Plans:** TBD
+**Plans:** 06-01 (db.py scaffold), 06-02 (AI surface), 06-03 (app.py Streamlit Overview), 06-04 (test pyramid) — 4/4 complete
+**Status:** Complete ✓ (2026-05-24) — 64 dashboard tests passing
 **UI hint:** yes
 
 ## Coverage

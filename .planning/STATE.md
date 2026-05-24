@@ -3,27 +3,27 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 6 — Streamlit Performance Dashboard
-status: in_progress
-last_updated: "2026-05-24T10:42:00.000Z"
+status: completed
+last_updated: "2026-05-24T17:50:00.000Z"
 progress:
   total_phases: 6
-  completed_phases: 5
-  total_plans: 26
-  completed_plans: 29
+  completed_phases: 6
+  total_plans: 30
+  completed_plans: 30
   percent: 100
 ---
 
 # Project State
 
 **Project:** Ads Reporting Agent
-**Current phase:** Phase 5 — Hardening & Ops
-**Last updated:** 2026-05-19
+**Current phase:** Phase 6 — Streamlit Performance Dashboard
+**Last updated:** 2026-05-24
 
 ## Project Reference
 
 See: .planning/PROJECT.md
 **Core value:** Marketing teams get actionable campaign and landing-page insights delivered proactively to Telegram and can interrogate the data in natural language.
-**Current focus:** All 5 phases complete. 175 tests passing. v1.0 milestone delivered.
+**Current focus:** All 6 phases complete. 64 dashboard tests + 175 prior-phase tests. Phase 6 Streamlit dashboard delivered.
 
 ## Phase Status
 
@@ -34,22 +34,24 @@ See: .planning/PROJECT.md
 | 3 | GA4 Ingestion + Cross-Source Layer | Complete ✓ (2026-05-19) — 5 plans, 5 waves, 115 tests |
 | 4 | Conversational AI + Recommendations | Complete ✓ (2026-05-19) — 6 plans, 3 waves, 156 tests |
 | 5 | Hardening & Ops | Complete ✓ (2026-05-19) — 3 plans, 1 wave, 175 tests |
+| 6 | Streamlit Performance Dashboard | Complete ✓ (2026-05-24) — 4 plans, 4 waves, 64 dashboard tests |
 
 ## Current Position
 
-- **Phase:** Phase 5 — Hardening & Ops (COMPLETE)
-- **Plan:** All 28 plans complete across 5 phases
-- **Status:** v1.0 milestone complete — all 38 v1 requirements shipped + Hardening & Ops
+- **Phase:** Phase 6 — Streamlit Performance Dashboard (COMPLETE)
+- **Plan:** All 30 plans complete across 6 phases
+- **Status:** All 6 phases complete — Streamlit dashboard + all prior phases delivered
 - **Progress:** [██████████] 100%
 
 ## Performance Metrics
 
-- Phases completed: 5 / 5
+- Phases completed: 6 / 6
 - v1 requirements shipped: 38 / 38 (all v1 reqs in phases 1-4; phases 1-3 done)
 - Phase 2 plans completed: 8 / 8 (02-01 foundation extension: 1m 44s, 2 tasks, 5 files; 02-02 meta client: 2m 17s, 1 task, 3 files; 02-03 report builders: 7m, 2 tasks, 6 files; 02-04 alert engine: 3m, 1 task TDD, 3 files; 02-05 meta ingest job: 2min, 1 task, 1 file; 02-06 report jobs: 2min, 2 tasks, 2 files; 02-07 scheduler wiring: 5min, 2 tasks, 2 files; 02-08 test suite: 3min, 2 tasks, 7 files, 43→77 tests)
 - Phase 3 plans completed: 5 / 5 (03-01 foundation: schema+config; 03-02 GA4 package: client+ingest; 03-03 builder: GA4 section; 03-04 wiring: daily+weekly+main; 03-05 test suite: 77→115 tests)
 - Phase 4 plans completed: 6 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files; 04-06 test suite: 115→156 tests, 4 files, all 11 req IDs covered, Haiku pricing + loop cap regression-guarded; ~12m, 2 tasks, 4 files)
 - Phase 5 plans completed: 3 / 3 (05-01 Sentry: sentry-sdk + Settings + init + 5 capture sites + test suite; 2m 32s, 3 tasks, 9 files, 156→160 tests; 05-02 Graceful degradation: builder flags + per-source daily/weekly refactor + test suite; ~12m, 3 tasks, 4 files, 160→167 tests; 05-03 Backfill CLI: ingest param extensions + public wrappers + src/backfill.py + test suite; 2m 33s, 3 tasks, 4 files, 167→175 tests)
+- Phase 6 plans completed: 4 / 4 (06-01 db.py WAL scaffold: 4 tests, 191 total; 06-02 AI surface: tools.py + chat.py sync, 25 tests, 191→198 total; 06-03 app.py Streamlit Overview: auth + KPIs + charts + chat bar, 7 tests; 06-04 test pyramid closure: db + settings + charts + auth unit tests, 29 new tests, 64 dashboard tests total; ~3min, 3 tasks, 4 files)
 
 ## Accumulated Context
 
@@ -132,8 +134,15 @@ See: .planning/PROJECT.md
 - date.fromisoformat() in argparse __main__ block provides date validation fail-fast before any DB access
 - Dead-man's-switch: no new code — ping_heartbeat already implemented; operator must configure external service (healthchecks.io) with HEARTBEAT_URL
 
+### Phase 6 Decisions
+
+- test_dashboard_settings.py uses importlib.reload() to isolate env mutations — monkeypatch alone does not flush pydantic-settings cached module-level instance
+- test_dashboard_charts.py uses _import_app() singleton guard to avoid double st.set_page_config() calls across test runs
+- test_dashboard_auth.py catches all exceptions from _check_auth() outside AppTest context — treated as False return (gate blocked)
+- Pre-existing failures in test_ai_chat.py, test_chat_router.py, test_meta_client.py, test_upsert_idempotency.py are from prior phases — deferred to future hardening
+
 ## Session Continuity
 
-- Last action: Phase 6 plan 06-03 complete (2026-05-24) — src/dashboard/app.py Streamlit Overview page, 191→198 tests passing (7 new tests: isolation + smoke)
-- Stopped at: Phase 6 plan 06-03 complete; 06-04 (integration tests + phase closure) is next
+- Last action: Phase 6 plan 06-04 complete (2026-05-24) — test pyramid closure, 64 dashboard tests green, all 6 phases complete
+- Stopped at: All 6 phases complete; manual smoke test (streamlit run src/dashboard/app.py) recommended before UAT sign-off
 - Resume file: None
