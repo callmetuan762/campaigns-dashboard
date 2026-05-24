@@ -413,6 +413,28 @@ else:
     st.info("No campaign data in this date range.")
 
 # ---------------------------------------------------------------------------
+# Drill-down navigation (D-07, DASH-07)
+# ---------------------------------------------------------------------------
+if campaign_rows:
+    names = [r["campaign_name"] for r in campaign_rows]
+    col_sel, col_btn = st.columns([4, 1])
+    with col_sel:
+        selected_campaign = st.selectbox(
+            "Drill into a campaign",
+            options=names,
+            key="drill_select",
+            label_visibility="visible",
+        )
+    with col_btn:
+        st.write("")  # vertical alignment with selectbox label
+        if st.button("View detail →", use_container_width=True, key="drill_btn"):
+            # Campaign name set in query_params — bound as ?-param in SQL on the
+            # detail page; safe to put in URL because get_campaign_daily uses
+            # positional ? params and st.title escapes the display.
+            st.query_params["campaign"] = selected_campaign
+            st.switch_page("pages/1_Campaign_Detail.py")
+
+# ---------------------------------------------------------------------------
 # AI chat bar (D-16, D-17)
 # ---------------------------------------------------------------------------
 st.divider()
