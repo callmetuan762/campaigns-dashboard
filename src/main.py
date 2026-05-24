@@ -25,6 +25,8 @@ import src.meta.ingest as meta_ingest_module
 import src.mmm.scheduler as mmm_scheduler_module
 import src.reports.daily as daily_report_module
 import src.reports.weekly as weekly_report_module
+from aiogram.types import BotCommand
+
 from src.bot.setup import create_bot_and_dispatcher
 from src.config import load_settings
 from src.db.client import DBClient
@@ -63,6 +65,16 @@ async def main() -> None:
     # 5. Clear any stale webhook so long-polling won't get 409 (Pitfall 6)
     await bot.delete_webhook(drop_pending_updates=True)
     log.info("webhook_cleared")
+
+    # Register the "/" command menu shown in Telegram clients.
+    await bot.set_my_commands([
+        BotCommand(command="report", description="Generate latest daily report"),
+        BotCommand(command="ask",    description="Ask about ad performance — e.g. /ask best ROAS this week?"),
+        BotCommand(command="status", description="Show last sync time and row counts"),
+        BotCommand(command="clear",  description="Clear your AI conversation history"),
+        BotCommand(command="help",   description="Show available commands"),
+    ])
+    log.info("bot_commands_registered")
 
     # Phase 2: Register module-level resources for APScheduler jobs.
     # Must be called BEFORE scheduler.add_job() and scheduler.start().

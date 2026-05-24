@@ -63,6 +63,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_ignore_empty=True,
     )
 
     @field_validator("telegram_allowed_chat_ids", "telegram_allowed_user_ids", mode="before")
