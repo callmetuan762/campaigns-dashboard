@@ -19,6 +19,8 @@ dependencies = [
     "pandas>=2,<3",
     "sqlalchemy>=2,<3",
     "sentry-sdk>=2.60.0,<3",
+    "streamlit>=1.35,<2",
+    "plotly>=5.20,<6",
 ]
 
 [project.optional-dependencies]
