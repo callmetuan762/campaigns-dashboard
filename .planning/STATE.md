@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 6 — Streamlit Performance Dashboard
-status: completed
-last_updated: "2026-05-24T17:50:00.000Z"
+current_phase: Phase 7 — Dashboard v2 + 3-Agent AI
+status: in_progress
+last_updated: "2026-05-24T14:47:53.290Z"
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 30
-  completed_plans: 30
-  percent: 100
+  total_phases: 7
+  completed_phases: 5
+  total_plans: 38
+  completed_plans: 32
+  percent: 84
 ---
 
 # Project State
@@ -35,13 +35,14 @@ See: .planning/PROJECT.md
 | 4 | Conversational AI + Recommendations | Complete ✓ (2026-05-19) — 6 plans, 3 waves, 156 tests |
 | 5 | Hardening & Ops | Complete ✓ (2026-05-19) — 3 plans, 1 wave, 175 tests |
 | 6 | Streamlit Performance Dashboard | Complete ✓ (2026-05-24) — 4 plans, 4 waves, 64 dashboard tests |
+| 7 | Dashboard v2 + 3-Agent AI | In Progress (2026-05-24) — 1/6 plans complete |
 
 ## Current Position
 
-- **Phase:** Phase 6 — Streamlit Performance Dashboard (COMPLETE)
-- **Plan:** All 30 plans complete across 6 phases
-- **Status:** All 6 phases complete — Streamlit dashboard + all prior phases delivered
-- **Progress:** [██████████] 100%
+- **Phase:** Phase 7 — Dashboard v2 + 3-Agent AI (In Progress)
+- **Plan:** 07-01 complete (1/6 Phase 7 plans done)
+- **Status:** Phase 7 started — cpd_target + get_campaign_daily foundation complete
+- **Progress:** [████████░░] 84%
 
 ## Performance Metrics
 
@@ -52,6 +53,7 @@ See: .planning/PROJECT.md
 - Phase 4 plans completed: 6 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files; 04-06 test suite: 115→156 tests, 4 files, all 11 req IDs covered, Haiku pricing + loop cap regression-guarded; ~12m, 2 tasks, 4 files)
 - Phase 5 plans completed: 3 / 3 (05-01 Sentry: sentry-sdk + Settings + init + 5 capture sites + test suite; 2m 32s, 3 tasks, 9 files, 156→160 tests; 05-02 Graceful degradation: builder flags + per-source daily/weekly refactor + test suite; ~12m, 3 tasks, 4 files, 160→167 tests; 05-03 Backfill CLI: ingest param extensions + public wrappers + src/backfill.py + test suite; 2m 33s, 3 tasks, 4 files, 167→175 tests)
 - Phase 6 plans completed: 4 / 4 (06-01 db.py WAL scaffold: 4 tests, 191 total; 06-02 AI surface: tools.py + chat.py sync, 25 tests, 191→198 total; 06-03 app.py Streamlit Overview: auth + KPIs + charts + chat bar, 7 tests; 06-04 test pyramid closure: db + settings + charts + auth unit tests, 29 new tests, 64 dashboard tests total; ~3min, 3 tasks, 4 files)
+- Phase 7 plans completed: 1 / 6 (07-01 data+config foundation: cpd_target field + get_campaign_daily query + .env.example doc, 9 new tests, 219→248 total; ~3min, 2 TDD tasks, 5 files)
 
 ## Accumulated Context
 
@@ -134,6 +136,12 @@ See: .planning/PROJECT.md
 - date.fromisoformat() in argparse __main__ block provides date validation fail-fast before any DB access
 - Dead-man's-switch: no new code — ping_heartbeat already implemented; operator must configure external service (healthchecks.io) with HEARTBEAT_URL
 
+### Phase 7 Decisions
+
+- cpd_target default 0.0 in DashboardSettings — zero is the canonical "off" state; TIER tags hidden until operator sets a positive CPD target
+- get_campaign_daily has no @st.cache_data wrapper — per Phase 6 architecture, cache lives in the consumer page (07-03 will add the wrapper)
+- get_campaign_daily SQL parameter order: campaign_name first, then start_date, end_date — matches ? positions in WHERE clause, prevents param order bugs
+
 ### Phase 6 Decisions
 
 - test_dashboard_settings.py uses importlib.reload() to isolate env mutations — monkeypatch alone does not flush pydantic-settings cached module-level instance
@@ -143,6 +151,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 6 plan 06-04 complete (2026-05-24) — test pyramid closure, 64 dashboard tests green, all 6 phases complete
-- Stopped at: All 6 phases complete; manual smoke test (streamlit run src/dashboard/app.py) recommended before UAT sign-off
+- Last action: Phase 7 plan 07-01 complete (2026-05-24) — cpd_target field + get_campaign_daily query foundation, 248 tests passing
+- Stopped at: 07-01 complete; next is 07-02 (TIER tags using cpd_target) or 07-03 (drill-down using get_campaign_daily)
 - Resume file: None
