@@ -1,7 +1,7 @@
 # Roadmap: Ads Reporting Agent
 
-**Version:** 1.0
-**Total phases:** 5
+**Version:** 1.1
+**Total phases:** 6
 **Requirements:** 38 v1 requirements
 **Granularity:** coarse (5 phases)
 **Last updated:** 2026-05-19
@@ -13,6 +13,7 @@
 - [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
 - [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
 - [x] **Phase 5: Hardening & Ops** - Sentry error capture, per-source graceful degradation with unavailability notices, and backfill CLI — completed 2026-05-19
+- [ ] **Phase 6: Streamlit Performance Dashboard** - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask
 
 ## Phase Details
 
@@ -113,6 +114,19 @@ Plans:
 - [x] 05-02-PLAN.md — Graceful per-source degradation: builder availability flags, per-source guarded fetch blocks in daily/weekly jobs, ingestion_log availability detection, test suite
 - [x] 05-03-PLAN.md — Backfill CLI: date_override + suppress_alerts + skip_cache ingest params, public wrappers, src/backfill.py argparse CLI with date loop and structured logging, test suite
 
+### Phase 6: Streamlit Performance Dashboard
+**Goal:** A standalone web dashboard (no Telegram dependency) that reads the existing SQLite database and gives the marketing team a visual overview of campaign performance — KPI cards, spend vs deposits trend, Meta vs GA4 attribution chart, campaign table sorted by the NSM (CPD), and an AI chat bar backed by the same Claude tool surface as the Telegram /ask command.
+**Depends on:** Phase 4 (AI tools), Phase 3 (GA4 + cross-source data)
+**Requirements:** DASH-01, DASH-02, DASH-03, DASH-04, DASH-05
+**Success Criteria** (what must be TRUE):
+  1. `streamlit run src/dashboard/app.py` starts without error and renders the overview page with real data from the SQLite DB
+  2. Overview page shows: spend/ROAS/deposits/CPD KPI cards, spend-vs-deposits dual-axis trend chart, Meta 7d-click vs GA4 last-click grouped bar chart, and a campaign table sorted by deposits with CPD column and ROAS color indicators
+  3. AI chat bar at the bottom of the page accepts free-text queries and returns data-grounded answers using all 5 existing Claude tools (query_metrics, compare_periods, get_campaign_detail, list_underperformers, get_landing_page_performance) — same behavior as Telegram /ask
+  4. Password auth gate (DASHBOARD_PASSWORD env var) protects the dashboard; empty = open access for local dev
+  5. Dashboard is fully standalone — zero aiogram/Telegram imports; imports only sqlite3, streamlit, plotly, anthropic, and src/dashboard/* modules
+**Plans:** TBD
+**UI hint:** yes
+
 ## Coverage
 
 | Requirement | Phase |
@@ -169,3 +183,4 @@ Plans:
 | 3. GA4 Ingestion + Cross-Source Layer | 5/5 | Complete | 2026-05-19 |
 | 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
 | 5. Hardening & Ops | 3/3 | Complete | 2026-05-19 |
+| 6. Streamlit Performance Dashboard | 0/? | Not started | — |
