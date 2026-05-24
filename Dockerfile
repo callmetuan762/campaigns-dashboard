@@ -19,6 +19,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Now copy the source and install the project itself
 COPY src/ ./src/
+COPY .streamlit/ ./.streamlit/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
 
@@ -35,9 +36,10 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 
 WORKDIR /app
 
-# Copy the venv and source from the builder stage
+# Copy the venv, source, and streamlit config from the builder stage
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+COPY --from=builder --chown=app:app /app/.streamlit /app/.streamlit
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
