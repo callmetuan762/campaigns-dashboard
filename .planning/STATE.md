@@ -4,12 +4,12 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: Phase 5 — Hardening & Ops
 status: completed
-last_updated: "2026-05-24T09:58:26.437Z"
+last_updated: "2026-05-24T10:27:28.810Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 22
-  completed_plans: 26
+  total_plans: 26
+  completed_plans: 27
   percent: 100
 ---
 
@@ -82,6 +82,8 @@ See: .planning/PROJECT.md
 - Chat router included AFTER command router in setup.py to prevent F.text catch-all intercepting /commands (Pitfall 4)
 - dp["settings"] = settings injected at dispatcher init so chat_router handlers resolve settings: Settings parameter
 - generate_tldr called with db=db in daily + weekly report jobs so TL;DR token usage counted against monthly budget ceiling (Pitfall 8)
+- WAL mode set idempotently on every _conn() open — protects dashboard against fresh DB not yet written by bot
+- streamlit + plotly added as runtime (not dev) deps per D-03 in 06-CONTEXT.md
 
 ### Phase 1 Decisions
 
