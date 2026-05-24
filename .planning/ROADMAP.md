@@ -1,8 +1,8 @@
 # Roadmap: Ads Reporting Agent
 
-**Version:** 1.1
-**Total phases:** 6
-**Requirements:** 38 v1 requirements
+**Version:** 2.0
+**Total phases:** 7
+**Requirements:** 38 v1 + 5 v2 requirements
 **Granularity:** coarse (5 phases)
 **Last updated:** 2026-05-19
 
@@ -13,7 +13,8 @@
 - [x] **Phase 3: GA4 Ingestion + Cross-Source Layer** - GA4 metrics joined to Meta via UTM with side-by-side attribution and coverage warnings — completed 2026-05-19
 - [x] **Phase 4: Conversational AI + Recommendations** - Claude tool-use chat with multi-turn context, guardrails, and evidence-backed optimization advice — completed 2026-05-19
 - [x] **Phase 5: Hardening & Ops** - Sentry error capture, per-source graceful degradation with unavailability notices, and backfill CLI — completed 2026-05-19
-- [x] **Phase 6: Streamlit Performance Dashboard** - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask — completed 2026-05-24
+- [x] **Phase 6: Streamlit Performance Dashboard** - completed 2026-05-24
+- [ ] **Phase 7: Dashboard v2 + 3-Agent AI** - Campaigns drill-down page, TIER action tags (★ SCALE/MAINTAIN/REDUCE), 3-agent AI architecture (Meta Agent + GA4 Agent + Attribution Agent + Orchestrator) for higher-accuracy recommendations, and dedicated AI Chat page - Standalone web dashboard reading from the existing SQLite DB with KPI cards, trend charts, campaign table, Meta vs GA4 attribution view, and an embedded AI chat bar backed by the same Claude tool surface as Telegram /ask — completed 2026-05-24
 
 ## Phase Details
 
@@ -128,6 +129,19 @@ Plans:
 **Status:** Complete ✓ (2026-05-24) — 64 dashboard tests passing
 **UI hint:** yes
 
+### Phase 7: Dashboard v2 + 3-Agent AI
+**Goal:** Upgrade the dashboard with actionable TIER tags (★ SCALE / MAINTAIN / REDUCE) on the campaign table, a campaigns drill-down page (click a row → daily detail + Meta/GA4 side-by-side), a dedicated AI Chat page, and a 3-agent AI architecture (Meta Agent + GA4 Agent + Attribution Agent + Orchestrator) that fans out queries in parallel for higher-accuracy, source-cited recommendations.
+**Depends on:** Phase 6 (dashboard), Phase 4 (AI tools)
+**Requirements:** DASH-06, DASH-07, DASH-08, DASH-09, DASH-10
+**Success Criteria** (what must be TRUE):
+  1. Campaign table shows TIER tags (★ SCALE / MAINTAIN / REDUCE / PAUSED) based on CPD vs configurable target threshold; target stored in settings as `cpd_target`
+  2. Clicking a campaign row navigates to a drill-down page showing daily spend/deposits/sessions trend + Meta vs GA4 side-by-side for that campaign
+  3. A dedicated AI Chat page provides full-screen chat experience without overview widgets
+  4. 3-agent architecture: user question fans out to Meta Agent and GA4 Agent in parallel; Attribution Agent reconciles the two outputs; Orchestrator assembles the final answer — total latency ≤ 2× single-agent latency
+  5. All existing Phase 6 functionality (overview page, auth, standalone import rules, 239 passing tests) remains intact
+**Plans:** TBD
+**UI hint:** yes
+
 ## Coverage
 
 | Requirement | Phase |
@@ -173,7 +187,13 @@ Plans:
 | REC-02 | 4 |
 | REC-03 | 4 |
 
-**Total:** 38 mapped, 0 unmapped ✓
+| DASH-06 | 7 |
+| DASH-07 | 7 |
+| DASH-08 | 7 |
+| DASH-09 | 7 |
+| DASH-10 | 7 |
+
+**Total:** 43 mapped, 0 unmapped ✓
 
 ## Progress
 
@@ -185,3 +205,4 @@ Plans:
 | 4. Conversational AI + Recommendations | 6/6 | Complete | 2026-05-19 |
 | 5. Hardening & Ops | 3/3 | Complete | 2026-05-19 |
 | 6. Streamlit Performance Dashboard | 4/4 | Complete | 2026-05-24 |
+| 7. Dashboard v2 + 3-Agent AI | 0/? | Not started | — |
