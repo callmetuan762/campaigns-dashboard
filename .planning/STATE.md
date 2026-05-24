@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: Phase 6 — Streamlit Performance Dashboard
-status: TIER action tags delivered — _tier_tag + conditional TIER column in campaign table
-last_updated: "2026-05-24T14:56:38.017Z"
+current_phase: Phase 7 — Dashboard v2 + 3-Agent AI
+status: 3-agent AI architecture delivered — MetaAgent + GA4Agent parallel fan-out, AttributionAgent reconciliation, run_chat_3agent
+last_updated: "2026-05-24T15:30:00Z"
 progress:
   total_phases: 7
   completed_phases: 5
@@ -23,7 +23,7 @@ progress:
 
 See: .planning/PROJECT.md
 **Core value:** Marketing teams get actionable campaign and landing-page insights delivered proactively to Telegram and can interrogate the data in natural language.
-**Current focus:** All 6 phases complete. 64 dashboard tests + 175 prior-phase tests. Phase 6 Streamlit dashboard delivered.
+**Current focus:** Phase 7 in progress. 3-agent AI architecture (07-04) complete; 277 tests passing.
 
 ## Phase Status
 
@@ -40,8 +40,8 @@ See: .planning/PROJECT.md
 ## Current Position
 
 - **Phase:** Phase 7 — Dashboard v2 + 3-Agent AI (In Progress)
-- **Plan:** 07-03 complete (3/6 Phase 7 plans done)
-- **Status:** Campaign Detail drill-down page with URL query param navigation and dual Plotly charts delivered
+- **Plan:** 07-04 complete (4/6 Phase 7 plans done)
+- **Status:** 3-agent AI architecture delivered — MetaAgent + GA4Agent parallel fan-out, AttributionAgent reconciliation, Orchestrator, run_chat_3agent
 - **Progress:** [██████████] 100%
 
 ## Performance Metrics
@@ -53,7 +53,7 @@ See: .planning/PROJECT.md
 - Phase 4 plans completed: 6 / 6 (04-01 foundation: anthropic_monthly_budget_usd setting + MIGRATION_004_PHASE4 + 5 DBClient methods + _deserialize_message; 1m 28s, 2 tasks, 3 files; 04-02 AI tools module: TOOLS list + 5 tool functions + dispatch_tool + calculate_cost + frozenset allowlists; ~15m, 2 tasks, 1 file; 04-03 chat.py: handle_chat_message + agentic loop + budget gate + tool dispatch; 2 tasks, 1 file; 04-04 chat_router.py: catch-all handler + inline keyboard + /clear + /help update; ~2m, 2 tasks, 2 files; 04-05 wiring: chat_router + settings injected into dispatcher, db=db plumbed to generate_tldr; 103s, 2 tasks, 3 files; 04-06 test suite: 115→156 tests, 4 files, all 11 req IDs covered, Haiku pricing + loop cap regression-guarded; ~12m, 2 tasks, 4 files)
 - Phase 5 plans completed: 3 / 3 (05-01 Sentry: sentry-sdk + Settings + init + 5 capture sites + test suite; 2m 32s, 3 tasks, 9 files, 156→160 tests; 05-02 Graceful degradation: builder flags + per-source daily/weekly refactor + test suite; ~12m, 3 tasks, 4 files, 160→167 tests; 05-03 Backfill CLI: ingest param extensions + public wrappers + src/backfill.py + test suite; 2m 33s, 3 tasks, 4 files, 167→175 tests)
 - Phase 6 plans completed: 4 / 4 (06-01 db.py WAL scaffold: 4 tests, 191 total; 06-02 AI surface: tools.py + chat.py sync, 25 tests, 191→198 total; 06-03 app.py Streamlit Overview: auth + KPIs + charts + chat bar, 7 tests; 06-04 test pyramid closure: db + settings + charts + auth unit tests, 29 new tests, 64 dashboard tests total; ~3min, 3 tasks, 4 files)
-- Phase 7 plans completed: 3 / 6 (07-01 data+config foundation: cpd_target field + get_campaign_daily query + .env.example doc, 9 new tests, 219→248 total; ~3min, 2 TDD tasks, 5 files; 07-02 TIER tags: _tier_tag pure function + COLOR_TIER_* constants + conditional TIER column, 12 new tests, 248→260 total; ~5min, 2 TDD tasks, 2 files; 07-03 campaign drill-down: pages/__init__.py + 1_Campaign_Detail.py + Overview nav, 260 tests pass, ~2min, 3 tasks, 3 files)
+- Phase 7 plans completed: 4 / 6 (07-01 data+config foundation: cpd_target field + get_campaign_daily query + .env.example doc, 9 new tests, 219→248 total; ~3min, 2 TDD tasks, 5 files; 07-02 TIER tags: _tier_tag pure function + COLOR_TIER_* constants + conditional TIER column, 12 new tests, 248→260 total; ~5min, 2 TDD tasks, 2 files; 07-03 campaign drill-down: pages/__init__.py + 1_Campaign_Detail.py + Overview nav, 260 tests pass, ~2min, 3 tasks, 3 files; 07-04 3-agent AI: MetaAgent + GA4Agent + AttributionAgent + Orchestrator + GA4_TOOLS + run_chat_3agent, 17 new tests, 260→277 total; ~15min, 3 TDD tasks, 6 files)
 
 ## Accumulated Context
 
@@ -144,6 +144,13 @@ See: .planning/PROJECT.md
 - cpd_target default 0.0 in DashboardSettings — zero is the canonical "off" state; TIER tags hidden until operator sets a positive CPD target
 - get_campaign_daily has no @st.cache_data wrapper — per Phase 6 architecture, cache lives in the consumer page (07-03 will add the wrapper)
 - get_campaign_daily SQL parameter order: campaign_name first, then start_date, end_date — matches ? positions in WHERE clause, prevents param order bugs
+- GA4_TOOLS = [get_landing_page_performance, ga4_query_metrics] — MetaAgent keeps all 5 TOOLS; ga4_query_metrics forces source=ga4 internally so schema has no source property (D-22, D-23)
+- Lazy import of Orchestrator/BudgetExhaustedError inside run_chat_3agent() body — prevents circular import (agents.py imports from chat.py)
+- Each agent creates its own anthropic.Anthropic() client instance per .run() call — enables clean mock patching per agent in unit tests
+- AttributionAgent wraps user_text + meta_result + ga4_result in <data> tags (T-07-04-01, T-07-04-02 mitigations)
+- Budget gate in Orchestrator.run() checked ONCE before ThreadPoolExecutor block — cannot be raced (D-19)
+- 5 iterations max per agent (_AGENT_MAX_ITERATIONS=5) vs run_chat's 10 — tighter per-agent loop cap
+- run_chat_3agent persists only final synthesized text into history (D-20) — agent-internal tool traces dropped to prevent context-window bloat
 
 ### Phase 6 Decisions
 
@@ -154,6 +161,6 @@ See: .planning/PROJECT.md
 
 ## Session Continuity
 
-- Last action: Phase 7 plan 07-03 complete (2026-05-24) — Campaign Detail drill-down page (pages/1_Campaign_Detail.py) + Overview selectbox navigation, 260 tests passing
-- Stopped at: 07-03 complete; next is 07-04 (dedicated AI chat page) or 07-05
+- Last action: Phase 7 plan 07-04 complete (2026-05-24) — 3-agent AI architecture (agents.py + GA4_TOOLS + run_chat_3agent), 277 tests passing
+- Stopped at: 07-04 complete; next is 07-05 (dedicated AI Chat page or remaining Phase 7 plans)
 - Resume file: None
