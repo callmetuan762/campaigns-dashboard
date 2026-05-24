@@ -139,7 +139,15 @@ Plans:
   3. A dedicated AI Chat page provides full-screen chat experience without overview widgets
   4. 3-agent architecture: user question fans out to Meta Agent and GA4 Agent in parallel; Attribution Agent reconciles the two outputs; Orchestrator assembles the final answer — total latency ≤ 2× single-agent latency
   5. All existing Phase 6 functionality (overview page, auth, standalone import rules, 239 passing tests) remains intact
-**Plans:** TBD
+**Plans:** 6 plans
+
+Plans:
+- [ ] 07-01-PLAN.md — Foundation: cpd_target setting + db.get_campaign_daily()
+- [ ] 07-02-PLAN.md — TIER action tags (DASH-06) in campaign table
+- [ ] 07-03-PLAN.md — Campaign drill-down page (DASH-07) with pages/1_Campaign_Detail.py
+- [ ] 07-04-PLAN.md — 3-agent architecture (DASH-09, DASH-10): MetaAgent + GA4Agent + AttributionAgent + Orchestrator
+- [ ] 07-05-PLAN.md — Dedicated AI Chat page (DASH-08) at pages/2_AI_Chat.py
+- [ ] 07-06-PLAN.md — Phase 7 test suite + regression sweep
 **UI hint:** yes
 
 ## Coverage
