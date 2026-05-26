@@ -400,6 +400,25 @@ class DBClient:
             {"chat_id": chat_id, "user_id": user_id},
         )
 
+    # ---- Phase 8 (changelog): ad change history ----
+
+    async def upsert_changelog_entries(self, entries: list[dict]) -> int:
+        """Insert changelog entries, ignoring duplicates (UNIQUE on object_id+change_time+event_type)."""
+        if not entries:
+            return 0
+        sql = """
+            INSERT OR IGNORE INTO ad_changelogs
+                (change_time, object_id, object_name, object_type, event_type,
+                 changed_fields, old_value, new_value, actor_name)
+            VALUES
+                (:change_time, :object_id, :object_name, :object_type, :event_type,
+                 :changed_fields, :old_value, :new_value, :actor_name)
+        """
+        async with aiosqlite.connect(str(self._path)) as con:
+            await con.executemany(sql, entries)
+            await con.commit()
+        return len(entries)
+
     # ---- Phase 8: MMM results (append-only) ----
 
     _INSERT_MMM_RESULT_SQL = """
@@ -430,3 +449,72 @@ class DBClient:
     async def get_mmm_results(self, limit: int = 10) -> list[dict]:
         """Return mmm_results rows ordered by run_date DESC, capped at `limit`."""
         return await self.fetch_all(self._SELECT_MMM_RESULTS_SQL, (limit,))
+
+    # ---- Stripe payments (Google Sheets pull) ----
+
+    _UPSERT_STRIPE_PAYMENTS_SQL = """
+        INSERT INTO stripe_payments
+            (uid, submitted_at, email, source, status, session_id, fetched_at)
+        VALUES
+            (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(uid) DO UPDATE SET
+            status     = excluded.status,
+            session_id = excluded.session_id,
+            fetched_at = excluded.fetched_at
+    """
+
+    async def upsert_ad_creatives(self, rows: list[dict]) -> int:
+        """Insert or update ad creative metadata rows."""
+        if not rows:
+            return 0
+        sql = """
+            INSERT INTO ad_creatives
+                (ad_id, ad_name, adset_id, campaign_id, effective_status,
+                 ad_format, ad_style, thumbnail_url, destination_url, preview_url, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(ad_id) DO UPDATE SET
+                ad_name=excluded.ad_name,
+                effective_status=excluded.effective_status,
+                ad_format=excluded.ad_format,
+                ad_style=excluded.ad_style,
+                thumbnail_url=excluded.thumbnail_url,
+                destination_url=excluded.destination_url,
+                preview_url=excluded.preview_url,
+                fetched_at=excluded.fetched_at
+        """
+        async with self._conn.cursor() as cur:
+            for row in rows:
+                await cur.execute(sql, (
+                    row['ad_id'], row['ad_name'], row.get('adset_id', ''),
+                    row.get('campaign_id', ''), row.get('effective_status', ''),
+                    row.get('ad_format', ''), row.get('ad_style', ''),
+                    row.get('thumbnail_url', ''), row.get('destination_url', ''),
+                    row.get('preview_url', ''),
+                ))
+            await self._conn.commit()
+        return len(rows)
+
+    async def upsert_stripe_payments(self, rows: list[dict]) -> int:
+        """Upsert stripe_payments rows.
+
+        Updates status and session_id if uid already exists (pending can become paid).
+        Returns count of rows processed.
+
+        INFRA-03: idempotent at SQL layer via INSERT ... ON CONFLICT DO UPDATE.
+        """
+        if not rows:
+            return 0
+        params = [
+            (
+                r["uid"],
+                r["submitted_at"],
+                r.get("email"),
+                r.get("source"),
+                r["status"],
+                r.get("session_id"),
+            )
+            for r in rows
+        ]
+        await self.conn.executemany(self._UPSERT_STRIPE_PAYMENTS_SQL, params)
+        await self.conn.commit()
+        return len(rows)

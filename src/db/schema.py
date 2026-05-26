@@ -189,6 +189,70 @@ CREATE INDEX IF NOT EXISTS idx_mmm_results_run_date ON mmm_results(run_date DESC
 """
 
 # ---------------------------------------------------------------------------
+# Migration 007 — Ad changelog (change_history API)
+# ---------------------------------------------------------------------------
+
+MIGRATION_007_CHANGELOGS: str = """
+CREATE TABLE IF NOT EXISTS ad_changelogs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    change_time     TEXT NOT NULL,
+    object_id       TEXT NOT NULL,
+    object_name     TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    changed_fields  TEXT,
+    old_value       TEXT,
+    new_value       TEXT,
+    actor_name      TEXT,
+    fetched_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(object_id, change_time, event_type)
+);
+CREATE INDEX IF NOT EXISTS idx_ad_changelogs_time ON ad_changelogs(change_time DESC);
+CREATE INDEX IF NOT EXISTS idx_ad_changelogs_object ON ad_changelogs(object_type, object_id);
+"""
+
+# ---------------------------------------------------------------------------
+# Migration 008 — Stripe payments from Google Sheets
+# ---------------------------------------------------------------------------
+
+MIGRATION_008_STRIPE_PAYMENTS: str = """
+CREATE TABLE IF NOT EXISTS stripe_payments (
+    uid             TEXT PRIMARY KEY,
+    submitted_at    TEXT NOT NULL,
+    email           TEXT,
+    source          TEXT,
+    status          TEXT NOT NULL CHECK(status IN ('pending', 'paid')),
+    session_id      TEXT,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_stripe_submitted ON stripe_payments(submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stripe_source ON stripe_payments(source, status);
+"""
+
+# ---------------------------------------------------------------------------
+# Migration 009 — Ad creatives metadata (style, format, thumbnail, URLs)
+# ---------------------------------------------------------------------------
+
+MIGRATION_009_AD_CREATIVES: str = """
+CREATE TABLE IF NOT EXISTS ad_creatives (
+    ad_id           TEXT PRIMARY KEY,
+    ad_name         TEXT NOT NULL,
+    adset_id        TEXT,
+    campaign_id     TEXT,
+    effective_status TEXT,
+    ad_format       TEXT,
+    ad_style        TEXT,
+    thumbnail_url   TEXT,
+    destination_url TEXT,
+    preview_url     TEXT,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ad_creatives_campaign ON ad_creatives(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_ad_creatives_style ON ad_creatives(ad_style);
+CREATE INDEX IF NOT EXISTS idx_ad_creatives_format ON ad_creatives(ad_format);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -199,4 +263,7 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("004_phase4", MIGRATION_004_PHASE4),
     ("005_form_submit", MIGRATION_005_FORM_SUBMIT),
     ("006_phase8", MIGRATION_006_PHASE8),
+    ("007_changelogs", MIGRATION_007_CHANGELOGS),
+    ("008_stripe_payments", MIGRATION_008_STRIPE_PAYMENTS),
+    ("009_ad_creatives", MIGRATION_009_AD_CREATIVES),
 ]
