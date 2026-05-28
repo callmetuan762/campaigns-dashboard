@@ -20,6 +20,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+import src.daily_backfill as daily_backfill_module
 import src.ga4.ingest as ga4_ingest_module
 import src.meta.ingest as meta_ingest_module
 import src.mmm.scheduler as mmm_scheduler_module
@@ -79,6 +80,7 @@ async def main() -> None:
     # Phase 2: Register module-level resources for APScheduler jobs.
     # Must be called BEFORE scheduler.add_job() and scheduler.start().
     # CRITICAL: Resources are NOT passed as job args (PicklingError with SQLAlchemyJobStore).
+    daily_backfill_module.register_job_resources(db, settings)
     ga4_ingest_module.register_job_resources(bot, db, settings)
     meta_ingest_module.register_job_resources(bot, db, settings)
     daily_report_module.register_job_resources(bot, db, settings)
@@ -125,6 +127,14 @@ async def main() -> None:
         replace_existing=True,
         misfire_grace_time=300,
         coalesce=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        daily_backfill_module.daily_backfill_job,
+        trigger=CronTrigger(hour=3, minute=0, timezone=settings.report_timezone),
+        id="daily_backfill",
+        replace_existing=True,
+        misfire_grace_time=3600,
         max_instances=1,
     )
     scheduler.add_job(

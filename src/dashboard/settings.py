@@ -19,6 +19,8 @@ class DashboardSettings(BaseSettings):
     cpd_target: float = 0.0
     # MMM: monetary value of one deposit in USD; 0.0 = report in deposits-per-$1000 units (D-09)
     deposit_value_usd: float = 0.0
+    # Meta account ID — used to generate Ads Manager deep-links in the UI
+    meta_ad_account_id: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -27,6 +29,3 @@ class DashboardSettings(BaseSettings):
         extra="ignore",
         env_ignore_empty=True,
     )
-
-
-settings = DashboardSettings()

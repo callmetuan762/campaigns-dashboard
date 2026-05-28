@@ -16,3 +16,9 @@ secrets/
 *.egg-info/
 dist/
 build/
+*.log
+key/
+briefs/
+*.html
+run-bot.ps1
+Caddyfile

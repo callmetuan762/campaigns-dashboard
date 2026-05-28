@@ -4,7 +4,7 @@ Renders the latest Marketing Mix Model (MMM) result from the `mmm_results`
 SQLite table: KPI cards, saturation curve, weekly contribution stacked bar,
 and Meta vs GA4 attribution table.
 
-Standalone page — no bot framework imports (D-19 rule). Palette constants
+Standalone page -- no bot framework imports (D-19 rule). Palette constants
 are re-declared inline, never imported from app.py.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ st.set_page_config(
 from src.dashboard import db                            # noqa: E402
 from src.dashboard.settings import DashboardSettings    # noqa: E402
 
-# --- Dark-theme palette — duplicated from app.py per D-19 standalone rule ---
+# --- Dark-theme palette -- duplicated from app.py per D-19 standalone rule ---
 COLOR_BG_PAPER = "#0f1117"
 COLOR_BG_PLOT = "#1a1d27"
 COLOR_FONT = "#e4e7ef"
@@ -41,7 +41,7 @@ COLOR_OPT_ZONE = "#34d399"
 COLOR_AVG_LINE = "#f59e0b"
 
 
-# --- Auth gate — duplicated from app.py per D-19 (each page is its own script)
+# --- Auth gate -- duplicated from app.py per D-19 (each page is its own script)
 def _check_auth(password_required: str) -> bool:
     if not password_required:
         return True
@@ -143,7 +143,7 @@ def _build_saturation_chart(
         font=dict(color=COLOR_FONT),
         xaxis=dict(title="Daily Spend ($)", gridcolor=COLOR_GRID, zeroline=False),
         yaxis=dict(
-            title="Saturation (0–1)",
+            title="Saturation (0-1)",
             gridcolor=COLOR_GRID,
             zeroline=False,
             range=[0, 1.05],
@@ -201,7 +201,7 @@ def _build_contribution_bar(contribs: list[dict[str, Any]]) -> go.Figure:
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT),
         xaxis=dict(title="ISO Week", gridcolor=COLOR_GRID),
-        yaxis=dict(title="Deposits", gridcolor=COLOR_GRID, zeroline=False),
+        yaxis=dict(title="FSD", gridcolor=COLOR_GRID, zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=40, t=40, b=40),
         height=380,
@@ -212,7 +212,7 @@ def _build_contribution_bar(contribs: list[dict[str, Any]]) -> go.Figure:
 def _run_mmm_now(settings: DashboardSettings) -> None:
     """Inline manual MMM run from the empty-state button (D-13).
 
-    Sync — no asyncio, no Telegram push. Loads campaign-level daily spend +
+    Sync -- no asyncio, no Telegram push. Loads campaign-level daily spend +
     deposits via sqlite3, calls fit_mmm(), inserts the resulting row directly
     via sync sqlite3.connect (NOT aiosqlite), clears caches, then st.rerun().
     """
@@ -252,7 +252,7 @@ def _run_mmm_now(settings: DashboardSettings) -> None:
         return
 
     if not rows:
-        st.error("No campaign-level spend data available — cannot run MMM.")
+        st.error("No campaign-level spend data available -- cannot run MMM.")
         return
 
     spend_arr = np.array([float(r["daily_spend"] or 0) for r in rows], dtype=float)
@@ -263,7 +263,7 @@ def _run_mmm_now(settings: DashboardSettings) -> None:
 
     deposit_value_usd = float(getattr(settings, "deposit_value_usd", 0.0) or 0.0)
 
-    with st.spinner("Fitting MMM (geometric adstock + Hill + OLS)…"):
+    with st.spinner("Fitting MMM (geometric adstock + Hill + OLS)..."):
         result = fit_mmm(
             spend_arr,
             deposits_arr,
@@ -274,7 +274,7 @@ def _run_mmm_now(settings: DashboardSettings) -> None:
 
     if result is None:
         st.error(
-            "MMM fit failed — typically caused by too few weeks of data, "
+            "MMM fit failed -- typically caused by too few weeks of data, "
             "sparse deposits, or Hill saturation not converging. "
             "Check bot logs for the specific reason."
         )
@@ -298,13 +298,13 @@ def _run_mmm_now(settings: DashboardSettings) -> None:
             con.commit()
     except sqlite3.OperationalError as exc:
         st.error(
-            f"Could not save MMM result — mmm_results table missing? {exc}"
+            f"Could not save MMM result -- mmm_results table missing? {exc}"
         )
         return
 
     # Invalidate cached reads so the next render shows the fresh row.
     st.cache_data.clear()
-    st.success("MMM run complete — refreshing…")
+    st.success("MMM run complete -- refreshing...")
     st.rerun()
 
 
@@ -314,10 +314,10 @@ settings = DashboardSettings()  # type: ignore[call-arg]
 if not _check_auth(settings.dashboard_password):
     st.stop()
 
-st.page_link("app.py", label="← Back to Overview")
+st.page_link("Overview.py", label="<- Back to Overview")
 st.title("Attribution Intelligence")
 st.caption(
-    "Marketing Mix Model (MMM) — geometric adstock + Hill saturation + "
+    "Marketing Mix Model (MMM) -- geometric adstock + Hill saturation + "
     "OLS decomposition. Estimates Meta media's incremental contribution to "
     "deposits, separate from baseline (organic) demand."
 )
@@ -354,23 +354,23 @@ c2.metric(
 c3.metric(
     "Optimal Daily Spend",
     f"~${mmm['optimal_daily_spend']:.0f}",
-    help="Spend level at 80% of Hill saturation — above this, returns "
+    help="Spend level at 80% of Hill saturation -- above this, returns "
          "diminish sharply.",
 )
 maturity_display = str(mmm.get("maturity_label", "")).replace("_", " ").title()
 c4.metric(
     "Data Maturity",
-    maturity_display or "—",
+    maturity_display or "--",
     help=f"Based on {mmm.get('weeks_of_data', 0)} weeks of data. "
-         f"≥12 weeks = reliable; 8–11 = early; <8 = directional only.",
+         f">=12 weeks = reliable; 8-11 = early; <8 = directional only.",
 )
 
 # Footnote when maturity warrants it.
 maturity = str(mmm.get("maturity_label", ""))
 if maturity == "directional_only":
     st.warning(
-        f"⚠ Directional only — {mmm.get('weeks_of_data', 0)} weeks of data. "
-        "Results improve significantly at ≥8 weeks; treat as orientation, "
+        f"[!] Directional only -- {mmm.get('weeks_of_data', 0)} weeks of data. "
+        "Results improve significantly at >=8 weeks; treat as orientation, "
         "not allocation truth."
     )
 elif maturity == "early":
@@ -382,7 +382,7 @@ elif maturity == "early":
 # --- Row 2: Saturation curve + 12-week contribution bar (D-11) -------------
 col_left, col_right = st.columns(2)
 
-# Pull the weekly contributions once — used by both columns (avg_spend on left,
+# Pull the weekly contributions once -- used by both columns (avg_spend on left,
 # bar values on right).
 contribs = _cached_weekly_contributions(db_path_str)
 
@@ -401,8 +401,8 @@ with col_left:
     fig_sat = _build_saturation_chart(km_val, n_val, avg_spend, opt_val)
     st.plotly_chart(fig_sat, use_container_width=True)
     st.caption(
-        f"Hill parameters: Km=${km_val:.0f}, n={n_val:.2f}, θ={float(mmm.get('theta') or 0):.2f}. "
-        "Optimal zone is ±15% of optimal daily spend."
+        f"Hill parameters: Km=${km_val:.0f}, n={n_val:.2f}, theta={float(mmm.get('theta') or 0):.2f}. "
+        "Optimal zone is +/-15% of optimal daily spend."
     )
 
 with col_right:
@@ -422,21 +422,21 @@ start_30 = (today - timedelta(days=30)).isoformat()
 attr_rows = _cached_attribution(db_path_str, start_30, end_yesterday)
 
 if attr_rows:
-    import pandas as pd  # local import — Streamlit auto-renders DataFrames
+    import pandas as pd  # local import -- Streamlit auto-renders DataFrames
 
     df = pd.DataFrame(attr_rows)
     # Reorder + rename columns for display clarity (never blend numbers).
     display_cols = {
         "campaign_name": "Campaign",
         "meta_purchases": "Meta purchases (7d-click)",
-        "meta_deposits": "Meta deposits",
+        "meta_deposits": "Meta FSD (form_submit)",
         "ga4_purchases": "GA4 purchases (last-click)",
     }
     present = [c for c in display_cols if c in df.columns]
     df_display = df[present].rename(columns=display_cols)
     st.dataframe(df_display, use_container_width=True, hide_index=True)
     st.caption(
-        "Never blend — Meta uses 7-day click attribution; GA4 uses last-click. "
+        "Never blend -- Meta uses 7-day click attribution; GA4 uses last-click. "
         "Discrepancies between these numbers are expected and normal."
     )
 else:

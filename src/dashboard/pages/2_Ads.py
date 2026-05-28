@@ -101,6 +101,13 @@ def _cached_style_breakdown(
     return db.get_ad_style_breakdown(Path(db_path_str), start, end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_concept_breakdown(
+    db_path_str: str, start: str, end: str
+) -> list[dict[str, Any]]:
+    return db.get_creative_concept_breakdown(Path(db_path_str), start, end)
+
+
 # ---------------------------------------------------------------------------
 # Insight helpers
 # ---------------------------------------------------------------------------
@@ -194,6 +201,60 @@ def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
     return fig
 
 
+def _make_concept_chart(rows: list[dict[str, Any]]) -> go.Figure:
+    """Horizontal bar: CPR (FSD) by concept, sorted best-first (ascending).
+
+    Bars with no FSD (CPR = None) are shown as a faint stub at 0.
+    Color: green if fsd >= 3 (high confidence), amber if 1-2, gray if 0.
+    """
+    # Filter to rows that have CPR; put no-FSD at bottom
+    with_cpr = [r for r in rows if r.get("cpr_fsd") is not None]
+    no_cpr   = [r for r in rows if r.get("cpr_fsd") is None]
+    ordered  = with_cpr + no_cpr   # best first (already sorted by caller)
+
+    concepts = [r["concept"] for r in ordered]
+    cprs     = [r.get("cpr_fsd") or 0 for r in ordered]
+    fsds     = [int(r.get("fsd") or 0) for r in ordered]
+
+    def _bar_color(fsd: int, has_cpr: bool) -> str:
+        if not has_cpr:
+            return "#374151"   # dark gray — no conversions
+        if fsd >= 3:
+            return COLOR_DEPOSITS   # green — confident
+        if fsd >= 1:
+            return "#f59e0b"        # amber — low volume
+        return "#374151"
+
+    colors = [_bar_color(f, r.get("cpr_fsd") is not None) for f, r in zip(fsds, ordered)]
+    labels = [
+        f"${r['cpr_fsd']:.0f}  ({r['fsd']} FSD)" if r.get("cpr_fsd") else f"No FSD  (${r['spend']:.0f} spent)"
+        for r in ordered
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=cprs,
+        y=concepts,
+        orientation="h",
+        marker_color=colors,
+        text=labels,
+        textposition="outside",
+        name="CPR (FSD)",
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        plot_bgcolor=COLOR_BG_PLOT,
+        paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT, size=11),
+        xaxis=dict(title="CPR (FSD) $", gridcolor=COLOR_GRID, tickprefix="$"),
+        yaxis=dict(title="", gridcolor=COLOR_GRID, autorange="reversed"),
+        margin=dict(l=20, r=160, t=20, b=30),
+        height=max(280, len(ordered) * 36),
+        showlegend=False,
+    )
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -201,6 +262,23 @@ settings = DashboardSettings()  # type: ignore[call-arg]
 
 if not _check_auth(settings.dashboard_password):
     st.stop()
+
+# Ads Manager account ID — used to build deep-links that bypass post-permalink auth.
+_ACT_ID = settings.meta_ad_account_id.removeprefix("act_") if settings.meta_ad_account_id else ""
+
+
+def _adsmanager_url(ad_id: str) -> str:
+    """Build an Ads Manager deep-link for a given ad_id.
+
+    Always accessible to account admins; does not require the ad to be a public post.
+    Falls back to empty string if account ID is not configured (link column hidden by Streamlit).
+    """
+    if not ad_id or not _ACT_ID:
+        return ""
+    return (
+        f"https://www.facebook.com/adsmanager/manage/ads"
+        f"?act={_ACT_ID}&selected_ad_ids={ad_id}"
+    )
 
 st.title("Ad Creative Analysis")
 st.caption("Ad-level performance by format and style. Requires daily backfill with ad-level insights.")
@@ -266,6 +344,7 @@ top_ads = _cached_top_ads(db_path_str, start_iso, end_iso, limit=20)
 fatigue_ads = _cached_fatigue_ads(db_path_str, start_iso, end_iso)
 format_rows = _cached_format_breakdown(db_path_str, start_iso, end_iso)
 style_rows = _cached_style_breakdown(db_path_str, start_iso, end_iso)
+concept_rows = _cached_concept_breakdown(db_path_str, start_iso, end_iso)
 
 # Check if any ad-level data exists at all
 _has_data = bool(top_ads or fatigue_ads or format_rows or style_rows)
@@ -314,6 +393,11 @@ if style_filter:
 # ---------------------------------------------------------------------------
 st.subheader("Top Performing Ads")
 
+# Index fatigue data by ad_id so Section 1 can surface early CTR-decline warnings
+_fatigue_by_id: dict[str, dict] = {
+    r["ad_id"]: r for r in fatigue_ads if r.get("ad_id")
+}
+
 if _filtered_top:
     # Build display dataframe
     _top_display = []
@@ -321,8 +405,16 @@ if _filtered_top:
         fsd = int(r.get("fsd") or 0)
         avg_ctr = float(r.get("avg_ctr") or 0)
         avg_freq = float(r.get("avg_frequency") or 0)
-        preview_url = r.get("preview_url") or ""
-        preview_link = f"[View on Facebook]({preview_url})" if preview_url else ""
+        ad_id = str(r.get("ad_id") or "")
+        preview_link = _adsmanager_url(ad_id)  # plain URL — LinkColumn handles display_text
+        # Check for CTR decline in fatigue data (early warning even for currently top ads)
+        _fatigue_info = _fatigue_by_id.get(r.get("ad_id", ""), {})
+        _ctr_delta = _fatigue_info.get("ctr_change_pct")
+        _base_insight = _ad_insight(fsd, avg_ctr, avg_freq)
+        if _ctr_delta is not None and _ctr_delta <= -30:
+            _insight = f"{_base_insight} · ⚠️ CTR ↓{abs(_ctr_delta):.0f}%"
+        else:
+            _insight = _base_insight
         _top_display.append({
             "thumbnail": r.get("thumbnail_url") or "",
             "ad_name": r.get("ad_name") or r.get("ad_id") or "",
@@ -331,10 +423,11 @@ if _filtered_top:
             "style": r.get("ad_style") or "unknown",
             "spend": float(r.get("spend") or 0),
             "FSD": fsd,
+            "CPR (FSD)": r.get("cpr_fsd"),
             "CTR %": avg_ctr,
             "frequency": avg_freq,
             "preview": preview_link,
-            "insight": _ad_insight(fsd, avg_ctr, avg_freq),
+            "insight": _insight,
         })
 
     df_top = pd.DataFrame(_top_display)
@@ -345,6 +438,8 @@ if _filtered_top:
         "campaign": st.column_config.TextColumn("Campaign"),
         "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
         "FSD": st.column_config.NumberColumn("FSD", format="%d"),
+        "CPR (FSD)": st.column_config.NumberColumn("CPR (FSD)", format="$%.2f",
+                                                     help="Cost per form-submit deposit. Lower = better. Click to sort."),
         "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
         "frequency": st.column_config.NumberColumn("Avg Freq", format="%.2f"),
         "preview": st.column_config.LinkColumn("Facebook", display_text="View"),
@@ -363,7 +458,10 @@ else:
 # Section 2: Fatigue Watch
 # ---------------------------------------------------------------------------
 st.subheader("Fatigue Watch")
-st.caption("Ads with average frequency >= 2.5 — high repeat exposure can burn out audiences.")
+st.caption(
+    "Meta's 4-signal fatigue model: declining CTR trend (primary), rising cost-per-FSD, "
+    "high frequency, and diminishing FSD rate. Requires ≥4 days of data to compute trends."
+)
 
 _fatigue_filtered = fatigue_ads
 if format_filter:
@@ -372,35 +470,70 @@ if style_filter:
     _fatigue_filtered = [r for r in _fatigue_filtered if r.get("ad_style") in style_filter]
 
 if _fatigue_filtered:
+    # --- Summary badge row ---
+    _n_critical = sum(1 for r in _fatigue_filtered if r.get("severity") == "critical")
+    _n_warning  = sum(1 for r in _fatigue_filtered if r.get("severity") == "warning")
+    _n_watch    = sum(1 for r in _fatigue_filtered if r.get("severity") == "watch")
+    _summary_parts: list[str] = []
+    if _n_critical:
+        _summary_parts.append(f"🔴 **{_n_critical} Critical**")
+    if _n_warning:
+        _summary_parts.append(f"🟡 **{_n_warning} Warning**")
+    if _n_watch:
+        _summary_parts.append(f"👁️ **{_n_watch} Watch**")
+    if _summary_parts:
+        st.markdown("  ·  ".join(_summary_parts))
+
+    # --- Format helpers ---
+    def _fmt_ctr_delta(v: float | None) -> str:
+        if v is None:
+            return "—"
+        return f"↓ {abs(v):.0f}%" if v < 0 else f"↑ {v:.0f}%"
+
+    def _fmt_cpd_delta(v: float | None) -> str:
+        if v is None:
+            return "—"
+        return f"↑ {v:.0f}%" if v > 0 else f"↓ {abs(v):.0f}%"
+
+    _SEV_LABEL = {
+        "critical": "🔴 Critical",
+        "warning":  "🟡 Warning",
+        "watch":    "👁️ Watch",
+    }
+
+    # --- Build display rows ---
     _fat_display = []
     for r in _fatigue_filtered:
-        avg_freq = float(r.get("avg_frequency") or 0)
-        preview_url = r.get("preview_url") or ""
-        preview_link = f"[View]({preview_url})" if preview_url else ""
+        signals: list[str] = r.get("fatigue_signals") or []
+        fat_ad_id = str(r.get("ad_id") or "")
         _fat_display.append({
-            "thumbnail": r.get("thumbnail_url") or "",
-            "ad_name": r.get("ad_name") or r.get("ad_id") or "",
-            "campaign": r.get("campaign_name") or "",
-            "format": r.get("ad_format") or "unknown",
-            "style": r.get("ad_style") or "unknown",
-            "spend": float(r.get("spend") or 0),
-            "avg_frequency": avg_freq,
-            "CTR %": float(r.get("avg_ctr") or 0),
-            "FSD": int(r.get("fsd") or 0),
-            "preview": preview_link,
-            "recommendation": _fatigue_label(avg_freq),
+            "thumbnail":      r.get("thumbnail_url") or "",
+            "severity":       _SEV_LABEL.get(r.get("severity", "watch"), "👁️ Watch"),
+            "ad_name":        r.get("ad_name") or fat_ad_id or "",
+            "campaign":       r.get("campaign_name") or "",
+            "format":         r.get("ad_format") or "unknown",
+            "style":          r.get("ad_style") or "unknown",
+            "signals":        ", ".join(signals),
+            "CTR Δ":          _fmt_ctr_delta(r.get("ctr_change_pct")),
+            "CPD Δ":          _fmt_cpd_delta(r.get("cpd_change_pct")),
+            "frequency":      float(r.get("avg_frequency") or 0),
+            "spend":          float(r.get("spend") or 0),
+            "preview":        _adsmanager_url(fat_ad_id),  # plain URL — LinkColumn handles display_text
+            "recommendation": r.get("recommendation") or "",
         })
 
     df_fat = pd.DataFrame(_fat_display)
     fat_col_cfg: dict[str, Any] = {
-        "thumbnail": st.column_config.ImageColumn("Preview", width="small"),
-        "ad_name": st.column_config.TextColumn("Ad Name", width="large"),
-        "campaign": st.column_config.TextColumn("Campaign"),
-        "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-        "avg_frequency": st.column_config.NumberColumn("Avg Freq", format="%.2f"),
-        "CTR %": st.column_config.NumberColumn("CTR %", format="%.3f%%"),
-        "FSD": st.column_config.NumberColumn("FSD", format="%d"),
-        "preview": st.column_config.LinkColumn("Facebook", display_text="View"),
+        "thumbnail":      st.column_config.ImageColumn("Preview", width="small"),
+        "severity":       st.column_config.TextColumn("Severity"),
+        "ad_name":        st.column_config.TextColumn("Ad Name", width="large"),
+        "campaign":       st.column_config.TextColumn("Campaign"),
+        "signals":        st.column_config.TextColumn("Triggered Signals", width="medium"),
+        "CTR Δ":          st.column_config.TextColumn("CTR Δ"),
+        "CPD Δ":          st.column_config.TextColumn("CPR Δ"),
+        "frequency":      st.column_config.NumberColumn("Avg Freq", format="%.2f"),
+        "spend":          st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
+        "preview":        st.column_config.LinkColumn("Facebook", display_text="View"),
         "recommendation": st.column_config.TextColumn("Recommendation", width="large"),
     }
     st.dataframe(
@@ -410,7 +543,14 @@ if _fatigue_filtered:
         column_config=fat_col_cfg,
     )
 else:
-    st.success("No ads with frequency >= 2.5 in this period. Audience freshness looks healthy.")
+    _days_span = (end_date - start_date).days
+    if _days_span < 4:
+        st.info(
+            "Fatigue detection requires at least 4 days of data to compute CTR and cost trends. "
+            "Expand your date range to see the full analysis."
+        )
+    else:
+        st.success("No fatigue signals detected in this period. Audiences are responding well.")
 
 # ---------------------------------------------------------------------------
 # Section 3: Ad Format Breakdown
@@ -449,7 +589,10 @@ else:
 # Section 4: Ad Style Breakdown
 # ---------------------------------------------------------------------------
 st.subheader("Ad Style Breakdown")
-st.caption("FSD and CTR by creative style. CPF = Cost Per FSD (spend / FSD).")
+st.caption(
+    "FSD and CPR by creative style — sorted by CPR ascending (most efficient first). "
+    "Styles with no FSD appear at the bottom."
+)
 
 if style_rows:
     left_col2, right_col2 = st.columns([3, 2])
@@ -460,23 +603,109 @@ if style_rows:
         for r in style_rows:
             fsd = int(r.get("fsd") or 0)
             spend = float(r.get("spend") or 0)
-            cpf = round(spend / fsd, 2) if fsd > 0 else None
             _sty_display.append({
                 "style": r.get("ad_style") or "unknown",
                 "ads": int(r.get("ad_count") or 0),
                 "spend": spend,
                 "FSD": fsd,
-                "CPF ($)": cpf,
+                "CPR (FSD)": r.get("cpr_fsd"),
                 "CTR %": float(r.get("avg_ctr") or 0),
                 "ROAS": float(r.get("weighted_roas") or 0),
             })
         df_sty = pd.DataFrame(_sty_display)
         sty_col_cfg: dict[str, Any] = {
             "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-            "CPF ($)": st.column_config.NumberColumn("CPF ($)", format="$%.2f"),
+            "CPR (FSD)": st.column_config.NumberColumn(
+                "CPR (FSD)", format="$%.2f",
+                help="Cost per form-submit deposit. Lower = better. Already sorted best first."
+            ),
             "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
             "ROAS": st.column_config.NumberColumn("ROAS", format="%.2f"),
         }
         st.dataframe(df_sty, use_container_width=True, hide_index=True, column_config=sty_col_cfg)
 else:
     st.info("No style breakdown data available. Ad creative metadata may not yet be fetched.")
+
+# ---------------------------------------------------------------------------
+# Section 5: Creative Concept Leaderboard
+# ---------------------------------------------------------------------------
+st.subheader("Creative Concept Leaderboard")
+st.caption(
+    "All copies of the same concept — across campaigns and ad sets — merged into one row. "
+    "Ranked by CPR (FSD) ascending (best first). "
+    "🟢 ≥ 3 FSD (confident)  ·  🟡 1–2 FSD (low volume)  ·  ⚫ 0 FSD (no signal yet)."
+)
+
+if concept_rows:
+    # Apply sidebar format/style filters
+    _concept_filtered = concept_rows
+    if format_filter:
+        _concept_filtered = [r for r in _concept_filtered if r.get("ad_format") in format_filter]
+    if style_filter:
+        _concept_filtered = [r for r in _concept_filtered if r.get("ad_style") in style_filter]
+
+    if _concept_filtered:
+        chart_col, table_col = st.columns([2, 3])
+        with chart_col:
+            st.plotly_chart(_make_concept_chart(_concept_filtered), use_container_width=True)
+
+        with table_col:
+            def _conf_badge(fsd: int, has_cpr: bool) -> str:
+                if not has_cpr:
+                    return "⚫ No signal"
+                if fsd >= 3:
+                    return "🟢 Confident"
+                return "🟡 Low vol."
+
+            _concept_display = []
+            for r in _concept_filtered:
+                fsd = int(r.get("fsd") or 0)
+                has_cpr = r.get("cpr_fsd") is not None
+                _concept_display.append({
+                    "thumbnail": r.get("thumbnail_url") or "",
+                    "concept": r.get("concept") or "",
+                    "format": r.get("ad_format") or "unknown",
+                    "style": r.get("ad_style") or "unknown",
+                    "copies": int(r.get("ad_copies") or 1),
+                    "spend": float(r.get("spend") or 0),
+                    "FSD": fsd,
+                    "CPR (FSD)": r.get("cpr_fsd"),
+                    "CTR %": float(r.get("avg_ctr") or 0),
+                    "confidence": _conf_badge(fsd, has_cpr),
+                })
+
+            df_concept = pd.DataFrame(_concept_display)
+            concept_col_cfg: dict[str, Any] = {
+                "thumbnail": st.column_config.ImageColumn("Preview", width="small"),
+                "concept": st.column_config.TextColumn("Concept", width="medium"),
+                "copies": st.column_config.NumberColumn("Copies", format="%d",
+                                                         help="Number of ad copies running this concept"),
+                "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
+                "FSD": st.column_config.NumberColumn("FSD", format="%d"),
+                "CPR (FSD)": st.column_config.NumberColumn(
+                    "CPR (FSD)", format="$%.2f",
+                    help="Cost per form-submit deposit across all copies of this concept."
+                ),
+                "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
+                "confidence": st.column_config.TextColumn("Signal"),
+            }
+            st.dataframe(
+                df_concept,
+                use_container_width=True,
+                hide_index=True,
+                column_config=concept_col_cfg,
+            )
+        _n_confident = sum(1 for r in _concept_filtered if int(r.get("fsd") or 0) >= 3 and r.get("cpr_fsd"))
+        _n_no_signal = sum(1 for r in _concept_filtered if not r.get("cpr_fsd"))
+        st.caption(
+            f"{len(_concept_filtered)} concepts · "
+            f"{_n_confident} with confident signal (≥3 FSD) · "
+            f"{_n_no_signal} with no FSD yet"
+        )
+    else:
+        st.info("No concept data matches the current filters.")
+else:
+    st.info(
+        "No creative concept data available for this date range. "
+        "Ensure ad creative metadata has been ingested."
+    )

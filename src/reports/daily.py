@@ -42,7 +42,7 @@ _YESTERDAY_METRICS_SQL = """
     SELECT m.campaign_id, c.name AS campaign_name, m.date,
            m.spend, m.impressions, m.clicks, m.ctr, m.cpc, m.cpm,
            m.roas, m.meta_purchases_7dclick, m.meta_cost_per_purchase,
-           m.reach, m.frequency
+           m.reach, m.frequency, m.meta_form_submit_deposit
     FROM ad_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
     WHERE m.ad_set_id = '' AND m.ad_id = ''

@@ -44,6 +44,7 @@ _ALLOWED_METRICS: frozenset[str] = frozenset({
     # Meta side (ad_metrics columns)
     "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "roas",
     "meta_purchases_7dclick", "meta_cost_per_purchase", "reach", "frequency",
+    "meta_form_submit_deposit",
     # GA4 side (ga4_metrics columns)
     "sessions", "users", "new_users", "bounce_rate", "avg_engagement_time",
     "ga4_purchases_lastclick",
@@ -58,6 +59,7 @@ _ALLOWED_SORT_COLS: frozenset[str] = frozenset({"conversions", "sessions"})
 _META_METRICS: frozenset[str] = frozenset({
     "spend", "impressions", "clicks", "ctr", "cpc", "cpm", "roas",
     "meta_purchases_7dclick", "meta_cost_per_purchase", "reach", "frequency",
+    "meta_form_submit_deposit",
 })
 _GA4_METRICS: frozenset[str] = frozenset({
     "sessions", "users", "new_users", "bounce_rate", "avg_engagement_time",
@@ -74,9 +76,11 @@ TOOLS: list[dict[str, Any]] = [
         "name": "query_metrics",
         "description": (
             "Query aggregated Meta Ads or GA4 metrics for a date range. "
-            "Returns one row per campaign with spend / ROAS / purchases / sessions "
-            "and a source + date-range citation. Cite the source and date range "
-            "in any answer that uses this output."
+            "Returns one row per campaign with spend, ROAS, impressions, clicks, CTR, "
+            "purchases, form_submit_deposit conversions, and sessions. "
+            "Always call this tool before claiming any metric "
+            "is unavailable — impressions, CTR, and meta_form_submit_deposit ARE available for Meta. "
+            "Cite the source and date range in any answer that uses this output."
         ),
         "input_schema": {
             "type": "object",
@@ -211,9 +215,11 @@ _QUERY_META_SQL = """
     SELECT c.name AS campaign_name,
            SUM(m.spend) AS spend,
            AVG(m.roas) AS roas,
-           SUM(m.meta_purchases_7dclick) AS meta_purchases_7dclick,
-           SUM(m.clicks) AS clicks,
            SUM(m.impressions) AS impressions,
+           SUM(m.clicks) AS clicks,
+           AVG(m.ctr) AS ctr,
+           SUM(m.meta_purchases_7dclick) AS meta_purchases_7dclick,
+           SUM(m.meta_form_submit_deposit) AS meta_form_submit_deposit,
            MAX(m.fetched_at) AS fetched_at
     FROM ad_metrics m
     JOIN campaigns c ON m.campaign_id = c.id
@@ -270,8 +276,11 @@ async def query_metrics(
                     f"Campaign: {r['campaign_name']} | "
                     f"Spend: ${float(r.get('spend') or 0):.2f} | "
                     f"ROAS: {float(r.get('roas') or 0):.2f} | "
-                    f"Purchases: {int(r.get('meta_purchases_7dclick') or 0)} | "
-                    f"Clicks: {int(r.get('clicks') or 0)}"
+                    f"Impressions: {int(r.get('impressions') or 0)} | "
+                    f"Clicks: {int(r.get('clicks') or 0)} | "
+                    f"CTR: {float(r.get('ctr') or 0):.2f}% | "
+                    f"Purchases (7d-click): {int(r.get('meta_purchases_7dclick') or 0)} | "
+                    f"Form Submit Deposit: {int(r.get('meta_form_submit_deposit') or 0)}"
                 )
                 if r.get("fetched_at"):
                     fetched_max = r["fetched_at"]
@@ -363,7 +372,7 @@ async def compare_periods(
 _CAMPAIGN_DETAIL_SQL = """
     SELECT c.name AS campaign_name, m.date,
            m.spend, m.roas, m.cpc, m.ctr,
-           m.meta_purchases_7dclick,
+           m.meta_purchases_7dclick, m.meta_form_submit_deposit,
            g.sessions, g.bounce_rate, g.ga4_purchases_lastclick,
            m.fetched_at AS meta_fetched_at, g.fetched_at AS ga4_fetched_at
     FROM ad_metrics m
@@ -403,7 +412,8 @@ async def get_campaign_detail(
         lines.append(
             f"  {r['date']} | Meta: spend ${float(r.get('spend') or 0):.2f} "
             f"ROAS {float(r.get('roas') or 0):.2f} "
-            f"purchases {int(r.get('meta_purchases_7dclick') or 0)} | "
+            f"purchases {int(r.get('meta_purchases_7dclick') or 0)} "
+            f"form_submit_deposit {int(r.get('meta_form_submit_deposit') or 0)} | "
             f"GA4: sessions {int(r.get('sessions') or 0)} "
             f"purchases {int(r.get('ga4_purchases_lastclick') or 0)}"
         )

@@ -395,8 +395,14 @@ def _fetch_ad_creatives_sync(ad_account_id: str) -> list[dict]:
             or (video_data.get('call_to_action') or {}).get('value', {}).get('link')
             or ''
         )
-        story_id = cr.get('effective_object_story_id') or ''
-        preview_url = f'https://www.facebook.com/{story_id}' if story_id else ''
+        # Use Ads Manager deep-link — always accessible to account admins without
+        # extra login steps, unlike post permalinks which require public visibility.
+        ad_id_str = str(d.get('id', ''))
+        act_id = ad_account_id.removeprefix('act_')
+        preview_url = (
+            f'https://www.facebook.com/adsmanager/manage/ads'
+            f'?act={act_id}&selected_ad_ids={ad_id_str}'
+        ) if ad_id_str else ''
 
         # Determine format from object_type as fallback
         obj_type = cr.get('object_type', '')

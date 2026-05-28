@@ -51,9 +51,10 @@ def build_router() -> Router:
             "/start — confirm bot is online\n"
             "/status — show last sync time and row counts\n"
             "/report — generate and send the latest daily report\n"
+            "/ask &lt;question&gt; — ask anything about your ad performance\n"
             "/clear — clear your AI conversation history\n"
             "/help — show this message\n"
-            "<i>(Phase 4: conversational AI enabled — send any non-command text to ask a question.)</i>"
+            "<i>Tip: in groups, use /ask to chat with the AI.</i>"
         )
 
     @router.message(Command("report"))

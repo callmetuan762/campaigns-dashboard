@@ -67,20 +67,22 @@ if not db_path.exists():
 db_path_str = str(db_path)
 api_key = settings.anthropic_api_key or ""
 
-# Independent history per user instruction — NEVER touches Overview's chat_history key
+# Independent history — persisted in SQLite so it survives refreshes and restarts.
+# Load from DB once per session (session_state acts as the in-memory cache).
 if "chat_page_history" not in st.session_state:
-    st.session_state.chat_page_history = []
+    st.session_state.chat_page_history = db.get_dashboard_chat_history(db_path)
 
 # ---------------------------------------------------------------------------
 # Sidebar — clear button + data freshness context
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.header("AI Chat")
-    st.page_link("app.py", label="← Back to Overview")
+    st.page_link("Overview.py", label="← Back to Overview")
 
     st.divider()
 
     if st.button("Clear conversation", use_container_width=True):
+        db.clear_dashboard_chat_history(db_path)
         st.session_state.chat_page_history = []
         st.rerun()
 
@@ -138,3 +140,9 @@ if prompt := st.chat_input("Ask about campaign performance, ROAS, deposits…"):
             )
         st.chat_message("assistant").markdown(final_text)
         st.session_state.chat_page_history = new_history
+        # Persist only the two new text turns (user + assistant); tool traces
+        # are already stripped by run_chat_3agent (D-20).
+        db.append_dashboard_chat_messages(db_path, [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": final_text},
+        ])

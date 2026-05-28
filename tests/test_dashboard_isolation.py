@@ -15,7 +15,7 @@ FORBIDDEN_PREFIXES_ALL = (
     "src.ai", "src.bot", "src.meta", "src.ga4", "src.reports",
 )
 # streamlit is allowed only in app.py.
-STREAMLIT_ALLOWED_FILES = {"app.py"}
+STREAMLIT_ALLOWED_FILES = {"Overview.py"}
 
 
 def _collect_imports(py_path: Path) -> set[str]:

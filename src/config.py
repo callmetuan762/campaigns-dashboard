@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     # MMM: monetary value of one deposit in USD; 0.0 = report in deposits-per-$1000 units (D-09)
     deposit_value_usd: float = 0.0
 
+    # ---- Google Sheets (optional — for stripe_payments pull) ----
+    google_sheets_spreadsheet_id: str | None = None
+    # Simplest setup: reuse the GA4 service account file (share the sheet with its email)
+    google_service_account_json_path: str | None = None  # file path to service account JSON
+    google_service_account_json: str | None = None       # full JSON string (alternative)
+    google_oauth_token_path: str | None = None           # OAuth2 token file path
+
     # ---- Sentry (Phase 5) ----
     sentry_dsn: SecretStr | None = None
     sentry_environment: str = "production"

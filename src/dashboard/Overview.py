@@ -16,13 +16,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+import re
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 # IMPORTANT: page_config MUST be the first Streamlit call (Pitfall 4).
 st.set_page_config(
-    page_title="Ads Performance Dashboard",
+    page_title="Overview",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -88,6 +89,12 @@ def _cached_attribution(db_path_str: str, start: str, end: str) -> list[dict[str
     return db.get_attribution_comparison(Path(db_path_str), start, end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_stripe_daily(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_stripe_daily(Path(db_path_str), start, end)
+
+
 def _generate_daily_insight(db_path_str: str, api_key: str) -> str:
     """Run the 3-agent system with a fixed daily-briefing prompt. Not cached here —
     caller stores the result in SQLite so it survives server restarts."""
@@ -101,9 +108,9 @@ def _generate_daily_insight(db_path_str: str, api_key: str) -> str:
         f"Use your tools to analyze the period {week_start} to {yesterday}. "
         "Focus only on what needs attention or action today — not general summaries.\n\n"
         "**Alerts** — any campaigns with zero deposits in the last 3 days despite active spend? "
-        "Any CPD that spiked more than 50% vs their prior week average? Name them specifically.\n"
-        "**Top 2 this week** — campaigns with lowest CPD (name, CPD, spend, deposits)\n"
-        "**Bottom 2 this week** — campaigns burning budget with worst CPD or no conversions "
+        "Any CPR (FSD) that spiked more than 50% vs their prior week average? Name them specifically.\n"
+        "**Top 2 this week** — campaigns with lowest CPR (name, CPR (FSD), spend, deposits)\n"
+        "**Bottom 2 this week** — campaigns burning budget with worst CPR (FSD) or no conversions "
         "(name, CPD or zero-deposit status, spend wasted)\n"
         "**Funnel gap** — which landing pages have the biggest drop between Meta ad sessions "
         "and GA4 conversions? Name the page, sessions, conversions, and implied conversion rate.\n"
@@ -132,6 +139,12 @@ def _cached_roas_freq(db_path_str: str, start: str, end: str) -> list[dict[str, 
     return db.get_roas_frequency_trend(Path(db_path_str), start, end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_camp_daily(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_campaign_daily_breakdown(Path(db_path_str), start, end)
+
+
 # ---------------------------------------------------------------------------
 # Plotly figure builders (D-06, D-10)
 # ---------------------------------------------------------------------------
@@ -147,7 +160,7 @@ def _make_spend_vs_deposits_chart(rows: list[dict[str, Any]]) -> go.Figure:
     fig.add_trace(go.Scatter(
         x=[r["date"] for r in rows],
         y=[r["deposits"] for r in rows],
-        name="Deposits",
+        name="FSD (form_submit)",
         mode="lines+markers",
         line=dict(color=COLOR_DEPOSITS, width=2),
         marker=dict(size=8),
@@ -159,7 +172,7 @@ def _make_spend_vs_deposits_chart(rows: list[dict[str, Any]]) -> go.Figure:
         font=dict(color=COLOR_FONT),
         xaxis=dict(title="Date", gridcolor=COLOR_GRID),
         yaxis=dict(title="Spend ($)", gridcolor=COLOR_GRID, zeroline=False),
-        yaxis2=dict(title="Deposits", overlaying="y", side="right",
+        yaxis2=dict(title="FSD", overlaying="y", side="right",
                     gridcolor=COLOR_GRID, zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=40, t=40, b=40),
@@ -168,36 +181,183 @@ def _make_spend_vs_deposits_chart(rows: list[dict[str, Any]]) -> go.Figure:
     return fig
 
 
-def _make_attribution_chart(rows: list[dict[str, Any]], use_form_submit: bool = True) -> go.Figure:
+def _make_fsd_vs_paid_chart(
+    trend_rows: list[dict[str, Any]],
+    stripe_rows: list[dict[str, Any]],
+) -> go.Figure:
+    """Daily Meta FSD (Gate 1) vs Stripe Paid (Gate 2) — funnel view over time."""
+    # Build a date-keyed lookup for Stripe data
+    stripe_by_date: dict[str, int] = {r["date"]: int(r["paid"] or 0) for r in stripe_rows}
+
+    dates = [r["date"] for r in trend_rows]
+    fsd_vals = [int(r.get("total_deposits") or r.get("deposits") or 0) for r in trend_rows]
+    paid_vals = [stripe_by_date.get(d, 0) for d in dates]
+
     fig = go.Figure()
-    if use_form_submit:
-        meta_y = [r["meta_deposits"] for r in rows]
-        meta_label = "Meta deposits (form_submit)"
-    else:
-        meta_y = [r["meta_purchases"] for r in rows]
-        meta_label = "Meta purchases (7d-click)"
     fig.add_trace(go.Bar(
-        x=[r["campaign_name"] for r in rows],
-        y=meta_y,
-        name=meta_label,
+        x=dates,
+        y=fsd_vals,
+        name="Meta FSD (Gate 1)",
         marker_color=COLOR_META,
+        opacity=0.75,
     ))
-    fig.add_trace(go.Bar(
-        x=[r["campaign_name"] for r in rows],
-        y=[r["ga4_purchases"] for r in rows],
-        name="GA4 (purchases, last-click)",
-        marker_color=COLOR_GA4,
+    fig.add_trace(go.Scatter(
+        x=dates,
+        y=paid_vals,
+        name="Stripe Paid (Gate 2)",
+        mode="lines+markers",
+        line=dict(color=COLOR_DEPOSITS, width=2),
+        marker=dict(size=7),
     ))
     fig.update_layout(
-        barmode="group",
         plot_bgcolor=COLOR_BG_PLOT,
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT),
-        xaxis=dict(title="Campaign", gridcolor=COLOR_GRID),
-        yaxis=dict(title="Conversions", gridcolor=COLOR_GRID, zeroline=False),
+        xaxis=dict(title="Date", gridcolor=COLOR_GRID),
+        yaxis=dict(title="Count", gridcolor=COLOR_GRID, zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=40, t=40, b=40),
         height=380,
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Daily-trends-by-campaign helpers & chart builders
+# ---------------------------------------------------------------------------
+_CAMP_PALETTE = [
+    "#60a5fa", "#34d399", "#f59e0b", "#a78bfa",
+    "#f87171", "#22d3ee", "#ec4899", "#94a3b8", "#6b7280",
+]
+
+
+def _shorten_campaign(name: str) -> str:
+    """Strip 'Nowa | SALES/LEADS | X.X ' prefix and ' | YYYYMMDD' suffix."""
+    s = re.sub(r"^Nowa \| (?:SALES|LEADS) \| \d+\.[A-Z] ", "", name)
+    s = re.sub(r" \| \d{8}$", "", s)
+    return s[:30] if len(s) > 30 else s
+
+
+def _camp_color_map(names: list[str]) -> dict[str, str]:
+    return {n: _CAMP_PALETTE[i % len(_CAMP_PALETTE)]
+            for i, n in enumerate(sorted(set(names)))}
+
+
+def _make_fsd_by_campaign(rows: list[dict]) -> go.Figure:
+    dates = sorted({r["date"] for r in rows})
+    campaigns = sorted({r["campaign_name"] for r in rows})
+    short = {c: _shorten_campaign(c) for c in campaigns}
+    colors = _camp_color_map(campaigns)
+    fig = go.Figure()
+    for camp in campaigns:
+        d = {r["date"]: r["fsd"] for r in rows if r["campaign_name"] == camp}
+        fig.add_trace(go.Bar(
+            x=dates,
+            y=[d.get(dt, 0) for dt in dates],
+            name=short[camp],
+            marker_color=colors[camp],
+        ))
+    fig.update_layout(
+        barmode="stack",
+        plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT, size=11),
+        xaxis=dict(gridcolor=COLOR_GRID),
+        yaxis=dict(title="FSD", gridcolor=COLOR_GRID, rangemode="tozero"),
+        legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
+                    font=dict(size=10), tracegroupgap=2),
+        margin=dict(l=40, r=20, t=20, b=110),
+        height=320,
+    )
+    return fig
+
+
+def _make_spend_by_campaign(rows: list[dict]) -> go.Figure:
+    dates = sorted({r["date"] for r in rows})
+    campaigns = sorted({r["campaign_name"] for r in rows})
+    short = {c: _shorten_campaign(c) for c in campaigns}
+    colors = _camp_color_map(campaigns)
+    fig = go.Figure()
+    for camp in campaigns:
+        d = {r["date"]: r["spend"] for r in rows if r["campaign_name"] == camp}
+        fig.add_trace(go.Bar(
+            x=dates,
+            y=[d.get(dt, 0) for dt in dates],
+            name=short[camp],
+            marker_color=colors[camp],
+        ))
+    fig.update_layout(
+        barmode="stack",
+        plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT, size=11),
+        xaxis=dict(gridcolor=COLOR_GRID),
+        yaxis=dict(title="Spend ($)", gridcolor=COLOR_GRID, rangemode="tozero",
+                   tickprefix="$"),
+        legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
+                    font=dict(size=10), tracegroupgap=2),
+        margin=dict(l=40, r=20, t=20, b=110),
+        height=320,
+    )
+    return fig
+
+
+def _make_cpr_by_campaign(rows: list[dict]) -> go.Figure:
+    dates = sorted({r["date"] for r in rows})
+    campaigns = sorted({r["campaign_name"] for r in rows})
+    short = {c: _shorten_campaign(c) for c in campaigns}
+    colors = _camp_color_map(campaigns)
+    fig = go.Figure()
+    for camp in campaigns:
+        d = {r["date"]: r["cpr"] for r in rows if r["campaign_name"] == camp}
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=[d.get(dt) for dt in dates],
+            mode="lines+markers",
+            name=short[camp],
+            line=dict(color=colors[camp], width=2),
+            marker=dict(size=5),
+            connectgaps=True,
+        ))
+    fig.update_layout(
+        plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT, size=11),
+        xaxis=dict(gridcolor=COLOR_GRID),
+        yaxis=dict(title="CPR (FSD) $", gridcolor=COLOR_GRID, rangemode="tozero",
+                   tickprefix="$"),
+        legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
+                    font=dict(size=10), tracegroupgap=2),
+        margin=dict(l=40, r=20, t=20, b=110),
+        height=320,
+    )
+    return fig
+
+
+def _make_ctr_by_campaign(rows: list[dict]) -> go.Figure:
+    dates = sorted({r["date"] for r in rows})
+    campaigns = sorted({r["campaign_name"] for r in rows})
+    short = {c: _shorten_campaign(c) for c in campaigns}
+    colors = _camp_color_map(campaigns)
+    fig = go.Figure()
+    for camp in campaigns:
+        d = {r["date"]: r["ctr"] for r in rows if r["campaign_name"] == camp}
+        fig.add_trace(go.Scatter(
+            x=dates,
+            y=[d.get(dt) for dt in dates],
+            mode="lines+markers",
+            name=short[camp],
+            line=dict(color=colors[camp], width=2),
+            marker=dict(size=5),
+            connectgaps=True,
+        ))
+    fig.update_layout(
+        plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT, size=11),
+        xaxis=dict(gridcolor=COLOR_GRID),
+        yaxis=dict(title="CTR %", gridcolor=COLOR_GRID, rangemode="tozero",
+                   ticksuffix="%"),
+        legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
+                    font=dict(size=10), tracegroupgap=2),
+        margin=dict(l=40, r=20, t=20, b=110),
+        height=320,
     )
     return fig
 
@@ -241,7 +401,7 @@ def _format_campaign_df(
     cpd_target: float = 0.0,
 ) -> pd.DataFrame:
     base_cols = ["Campaign", "Spend", "ROAS", "Impressions",
-                 "Deposits", "CPD", "GA4 Sessions"]
+                 "FSD", "CPR (FSD)", "GA4 Sessions"]
     if not rows:
         cols = base_cols + (["TIER"] if cpd_target > 0.0 else [])
         return pd.DataFrame(columns=cols)
@@ -251,15 +411,15 @@ def _format_campaign_df(
         "campaign_name": "Campaign",
         "spend": "Spend",
         "impressions": "Impressions",
-        "deposits": "Deposits",
-        "cpd": "CPD",
+        "deposits": "FSD",
+        "cpd": "CPR (FSD)",
         "ga4_sessions": "GA4 Sessions",
     })
     if cpd_target > 0.0:
         df["TIER"] = df.apply(
             lambda r: _tier_tag(
-                r["CPD"] if pd.notna(r["CPD"]) else None,
-                int(r["Deposits"] or 0),
+                r["CPR (FSD)"] if pd.notna(r["CPR (FSD)"]) else None,
+                int(r["FSD"] or 0),
                 cpd_target,
             ),
             axis=1,
@@ -270,9 +430,9 @@ def _format_campaign_df(
 
 _CAMPAIGN_COLUMN_CONFIG = {
     "Spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-    "CPD": st.column_config.NumberColumn("CPD ($)", format="$%.2f"),
+    "CPR (FSD)": st.column_config.NumberColumn("CPR (FSD)", format="$%.2f"),
     "Impressions": st.column_config.NumberColumn(format="%d"),
-    "Deposits": st.column_config.NumberColumn(format="%d"),
+    "FSD": st.column_config.NumberColumn("FSD", format="%d"),
     "GA4 Sessions": st.column_config.NumberColumn(format="%d"),
 }
 
@@ -359,11 +519,11 @@ with st.sidebar:
     st.divider()
     conv_metric = st.radio(
         "Conversion metric",
-        options=["Deposits (form_submit)", "Purchases (7d-click)"],
+        options=["FSD (form_submit)", "Purchases (7d-click)"],
         index=0,
         key="conv_metric",
     )
-    use_form_submit: bool = conv_metric == "Deposits (form_submit)"
+    use_form_submit: bool = conv_metric == "FSD (form_submit)"
 
     st.divider()
     fresh = _cached_freshness(db_path_str)
@@ -386,11 +546,43 @@ _prior_start = (start_date - timedelta(days=_period_days)).isoformat()
 _prior_end = (start_date - timedelta(days=1)).isoformat()
 stripe_kpi = _cached_stripe_kpi(db_path_str, start_iso, end_iso)
 prior_stripe_kpi = _cached_stripe_kpi(db_path_str, _prior_start, _prior_end)
+prior_kpi = _cached_kpi(db_path_str, _prior_start, _prior_end)
 
-c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
 
-c1.metric("Total Spend", f"${float(kpi.get('total_spend') or 0):,.2f}")
+# Inject CSS to colour the value text of the two NSM gate cards:
+#   column 5 (FSD — Gate 1)  → blue  #60a5fa
+#   column 7 (Paid — Gate 2) → green #34d399
+st.markdown(
+    """
+    <style>
+    /* KPI strip: Gate 1 (FSD) value — blue */
+    [data-testid="column"]:nth-child(5) [data-testid="stMetricValue"] {
+        color: #60a5fa !important;
+    }
+    /* KPI strip: Gate 2 (Paid NSM) value — green */
+    [data-testid="column"]:nth-child(7) [data-testid="stMetricValue"] {
+        color: #34d399 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
+
+def _fmt_spend(v: float) -> str:
+    """Compact spend formatter: $1.2K / $1.2M so it fits in a narrow KPI card."""
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"${v / 1_000:.1f}K"
+    return f"${v:.2f}"
+
+
+# Card 1 — Total Spend
+c1.metric("Total Spend", _fmt_spend(float(kpi.get("total_spend") or 0)))
+
+# Card 2 — Blended ROAS
 roas = float(kpi.get("weighted_roas") or 0.0)
 if roas >= ROAS_GOOD:
     roas_delta, roas_color = "🟢 above 2.0", "normal"
@@ -400,30 +592,71 @@ else:
     roas_delta, roas_color = "⚠️ 1.0–2.0", "off"
 c2.metric("Blended ROAS", f"{roas:.2f}", delta=roas_delta, delta_color=roas_color)
 
-deposits = int(kpi.get("total_deposits") or 0)
-c3.metric("Deposits (NSM)", f"{deposits:,}")
-
-cpd = kpi.get("cpd")
-c4.metric("CPD", f"${float(cpd):.2f}" if cpd else "—")
-
+# Card 3 — GA4 Sessions
 sessions = int(ga4_kpi.get("total_sessions") or 0)
-c5.metric("GA4 Sessions", f"{sessions:,}")
+c3.metric("GA4 Sessions", f"{sessions:,}")
 
+# Card 4 — Active Campaigns
 active = int(kpi.get("active_campaigns") or 0)
-c6.metric("Active Campaigns", f"{active}")
+c4.metric("Active Campaigns", f"{active}")
 
+# Card 5 — FSD (Gate 1) — blue emphasis via CSS above
+deposits = int(kpi.get("total_deposits") or 0)
+c5.metric(
+    "FSD (Gate 1)",
+    f"{deposits:,}",
+    help="Form Submit Deposits — Gate 1 output: everyone who submitted the form "
+         "(includes both paid and still-pending). CPR = Spend ÷ FSD.",
+)
+
+# Card 6 — CPR (FSD)
+cpd = kpi.get("cpd")
+c6.metric("CPR (FSD)", f"${float(cpd):.2f}" if cpd else "—")
+
+# Card 7 — Paid (NSM) — green emphasis via CSS above
+_paid_count = int(stripe_kpi.get("paid") or 0)
 _paid_rate = stripe_kpi.get("paid_rate")
 _prior_paid_rate = prior_stripe_kpi.get("paid_rate")
-if _paid_rate is not None:
-    _pr_delta: str | None = None
+_pr_delta: str | None = None
+_pr_delta_color = "off"
+if _paid_rate is not None and _prior_paid_rate is not None:
+    _pr_diff = _paid_rate - _prior_paid_rate
+    _pr_delta = f"{_pr_diff:+.1f}% paid rate vs prior"
+    _pr_delta_color = "normal" if _pr_diff >= 0 else "inverse"
+elif _paid_rate is not None:
+    _pr_delta = f"{_paid_rate:.1f}% paid rate"
     _pr_delta_color = "off"
-    if _prior_paid_rate is not None:
-        _pr_diff = _paid_rate - _prior_paid_rate
-        _pr_delta = f"{_pr_diff:+.1f}% vs prior"
-        _pr_delta_color = "normal" if _pr_diff >= 0 else "inverse"
-    c7.metric("Stripe Paid Rate", f"{_paid_rate:.1f}%", delta=_pr_delta, delta_color=_pr_delta_color)
-else:
-    c7.metric("Stripe Paid Rate", "—")
+c7.metric(
+    "Paid (NSM)",
+    f"{_paid_count:,}" if _paid_count else "—",
+    delta=_pr_delta,
+    delta_color=_pr_delta_color,
+    help="Stripe paid conversions — your North Star Metric (Gate 2 output). "
+         "Delta = paid rate change vs prior period.",
+)
+
+# CPaC = Cost Per Actual Conversion = total spend / paid
+# Combines both gates: ad→FSD efficiency (CPR) × FSD→Paid conversion (paid rate)
+_total_paid_cpac = int(stripe_kpi.get("paid") or 0)
+_total_spend_cpac = float(kpi.get("total_spend") or 0)
+_cpac = (_total_spend_cpac / _total_paid_cpac) if _total_paid_cpac > 0 else None
+
+_prior_paid_cpac = int(prior_stripe_kpi.get("paid") or 0)
+_prior_spend_cpac = float(prior_kpi.get("total_spend") or 0)
+_prior_cpac = (_prior_spend_cpac / _prior_paid_cpac) if _prior_paid_cpac > 0 else None
+
+_cpac_delta: str | None = None
+if _cpac is not None and _prior_cpac is not None:
+    _cpac_diff = _cpac - _prior_cpac
+    _cpac_delta = f"{_cpac_diff:+.2f} vs prior"
+
+c8.metric(
+    "CPaC",
+    f"${_cpac:.2f}" if _cpac is not None else "—",
+    delta=_cpac_delta,
+    delta_color="inverse",  # lower CPaC = better = green for negative delta
+    help="Cost Per Actual Conversion = Spend ÷ Paid. Combines ad efficiency (CPR) + landing page paid rate. This is your true acquisition cost.",
+)
 
 # --- Secondary KPI row: efficiency metrics ---
 s1, s2, s3, s4 = st.columns(4)
@@ -439,7 +672,7 @@ s4.metric("Reach", f"{reach:,}")
 left, right = st.columns(2)
 
 with left:
-    st.subheader("Spend vs Deposits")
+    st.subheader("Spend vs FSD")
     trend_rows = _cached_trend(db_path_str, start_iso, end_iso)
     if trend_rows:
         st.plotly_chart(
@@ -450,19 +683,19 @@ with left:
         st.info("No Meta data in this date range.")
 
 with right:
-    st.subheader("Meta vs GA4 Attribution")
-    attr_rows = _cached_attribution(db_path_str, start_iso, end_iso)
-    if attr_rows:
+    st.subheader("Meta FSD vs Stripe Paid")
+    stripe_daily_rows = _cached_stripe_daily(db_path_str, start_iso, end_iso)
+    if trend_rows:
         st.plotly_chart(
-            _make_attribution_chart(attr_rows, use_form_submit=use_form_submit),
+            _make_fsd_vs_paid_chart(trend_rows, stripe_daily_rows),
             use_container_width=True,
         )
     else:
-        st.info("No attribution data in this date range.")
-    # D-07: never-blend caption
+        st.info("No data in this date range.")
     st.caption(
-        "Meta uses 7-day click attribution · GA4 uses last-click · "
-        "Never blend these numbers."
+        "Gate 1 (blue bars) = everyone who submitted the form · "
+        "Gate 2 (green line) = Stripe paid conversions · "
+        "Gap between the two = your paid rate."
     )
 
 # ---------------------------------------------------------------------------
@@ -527,6 +760,27 @@ if roas_freq_rows:
         )
         st.plotly_chart(fig_rf_home, use_container_width=True)
         st.caption("Full analysis → Funnel page · Section 5")
+
+# ---------------------------------------------------------------------------
+# Daily trends by campaign (stacked FSD/Spend + CPR/CTR lines)
+# ---------------------------------------------------------------------------
+camp_daily = _cached_camp_daily(db_path_str, start_iso, end_iso)
+if camp_daily:
+    st.subheader("Daily trends by campaign")
+    _dt_l, _dt_r = st.columns(2)
+    with _dt_l:
+        st.caption("FSD by campaign")
+        st.plotly_chart(_make_fsd_by_campaign(camp_daily), use_container_width=True)
+    with _dt_r:
+        st.caption("Spend by campaign ($)")
+        st.plotly_chart(_make_spend_by_campaign(camp_daily), use_container_width=True)
+    _dt_l2, _dt_r2 = st.columns(2)
+    with _dt_l2:
+        st.caption("CPR (FSD) per campaign — lower is better")
+        st.plotly_chart(_make_cpr_by_campaign(camp_daily), use_container_width=True)
+    with _dt_r2:
+        st.caption("CTR % per campaign")
+        st.plotly_chart(_make_ctr_by_campaign(camp_daily), use_container_width=True)
 
 # ---------------------------------------------------------------------------
 # Campaign table (D-08)

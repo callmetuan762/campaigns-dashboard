@@ -240,6 +240,7 @@ def build_daily_report_html(
 
     total_spend = sum(r.get("spend", 0) or 0 for r in rows)
     total_purchases = sum(r.get("meta_purchases_7dclick", 0) or 0 for r in rows)
+    total_form_submit = sum(r.get("meta_form_submit_deposit", 0) or 0 for r in rows)
     spend_weighted_roas = (
         sum((r.get("roas", 0) or 0) * (r.get("spend", 0) or 0) for r in rows) / total_spend
         if total_spend > 0 else 0.0
@@ -247,7 +248,8 @@ def build_daily_report_html(
     parts.append("<b>Overall</b>")
     parts.append(f"Spend: {_fmt_spend(total_spend)}")
     parts.append(f"ROAS: {spend_weighted_roas:.2f} {_roas_emoji(spend_weighted_roas)}")
-    parts.append(f"Purchases: {total_purchases:,}")
+    parts.append(f"Purchases (Meta 7d-click): {total_purchases:,}")
+    parts.append(f"Form Submit Deposit: {total_form_submit:,}")
     parts.append("")
 
     with_spend = [r for r in rows if (r.get("spend") or 0) > 1]
