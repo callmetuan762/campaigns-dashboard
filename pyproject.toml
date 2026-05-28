@@ -23,6 +23,7 @@ dependencies = [
     "plotly>=5.20,<6",
     "statsmodels>=0.14",
     "scipy>=1.13",
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
