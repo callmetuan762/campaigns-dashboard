@@ -19,6 +19,7 @@ dependencies = [
     "pandas>=2,<3",
     "sqlalchemy>=2,<3",
     "sentry-sdk>=2.60.0,<3",
+    "gspread>=6,<7",
     "streamlit>=1.35,<2",
     "plotly>=5.20,<6",
     "statsmodels>=0.14",
