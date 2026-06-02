@@ -181,21 +181,33 @@ def _fetch_landing_page_metrics_sync(
         # metric_filter on eventName removed — eventName is a dimension, not a metric.
         return_property_quota=True,
         keep_empty_rows=False,
-        limit=50,
+        limit=10000,  # raised from 50 — each unique fbclid URL is a separate row
     )
-    response = client.run_report(request)
 
     rows = []
-    for row in response.rows:
-        dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
-        met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
-        raw = {**dim_vals, **met_vals}
-        row_date = raw.get("date", start_date)
-        if len(row_date) == 8:
-            row_date = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]}"
-        parsed = _parse_landing_row(raw, row_date)
-        if parsed["landing_page"] and parsed["landing_page"] != "(not set)":
-            rows.append(parsed)
+    offset = 0
+
+    while True:
+        request.offset = offset
+        response = client.run_report(request)
+
+        for row in response.rows:
+            dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
+            met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
+            raw = {**dim_vals, **met_vals}
+            row_date = raw.get("date", start_date)
+            if len(row_date) == 8:
+                row_date = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]}"
+            parsed = _parse_landing_row(raw, row_date)
+            if parsed["landing_page"] and parsed["landing_page"] != "(not set)":
+                rows.append(parsed)
+
+        # Paginate: rowCount is total available, len(response.rows) is this page
+        total_available = response.row_count if hasattr(response, "row_count") else 0
+        offset += len(response.rows)
+        if not response.rows or offset >= total_available:
+            break
+
     return rows
 
 
