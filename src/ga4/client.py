@@ -153,23 +153,52 @@ def _fetch_landing_page_metrics_sync(
 ) -> list[dict]:
     """Synchronous GA4 landing page metrics fetch — called via asyncio.to_thread().
 
-    D-08: Same MetricFilter on eventName as campaign request.
-    Uses landingPagePlusQueryString (not deprecated landingPage — RESEARCH.md Pitfall 1).
+    Two-pass approach to capture ALL sessions including iOS/privacy-stripped ones:
+
+    Pass 1 — landingPagePlusQueryString: captures Meta-attributed sessions (UTM/fbclid params
+    intact). These are "Paid Other" sessions in GA4 with high engagement rates.
+
+    Pass 2 — pagePathPlusQueryString + sessionDefaultChannelGroup='Unassigned': captures iOS
+    sessions where ATT privacy strips UTM params. These show as "Unassigned" in GA4 with
+    landingPagePlusQueryString = "(not set)", making them invisible to Pass 1.
+
+    Results are merged by (landing_page_path, date), summing sessions and other metrics.
+    For a single-page funnel like Nowa's, pageView on /slug/ == landing on /slug/.
     """
-    request = RunReportRequest(
+    from collections import defaultdict
+
+    def _paginate(req: RunReportRequest) -> list[dict]:
+        """Fetch all pages for a request, returning raw dicts."""
+        raw_rows: list[dict] = []
+        offset = 0
+        while True:
+            req.offset = offset
+            resp = client.run_report(req)
+            for row in resp.rows:
+                dv = {h.name: v.value for h, v in zip(resp.dimension_headers, row.dimension_values)}
+                mv = {h.name: v.value for h, v in zip(resp.metric_headers, row.metric_values)}
+                raw_rows.append({**dv, **mv})
+            total = resp.row_count if hasattr(resp, "row_count") else 0
+            offset += len(resp.rows)
+            if not resp.rows or offset >= total:
+                break
+        return raw_rows
+
+    METRICS = [
+        Metric(name="sessions"),
+        Metric(name="totalUsers"),
+        Metric(name=_CONVERSION_METRIC),
+        Metric(name="screenPageViews"),
+        Metric(name="userEngagementDuration"),
+    ]
+    DATE_RANGE = [DateRange(start_date=start_date, end_date=end_date)]
+
+    # ── Pass 1: landingPagePlusQueryString (UTM-tagged, Paid Other sessions) ──────
+    req1 = RunReportRequest(
         property=f"properties/{property_id}",
-        dimensions=[
-            Dimension(name=_LANDING_PAGE_DIMENSION),
-            Dimension(name="date"),
-        ],
-        metrics=[
-            Metric(name="sessions"),
-            Metric(name="totalUsers"),
-            Metric(name=_CONVERSION_METRIC),
-            Metric(name="screenPageViews"),
-            Metric(name="userEngagementDuration"),
-        ],
-        date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        dimensions=[Dimension(name=_LANDING_PAGE_DIMENSION), Dimension(name="date")],
+        metrics=METRICS,
+        date_ranges=DATE_RANGE,
         dimension_filter=FilterExpression(
             not_expression=FilterExpression(
                 filter=Filter(
@@ -178,35 +207,91 @@ def _fetch_landing_page_metrics_sync(
                 )
             )
         ),
-        # metric_filter on eventName removed — eventName is a dimension, not a metric.
         return_property_quota=True,
         keep_empty_rows=False,
-        limit=10000,  # raised from 50 — each unique fbclid URL is a separate row
+        limit=10000,
     )
+    pass1_raw = _paginate(req1)
 
+    # ── Pass 2: pagePathPlusQueryString for Unassigned channel (iOS/privacy sessions) ─
+    req2 = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name="pagePathPlusQueryString"),
+            Dimension(name="sessionDefaultChannelGroup"),
+            Dimension(name="date"),
+        ],
+        metrics=METRICS,
+        date_ranges=DATE_RANGE,
+        dimension_filter=FilterExpression(
+            filter=Filter(
+                field_name="sessionDefaultChannelGroup",
+                string_filter=Filter.StringFilter(value="Unassigned"),
+            )
+        ),
+        return_property_quota=True,
+        keep_empty_rows=False,
+        limit=10000,
+    )
+    pass2_raw = _paginate(req2)
+
+    # ── Merge: accumulate by (landing_page_key, date) ────────────────────────────
+    # key = (landing_page_string, date_iso)
+    merged: dict[tuple, dict] = {}
+
+    def _add(page_key: str, date_key: str, raw: dict) -> None:
+        """Upsert-accumulate metrics into merged dict."""
+        k = (page_key, date_key)
+        if k not in merged:
+            merged[k] = {
+                "landing_page": page_key,
+                "date": date_key,
+                "sessions": 0,
+                "total_users": 0,
+                "ga4_purchases_lastclick": 0,
+                "screen_page_views": 0,
+                "avg_engagement_time": 0.0,
+                "_eng_sum": 0.0,
+                "_eng_count": 0,
+            }
+        m = merged[k]
+        m["sessions"]               += int(raw.get("sessions") or 0)
+        m["total_users"]            += int(raw.get("totalUsers") or 0)
+        m["ga4_purchases_lastclick"] += int(raw.get(_CONVERSION_METRIC) or 0)
+        m["screen_page_views"]      += int(raw.get("screenPageViews") or 0)
+        eng = float(raw.get("userEngagementDuration") or 0.0)
+        if eng > 0:
+            m["_eng_sum"]   += eng
+            m["_eng_count"] += 1
+
+    def _normalise_date(raw_date: str, fallback: str) -> str:
+        d = raw_date or fallback
+        if len(d) == 8:
+            return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        return d
+
+    # Pass 1
+    for raw in pass1_raw:
+        page = raw.get(_LANDING_PAGE_DIMENSION, "") or ""
+        if not page or page == "(not set)":
+            continue
+        _add(page, _normalise_date(raw.get("date", ""), start_date), raw)
+
+    # Pass 2 (Unassigned)
+    for raw in pass2_raw:
+        page = raw.get("pagePathPlusQueryString", "") or ""
+        if not page or page == "(not set)":
+            continue
+        _add(page, _normalise_date(raw.get("date", ""), start_date), raw)
+
+    # Finalise avg_engagement_time
     rows = []
-    offset = 0
-
-    while True:
-        request.offset = offset
-        response = client.run_report(request)
-
-        for row in response.rows:
-            dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
-            met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
-            raw = {**dim_vals, **met_vals}
-            row_date = raw.get("date", start_date)
-            if len(row_date) == 8:
-                row_date = f"{row_date[:4]}-{row_date[4:6]}-{row_date[6:]}"
-            parsed = _parse_landing_row(raw, row_date)
-            if parsed["landing_page"] and parsed["landing_page"] != "(not set)":
-                rows.append(parsed)
-
-        # Paginate: rowCount is total available, len(response.rows) is this page
-        total_available = response.row_count if hasattr(response, "row_count") else 0
-        offset += len(response.rows)
-        if not response.rows or offset >= total_available:
-            break
+    for m in merged.values():
+        if m["_eng_count"] > 0:
+            m["avg_engagement_time"] = m["_eng_sum"] / m["_eng_count"]
+        del m["_eng_sum"]
+        del m["_eng_count"]
+        rows.append(m)
 
     return rows
 
