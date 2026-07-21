@@ -56,6 +56,19 @@ def register_job_resources(bot, db, settings) -> None:
     logger.info("ingest_resources_registered")
 
 
+def _filter_by_brand_prefix(rows: list[dict], prefix: str) -> list[dict]:
+    """Drop rows whose campaign_name doesn't start with the configured brand prefix.
+
+    No-op when prefix is empty (single-brand ad account — the common case). Needed
+    for shared/agency ad accounts where multiple brands' campaigns live side by side
+    (META_CAMPAIGN_NAME_PREFIX) — without this, another brand's spend/campaigns would
+    silently get ingested into this brand's dashboard.
+    """
+    if not prefix:
+        return rows
+    return [r for r in rows if r.get("campaign_name", "").startswith(prefix)]
+
+
 def _get_yesterday_iso(timezone_str: str) -> str:
     """Compute yesterday's date in the given timezone (RESEARCH Pitfall 5).
 
@@ -109,6 +122,7 @@ async def _run_meta_ingest(
         campaign_rows = await fetch_campaign_insights(
             settings.meta_ad_account_id, date_iso
         )
+        campaign_rows = _filter_by_brand_prefix(campaign_rows, settings.meta_campaign_name_prefix)
 
         # Build campaign dimension rows for campaigns table (META-05)
         campaign_dim_rows = [
@@ -133,6 +147,7 @@ async def _run_meta_ingest(
 
         # META-03: Ad-set level breakdowns
         adset_rows = await fetch_adset_insights(settings.meta_ad_account_id, date_iso)
+        adset_rows = _filter_by_brand_prefix(adset_rows, settings.meta_campaign_name_prefix)
         adset_metrics = [
             {k: v for k, v in r.items() if k != "campaign_name"}
             for r in adset_rows

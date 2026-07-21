@@ -25,6 +25,19 @@ def register_job_resources(db, settings) -> None:
     _settings = settings
 
 
+def _filter_by_brand_prefix(rows: list[dict], prefix: str) -> list[dict]:
+    """Drop rows whose campaign_name doesn't start with the configured brand prefix.
+
+    No-op when prefix is empty. Duplicated from src.meta.ingest's private helper
+    (same pattern the dashboard pages already use for small shared constants) —
+    needed here for the ad-creative/ad-insight fetches, which run outside
+    src.meta.ingest._run_meta_ingest and so aren't covered by its filtering.
+    """
+    if not prefix:
+        return rows
+    return [r for r in rows if r.get("campaign_name", "").startswith(prefix)]
+
+
 async def daily_backfill_job() -> None:
     """Zero-arg APScheduler entry point. Fetches Meta D-1 and GA4 D-2."""
     from datetime import date, timedelta
@@ -70,6 +83,7 @@ async def daily_backfill_job() -> None:
     try:
         from src.meta.client import fetch_ad_creatives
         ad_creative_rows = await fetch_ad_creatives(_settings.meta_ad_account_id)
+        ad_creative_rows = _filter_by_brand_prefix(ad_creative_rows, _settings.meta_campaign_name_prefix)
         if ad_creative_rows:
             await _db.upsert_ad_creatives(ad_creative_rows)
             logger.info("daily_backfill_ad_creatives_done", rows=len(ad_creative_rows))
@@ -82,6 +96,7 @@ async def daily_backfill_job() -> None:
         from src.meta.client import init_meta_api as _init_meta
         _init_meta(_settings)
         ad_rows = await fetch_ad_insights(_settings.meta_ad_account_id, yesterday)
+        ad_rows = _filter_by_brand_prefix(ad_rows, _settings.meta_campaign_name_prefix)
         if ad_rows:
             await _db.upsert_ad_metrics(ad_rows)
             logger.info("daily_backfill_ad_insights_done", rows=len(ad_rows))

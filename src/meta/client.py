@@ -451,6 +451,7 @@ def _fetch_ad_creatives_sync(ad_account_id: str) -> list[dict]:
     account = AdAccount(f"act_{ad_account_id.removeprefix('act_')}")
     fields = [
         'id', 'name', 'status', 'effective_status', 'adset_id', 'campaign_id',
+        'campaign{name}',
         'creative{id,object_type,thumbnail_url,effective_object_story_id,object_story_spec{link_data{link},video_data{call_to_action{value{link}}}}}',
     ]
     params = {'effective_status': ['ACTIVE', 'PAUSED'], 'limit': 200}
@@ -491,6 +492,9 @@ def _fetch_ad_creatives_sync(ad_account_id: str) -> list[dict]:
             'ad_name': name,
             'adset_id': str(d.get('adset_id') or ''),
             'campaign_id': str(d.get('campaign_id') or ''),
+            # carried for brand-prefix filtering in daily_backfill.py; upsert_ad_creatives
+            # ignores unknown dict keys, so this is harmless if left unfiltered.
+            'campaign_name': (d.get('campaign') or {}).get('name') or '',
             'effective_status': str(d.get('effective_status') or ''),
             'ad_format': fmt,
             'ad_style': style,
