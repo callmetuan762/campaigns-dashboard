@@ -102,3 +102,20 @@ def test_cpd_target_loaded_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     Settings = _reload_settings_module()
     s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.cpd_target == pytest.approx(12.5)
+
+
+# --- orders_valid_from field (D-06) ----------------------------------------
+
+def test_orders_valid_from_default_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty default = no filtering, backward compatible."""
+    monkeypatch.delenv("ORDERS_VALID_FROM", raising=False)
+    Settings = _reload_settings_module()
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.orders_valid_from == ""
+
+
+def test_orders_valid_from_loaded_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ORDERS_VALID_FROM", "2026-07-15")
+    Settings = _reload_settings_module()
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.orders_valid_from == "2026-07-15"

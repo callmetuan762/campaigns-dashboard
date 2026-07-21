@@ -318,6 +318,85 @@ def test_orders_step_unavailable_when_both_empty(empty_db: Path) -> None:
     assert out == {"count": 0, "available": False, "source": None}
 
 
+# ---------------------------------------------------------------------------
+# D-06 fix: orders_valid_from excludes pre-launch/test orders (query-time only)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def orders_valid_from_db(tmp_path: Path) -> Path:
+    """2 pre-launch test orders (before 2026-06-01) + 2 real orders on/after it."""
+    p = tmp_path / "metrics.db"
+    con = _make_db(p)
+    con.executescript("""
+        INSERT INTO shopify_orders
+            (order_id, created_at, order_date, total_price, financial_status, lp_slug, fetched_at)
+        VALUES
+            ('test1', '2026-05-20', '2026-05-20', 49.0, 'paid', 'routine', '2026-05-21'),
+            ('test2', '2026-05-25', '2026-05-25', 49.0, 'paid', 'routine', '2026-05-26'),
+            ('real1', '2026-06-01', '2026-06-01', 49.0, 'paid', 'routine', '2026-06-02'),
+            ('real2', '2026-06-02', '2026-06-02', 49.0, 'paid', 'big-feelings', '2026-06-03');
+    """)
+    con.commit()
+    con.close()
+    return p
+
+
+def test_orders_step_excludes_orders_before_cutoff(orders_valid_from_db: Path) -> None:
+    out = get_orders_step(
+        orders_valid_from_db, "2026-05-01", "2026-06-02", orders_valid_from="2026-06-01"
+    )
+    assert out == {"count": 2, "available": True, "source": "shopify_orders"}
+
+
+def test_orders_step_empty_cutoff_means_no_filtering(orders_valid_from_db: Path) -> None:
+    """Empty orders_valid_from (the default) must count ALL 4 orders, incl. pre-launch."""
+    out = get_orders_step(orders_valid_from_db, "2026-05-01", "2026-06-02", orders_valid_from="")
+    assert out == {"count": 4, "available": True, "source": "shopify_orders"}
+
+
+def test_orders_step_default_param_is_empty_no_filtering(orders_valid_from_db: Path) -> None:
+    """Calling without the orders_valid_from arg at all must behave identically
+    to passing '' -- backward compatible default."""
+    out = get_orders_step(orders_valid_from_db, "2026-05-01", "2026-06-02")
+    assert out["count"] == 4
+
+
+def test_segment_mini_funnels_excludes_orders_before_cutoff(tmp_path: Path) -> None:
+    db = tmp_path / "metrics.db"
+    con = _make_db(db)
+    con.executescript("""
+        INSERT INTO ga4_events (event_name, date, campaign_utm, lp_slug, event_count) VALUES
+            ('page_view_lp', '2026-06-01', 'nowa_launch', 'routine', 100);
+        INSERT INTO shopify_orders
+            (order_id, created_at, order_date, total_price, financial_status, lp_slug, fetched_at)
+        VALUES
+            ('test1', '2026-05-20', '2026-05-20', 49.0, 'paid', 'routine', '2026-05-21'),
+            ('real1', '2026-06-01', '2026-06-01', 49.0, 'paid', 'routine', '2026-06-02');
+    """)
+    con.commit()
+    con.close()
+
+    out_filtered = get_segment_mini_funnels(
+        db, "2026-05-01", "2026-06-02", orders_valid_from="2026-06-01"
+    )
+    by_slug_filtered = {r["lp_slug"]: r for r in out_filtered}
+    assert by_slug_filtered["routine"]["orders"] == 1  # only real1
+
+    out_unfiltered = get_segment_mini_funnels(db, "2026-05-01", "2026-06-02")
+    by_slug_unfiltered = {r["lp_slug"]: r for r in out_unfiltered}
+    assert by_slug_unfiltered["routine"]["orders"] == 2  # test1 + real1
+
+
+def test_preorder_funnel_steps_forwards_orders_valid_from(orders_valid_from_db: Path) -> None:
+    """get_preorder_funnel_steps must forward orders_valid_from through to the
+    Orders step, not just get_orders_step directly."""
+    steps = get_preorder_funnel_steps(
+        orders_valid_from_db, "2026-05-01", "2026-06-02", orders_valid_from="2026-06-01"
+    )
+    orders_step = next(s for s in steps if s["label"] == "Orders")
+    assert orders_step["value"] == 2
+
+
 def test_orders_step_shopify_ingested_but_zero_paid_in_range_is_measured_zero(tmp_path: Path) -> None:
     """Shopify has rows (ever), but none 'paid' in this specific range -> a real 0, not n/a."""
     db = tmp_path / "metrics.db"

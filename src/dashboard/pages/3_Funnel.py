@@ -136,15 +136,19 @@ def _cached_source_trend(db_path_str: str, start: str, end: str) -> list[dict[st
 # ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_funnel_steps(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+def _cached_funnel_steps(
+    db_path_str: str, start: str, end: str, orders_valid_from: str = ""
+) -> list[dict[str, Any]]:
     from pathlib import Path
-    return db.get_preorder_funnel_steps(Path(db_path_str), start, end)
+    return db.get_preorder_funnel_steps(Path(db_path_str), start, end, orders_valid_from)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_segment_funnels(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+def _cached_segment_funnels(
+    db_path_str: str, start: str, end: str, orders_valid_from: str = ""
+) -> list[dict[str, Any]]:
     from pathlib import Path
-    return db.get_segment_mini_funnels(Path(db_path_str), start, end)
+    return db.get_segment_mini_funnels(Path(db_path_str), start, end, orders_valid_from)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -293,10 +297,12 @@ st.caption(
     "\"n/a\" until ingestion has run."
 )
 
-_funnel_steps = _cached_funnel_steps(db_path_str, start_str, end_str)
+_funnel_steps = _cached_funnel_steps(db_path_str, start_str, end_str, settings.orders_valid_from)
 _click_gap = _cached_click_gap(db_path_str, start_str, end_str)
 _not_set_share = _cached_not_set_share(db_path_str, start_str, end_str)
-_segment_funnels = _cached_segment_funnels(db_path_str, start_str, end_str)
+_segment_funnels = _cached_segment_funnels(
+    db_path_str, start_str, end_str, settings.orders_valid_from
+)
 _quiz_funnel = _cached_quiz_funnel(db_path_str, start_str, end_str)
 _quiz_cpl = _cached_quiz_cpl(db_path_str, start_str, end_str)
 
@@ -352,6 +358,11 @@ else:
     _orders_step = next((s for s in _funnel_steps if s["label"] == "Orders"), None)
     if _orders_step and _orders_step.get("note"):
         st.caption(f"ℹ️ {_orders_step['note']}")
+    if settings.orders_valid_from:
+        st.caption(
+            f"ℹ️ Orders before **{settings.orders_valid_from}** (pre-launch/test "
+            "orders) are excluded from Orders and per-segment order counts."
+        )
 
     st.caption(
         "⚠️ **Directional, not blended.** Meta steps (Impressions / Clicks / "

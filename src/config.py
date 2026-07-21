@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     meta_app_secret: SecretStr | None = None
     meta_access_token: SecretStr | None = None
     meta_ad_account_id: str | None = None
+    # Multi-brand ad accounts (agency/BM shared across products) need a name filter so
+    # another brand's campaigns don't get ingested into this brand's dashboard. Empty =
+    # no filtering (single-brand account, backward compatible default).
+    meta_campaign_name_prefix: str = ""
 
     # ---- Meta Pixel health (Phase C: tracking-health page) ----
     # Pixel/dataset ID used for /{pixel_id}/stats (event counts) + best-effort
@@ -65,6 +69,13 @@ class Settings(BaseSettings):
     shopify_store_domain: str | None = None       # e.g. "shop.nowaplanet.com"
     shopify_admin_token: SecretStr | None = None  # custom-app Admin API access token
     shopify_api_version: str = "2025-01"
+
+    # Test/pre-launch orders pollute the funnel: internal test orders placed before
+    # the campaign actually launched (order_date < this cutoff) are excluded from
+    # every dashboard query that counts/sums shopify_orders. Filtered at QUERY TIME
+    # only -- rows are never deleted. Empty string (default) = no filtering, so this
+    # is backward compatible for products/environments with no pre-launch test data.
+    orders_valid_from: str = ""
 
     # ---- Funnel v3: config-driven event/conversion definitions ----
     # New preorder funnel (ads -> LP -> GA4 session -> reserve click -> add_to_cart ->

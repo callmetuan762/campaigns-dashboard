@@ -1483,25 +1483,37 @@ def get_ga4_event_step_totals(
         return result
 
 
-def get_orders_step(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+def get_orders_step(
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
+) -> dict[str, Any]:
     """Orders count for the preorder funnel: Shopify paid orders, falling back
     to the GA4 'purchase' event count when Shopify hasn't been ingested yet.
+
+    `orders_valid_from` (D-06 fix): internal test/pre-launch orders placed before
+    a campaign's real launch date pollute the funnel. When non-empty, adds an
+    `order_date >= orders_valid_from` filter -- a query-time exclusion only, no
+    rows are deleted. Empty string (default) = no filtering, backward compatible.
 
     Returns {"count": int, "available": bool,
              "source": "shopify_orders" | "ga4_events" | None}.
     `source` tells the caller which caption to render ("falling back to GA4
     purchase event count" per the funnel-v3 spec).
     """
+    valid_from_clause = " AND order_date >= ?" if orders_valid_from else ""
     try:
         with _conn(db_path) as con:
             shopify_ingested = con.execute(
                 "SELECT 1 FROM shopify_orders LIMIT 1"
             ).fetchone() is not None
             if shopify_ingested:
+                params: list[str] = [start_date, end_date]
+                if orders_valid_from:
+                    params.append(orders_valid_from)
                 row = con.execute(
                     "SELECT COUNT(*) AS n FROM shopify_orders "
-                    "WHERE financial_status = 'paid' AND order_date BETWEEN ? AND ?",
-                    (start_date, end_date),
+                    "WHERE financial_status = 'paid' AND order_date BETWEEN ? AND ?"
+                    + valid_from_clause,
+                    params,
                 ).fetchone()
                 return {
                     "count": int(row["n"]) if row else 0,
@@ -1518,7 +1530,7 @@ def get_orders_step(db_path: Path, start_date: str, end_date: str) -> dict[str, 
 
 
 def get_preorder_funnel_steps(
-    db_path: Path, start_date: str, end_date: str
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
 ) -> list[dict[str, Any]]:
     """Assemble the full preorder funnel with step-conversion %.
 
@@ -1530,13 +1542,16 @@ def get_preorder_funnel_steps(
     None for the first available step or when the previous value was 0), "note"}.
     Unavailable steps are skipped when locating "previous" so a later
     available step still gets a meaningful conversion rate.
+
+    `orders_valid_from` (D-06): forwarded to get_orders_step to exclude
+    pre-launch/test Shopify orders from the "Orders" step. See its docstring.
     """
     meta = get_meta_funnel_summary(db_path, start_date, end_date)
     ga4_sessions = get_ga4_sessions_summary(db_path, start_date, end_date)
     events = get_ga4_event_step_totals(
         db_path, start_date, end_date, ["cta_click_convert", "add_to_cart", "begin_checkout"]
     )
-    orders = get_orders_step(db_path, start_date, end_date)
+    orders = get_orders_step(db_path, start_date, end_date, orders_valid_from)
 
     orders_note: str | None = None
     if orders["source"] == "shopify_orders":
@@ -1579,7 +1594,7 @@ def get_preorder_funnel_steps(
 
 
 def get_segment_mini_funnels(
-    db_path: Path, start_date: str, end_date: str
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
 ) -> list[dict[str, Any]]:
     """Per-lp_slug mini funnel: page views -> add-to-cart -> begin-checkout -> orders.
 
@@ -1589,6 +1604,10 @@ def get_segment_mini_funnels(
     (callers should label the axis accordingly, not as raw "GA4 Sessions").
     Orders are Shopify paid orders joined on shopify_orders.lp_slug.
     Returns [] when neither source has any lp_slug-tagged rows in range.
+
+    `orders_valid_from` (D-06): when non-empty, excludes shopify_orders rows with
+    order_date before this cutoff (internal test/pre-launch orders) from the
+    per-segment "orders" count -- query-time filter only, no rows deleted.
     """
     events_by_slug: dict[str, dict[str, int]] = {}
     try:
@@ -1618,17 +1637,24 @@ def get_segment_mini_funnels(
         pass
 
     orders_by_slug: dict[str, int] = {}
+    valid_from_clause = " AND order_date >= ?" if orders_valid_from else ""
     try:
         with _conn(db_path) as con:
+            params: list[str] = [start_date, end_date]
+            if orders_valid_from:
+                params.append(orders_valid_from)
             rows = con.execute(
                 """
                 SELECT lp_slug, COUNT(*) AS n
                 FROM shopify_orders
                 WHERE lp_slug != '' AND financial_status = 'paid'
                   AND order_date BETWEEN ? AND ?
+                """
+                + valid_from_clause
+                + """
                 GROUP BY lp_slug
                 """,
-                (start_date, end_date),
+                params,
             ).fetchall()
         orders_by_slug = {r["lp_slug"]: int(r["n"]) for r in rows}
     except sqlite3.OperationalError:
