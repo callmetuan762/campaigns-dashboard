@@ -101,6 +101,66 @@ def get_ga4_kpi(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]
     return dict(row)
 
 
+# ---------------------------------------------------------------------------
+# Shopify orders — MER / Blended CAC / Pre-orders KPIs (Overview v2, 2026-07-22)
+#
+# shopify_orders is ground truth for orders/revenue (financial_status = 'paid').
+# orders_valid_from excludes pre-launch/test orders via order_date >= cutoff —
+# same query-time-only filter convention as get_orders_step / get_shopify_paid
+# summary's siblings elsewhere in this module. Never blended with Meta/GA4
+# conversion counts (CLAUDE.md) — MER and Blended CAC divide Shopify revenue/
+# count by Meta spend, which is an attribution-free ratio, not a blend of two
+# conversion-count sources.
+# ---------------------------------------------------------------------------
+def get_shopify_paid_summary(
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
+) -> dict[str, Any]:
+    """Shopify paid order count + revenue for the Overview KPI row.
+
+    Returns {"count": int, "revenue": float}. Defaults to zeros on a missing
+    table (pre-migration DB) or no rows in range -- matches the graceful-
+    degradation convention used throughout this module.
+    """
+    valid_from_clause = " AND order_date >= ?" if orders_valid_from else ""
+    params: list[str] = [start_date, end_date]
+    if orders_valid_from:
+        params.append(orders_valid_from)
+    sql = (
+        "SELECT COUNT(*) AS n, COALESCE(SUM(total_price), 0) AS revenue "
+        "FROM shopify_orders WHERE financial_status = 'paid' "
+        "AND order_date BETWEEN ? AND ?" + valid_from_clause
+    )
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(sql, params).fetchone()
+        return {
+            "count": int(row["n"]) if row else 0,
+            "revenue": float(row["revenue"]) if row else 0.0,
+        }
+    except sqlite3.OperationalError:
+        return {"count": 0, "revenue": 0.0}
+
+
+def get_meta_begin_checkout_total(db_path: Path, start_date: str, end_date: str) -> int:
+    """Period total of Meta meta_begin_checkout (campaign-level ad_metrics rows).
+
+    Used by the Overview LPV->Checkout CVR KPI and the "Spend vs Begin Checkout"
+    chart (Overview v2, 2026-07-22) -- mirrors get_meta_purchases_total's shape.
+    """
+    sql = """
+        SELECT COALESCE(SUM(m.meta_begin_checkout), 0) AS total
+        FROM ad_metrics m
+        WHERE m.ad_set_id = '' AND m.ad_id = ''
+          AND m.date BETWEEN ? AND ?
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(sql, (start_date, end_date)).fetchone()
+        return int(row["total"]) if row and row["total"] is not None else 0
+    except sqlite3.OperationalError:
+        return 0
+
+
 def get_daily_trend(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
     sql = """
         SELECT

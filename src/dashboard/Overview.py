@@ -155,6 +155,33 @@ def _cached_camp_daily(db_path_str: str, start: str, end: str) -> list[dict[str,
     return db.get_campaign_daily_breakdown(Path(db_path_str), start, end)
 
 
+# --- Overview v2 (2026-07-22) — Shopify-anchored KPI row cached wrappers ----
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_shopify_summary(
+    db_path_str: str, start: str, end: str, valid_from: str
+) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_shopify_paid_summary(Path(db_path_str), start, end, valid_from)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_meta_begin_checkout(db_path_str: str, start: str, end: str) -> int:
+    from pathlib import Path
+    return db.get_meta_begin_checkout_total(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_meta_funnel(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_meta_funnel_summary(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_total_sessions(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_total_sessions_summary(Path(db_path_str), start, end)
+
+
 # ---------------------------------------------------------------------------
 # Plotly figure builders (D-06, D-10)
 # ---------------------------------------------------------------------------
@@ -550,39 +577,38 @@ end_iso = end_date.isoformat()
 render_scope_line(start_date, end_date, campaign_filter="All")
 
 # ---------------------------------------------------------------------------
-# KPI row (D-05) — 7 st.metric cards (6 ad metrics + Stripe paid rate)
+# KPI row v2 (Overview v2, 2026-07-22) — MER / Blended CAC / Pre-orders
+# anchored primary row, replacing the deposit-era (FSD/CPR/Paid/CPaC) tiles
+# and the mislabeled "Blended ROAS" (it was always spend-weighted Meta
+# *platform* ROAS, never blended with anything). Legacy deposit tiles move
+# into an expander below that only renders when there was legacy FSD activity
+# in range — the $1-deposit/Stripe step no longer exists in the live funnel
+# (preorders flow straight to Shopify checkout), so it is empty today.
 # ---------------------------------------------------------------------------
 kpi = _cached_kpi(db_path_str, start_iso, end_iso)
 ga4_kpi = _cached_ga4_kpi(db_path_str, start_iso, end_iso)
 
-# Stripe paid-rate — current period vs prior period of equal length
+# Current-period Shopify / GA4-all-sessions / Meta-funnel figures
 _period_days = (end_date - start_date).days + 1
 _prior_start = (start_date - timedelta(days=_period_days)).isoformat()
 _prior_end = (start_date - timedelta(days=1)).isoformat()
+
+shopify_kpi = _cached_shopify_summary(db_path_str, start_iso, end_iso, settings.orders_valid_from)
+ga4_sessions_all = _cached_total_sessions(db_path_str, start_iso, end_iso)
+meta_bc_total = _cached_meta_begin_checkout(db_path_str, start_iso, end_iso)
+meta_funnel = _cached_meta_funnel(db_path_str, start_iso, end_iso)
+
+# Prior-period equivalents (same-length window immediately before start_date)
+# — used for the period-over-period deltas on every card below.
 stripe_kpi = _cached_stripe_kpi(db_path_str, start_iso, end_iso)
 prior_stripe_kpi = _cached_stripe_kpi(db_path_str, _prior_start, _prior_end)
 prior_kpi = _cached_kpi(db_path_str, _prior_start, _prior_end)
-
-c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-
-# Inject CSS to colour the value text of the two NSM gate cards:
-#   column 5 (FSD — Gate 1)  → blue  #60a5fa
-#   column 7 (Paid — Gate 2) → green #34d399
-st.markdown(
-    """
-    <style>
-    /* KPI strip: Gate 1 (FSD) value — blue */
-    [data-testid="column"]:nth-child(5) [data-testid="stMetricValue"] {
-        color: #60a5fa !important;
-    }
-    /* KPI strip: Gate 2 (Paid NSM) value — green */
-    [data-testid="column"]:nth-child(7) [data-testid="stMetricValue"] {
-        color: #34d399 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+prior_shopify_kpi = _cached_shopify_summary(
+    db_path_str, _prior_start, _prior_end, settings.orders_valid_from
 )
+prior_ga4_sessions_all = _cached_total_sessions(db_path_str, _prior_start, _prior_end)
+prior_meta_bc_total = _cached_meta_begin_checkout(db_path_str, _prior_start, _prior_end)
+prior_meta_funnel = _cached_meta_funnel(db_path_str, _prior_start, _prior_end)
 
 
 def _fmt_spend(v: float) -> str:
@@ -594,84 +620,173 @@ def _fmt_spend(v: float) -> str:
     return f"${v:.2f}"
 
 
-# Card 1 — Total Spend
-c1.metric("Total Spend", _fmt_spend(float(kpi.get("total_spend") or 0)))
+def _pct_change(cur: float | None, prior: float | None) -> float | None:
+    """% change of cur vs prior. None when either side is missing/undefined."""
+    if cur is None or prior is None or prior == 0:
+        return None
+    return (cur - prior) / abs(prior) * 100.0
 
-# Card 2 — Blended ROAS
+
+def _delta_pct_text(pct: float | None) -> str | None:
+    return f"{pct:+.1f}% vs prior" if pct is not None else None
+
+
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+
+# Card 1 — Total Spend (Meta)
+_spend = float(kpi.get("total_spend") or 0)
+_prior_spend = float(prior_kpi.get("total_spend") or 0)
+c1.metric(
+    "Total Spend",
+    _fmt_spend(_spend),
+    delta=_delta_pct_text(_pct_change(_spend, _prior_spend)),
+    delta_color="off",
+    help="Total Meta ad spend for the period.",
+)
+
+# Card 2 — MER (blended) = Shopify paid revenue ÷ Meta spend
+_mer = (shopify_kpi["revenue"] / _spend) if _spend > 0 else None
+_prior_mer = (
+    (prior_shopify_kpi["revenue"] / _prior_spend) if _prior_spend > 0 else None
+)
+c2.metric(
+    "MER (blended)",
+    f"{_mer:.2f}x" if _mer is not None else "—",
+    delta=_delta_pct_text(_pct_change(_mer, _prior_mer)),
+    delta_color="normal",
+    help="Shopify revenue ÷ ad spend — attribution-free",
+)
+
+# Card 3 — Blended CAC = Spend ÷ Shopify paid order count
+_cac = (_spend / shopify_kpi["count"]) if shopify_kpi["count"] > 0 else None
+_prior_cac = (
+    (_prior_spend / prior_shopify_kpi["count"]) if prior_shopify_kpi["count"] > 0 else None
+)
+c3.metric(
+    "Blended CAC",
+    f"${_cac:.2f}" if _cac is not None else "—",
+    delta=_delta_pct_text(_pct_change(_cac, _prior_cac)),
+    delta_color="inverse",  # lower CAC = better = green for a negative delta
+    help="true cost per preorder",
+)
+
+# Card 4 — Pre-orders (Shopify paid count in range)
+_preorders = int(shopify_kpi["count"])
+_prior_preorders = int(prior_shopify_kpi["count"])
+c4.metric(
+    "Pre-orders",
+    f"{_preorders:,}",
+    delta=_delta_pct_text(_pct_change(_preorders, _prior_preorders)),
+    delta_color="normal",
+    help="Shopify paid order count (financial_status = 'paid'), respecting the "
+         "orders_valid_from cutoff that excludes pre-launch/test orders.",
+)
+
+# Card 5 — Meta ROAS (7d-click) — honest relabel of the old "Blended ROAS"
+# (it was always spend-weighted Meta *platform* ROAS, never blended).
 roas = float(kpi.get("weighted_roas") or 0.0)
-if roas >= ROAS_GOOD:
-    roas_delta, roas_color = "🟢 above 2.0", "normal"
-elif roas < ROAS_BAD:
-    roas_delta, roas_color = "🔴 below 1.0", "inverse"
-else:
-    roas_delta, roas_color = "⚠️ 1.0–2.0", "off"
-c2.metric("Blended ROAS", f"{roas:.2f}", delta=roas_delta, delta_color=roas_color)
-
-# Card 3 — GA4 Sessions
-sessions = int(ga4_kpi.get("total_sessions") or 0)
-c3.metric("GA4 Sessions", f"{sessions:,}")
-
-# Card 4 — Active Campaigns
-active = int(kpi.get("active_campaigns") or 0)
-c4.metric("Active Campaigns", f"{active}")
-
-# Card 5 — FSD (Gate 1) — blue emphasis via CSS above
-deposits = int(kpi.get("total_deposits") or 0)
+prior_roas = float(prior_kpi.get("weighted_roas") or 0.0)
 c5.metric(
-    "FSD (Gate 1)",
-    f"{deposits:,}",
-    help="Form Submit Deposits — Gate 1 output: everyone who submitted the form "
-         "(includes both paid and still-pending). CPR = Spend ÷ FSD.",
+    "Meta ROAS (7d-click)",
+    f"{roas:.2f}",
+    delta=_delta_pct_text(_pct_change(roas, prior_roas)),
+    delta_color="normal",
+    help="platform-attributed, expect over-reporting; compare with MER",
 )
 
-# Card 6 — CPR (FSD)
-cpd = kpi.get("cpd")
-c6.metric("CPR (FSD)", f"${float(cpd):.2f}" if cpd else "—")
+# Card 6 — GA4 Sessions (all) — from ga4_landing_pages (NOT the campaign-
+# attributed ga4_metrics figure, which undercounts real GA4 traffic).
+_sessions_all = int(ga4_sessions_all.get("sessions") or 0)
+_prior_sessions_all = int(prior_ga4_sessions_all.get("sessions") or 0)
+c6.metric(
+    "GA4 Sessions (all)",
+    f"{_sessions_all:,}",
+    delta=_delta_pct_text(_pct_change(_sessions_all, _prior_sessions_all)),
+    delta_color="normal",
+    help="All GA4 sessions from ga4_landing_pages — no campaign filter, "
+         "includes '(not set)' / untagged traffic. Compare with the campaign-"
+         "attributed figure in the Reconciliation section below.",
+)
 
-# Card 7 — Paid (NSM) — green emphasis via CSS above
-_paid_count = int(stripe_kpi.get("paid") or 0)
-_paid_rate = stripe_kpi.get("paid_rate")
-_prior_paid_rate = prior_stripe_kpi.get("paid_rate")
-_pr_delta: str | None = None
-_pr_delta_color = "off"
-if _paid_rate is not None and _prior_paid_rate is not None:
-    _pr_diff = _paid_rate - _prior_paid_rate
-    _pr_delta = f"{_pr_diff:+.1f}% paid rate vs prior"
-    _pr_delta_color = "normal" if _pr_diff >= 0 else "inverse"
-elif _paid_rate is not None:
-    _pr_delta = f"{_paid_rate:.1f}% paid rate"
-    _pr_delta_color = "off"
+# Card 7 — LPV → Checkout (Meta-attributed) = SUM(meta_begin_checkout) ÷ SUM(landing_page_views)
+_lpv_total = int(meta_funnel.get("landing_page_views") or 0)
+_lpv_cvr = (meta_bc_total / _lpv_total * 100.0) if _lpv_total > 0 else None
+_prior_lpv_total = int(prior_meta_funnel.get("landing_page_views") or 0)
+_prior_lpv_cvr = (
+    (prior_meta_bc_total / _prior_lpv_total * 100.0) if _prior_lpv_total > 0 else None
+)
 c7.metric(
-    "Paid (NSM)",
-    f"{_paid_count:,}" if _paid_count else "—",
-    delta=_pr_delta,
-    delta_color=_pr_delta_color,
-    help="Stripe paid conversions — your North Star Metric (Gate 2 output). "
-         "Delta = paid rate change vs prior period.",
+    "LPV → Checkout (Meta-attributed)",
+    f"{_lpv_cvr:.1f}%" if _lpv_cvr is not None else "—",
+    delta=_delta_pct_text(_pct_change(_lpv_cvr, _prior_lpv_cvr)),
+    delta_color="normal",
+    help="Meta begin_checkout ÷ Meta landing_page_views — platform-side only.",
 )
 
-# CPaC = Cost Per Actual Conversion = total spend / paid
-# Combines both gates: ad→FSD efficiency (CPR) × FSD→Paid conversion (paid rate)
-_total_paid_cpac = int(stripe_kpi.get("paid") or 0)
-_total_spend_cpac = float(kpi.get("total_spend") or 0)
-_cpac = (_total_spend_cpac / _total_paid_cpac) if _total_paid_cpac > 0 else None
+# --- Legacy deposit funnel (FSD/Stripe era) — only when there was legacy FSD
+# activity in range. The $1-deposit/Stripe step no longer exists in the live
+# funnel, so this collapses to nothing on current data; kept so historical
+# date ranges (pre-migration to Shopify preorders) still render correctly.
+_legacy_fsd_total = int(kpi.get("total_deposits") or 0)
+if _legacy_fsd_total > 0:
+    with st.expander("Legacy deposit funnel (FSD/Stripe era)"):
+        l1, l2, l3, l4 = st.columns(4)
 
-_prior_paid_cpac = int(prior_stripe_kpi.get("paid") or 0)
-_prior_spend_cpac = float(prior_kpi.get("total_spend") or 0)
-_prior_cpac = (_prior_spend_cpac / _prior_paid_cpac) if _prior_paid_cpac > 0 else None
+        l1.metric(
+            "FSD (Gate 1)",
+            f"{_legacy_fsd_total:,}",
+            help="Form Submit Deposits — Gate 1 output: everyone who submitted the form "
+                 "(includes both paid and still-pending). CPR = Spend ÷ FSD.",
+        )
 
-_cpac_delta: str | None = None
-if _cpac is not None and _prior_cpac is not None:
-    _cpac_diff = _cpac - _prior_cpac
-    _cpac_delta = f"{_cpac_diff:+.2f} vs prior"
+        cpd = kpi.get("cpd")
+        l2.metric("CPR (FSD)", f"${float(cpd):.2f}" if cpd else "—")
 
-c8.metric(
-    "CPaC",
-    f"${_cpac:.2f}" if _cpac is not None else "—",
-    delta=_cpac_delta,
-    delta_color="inverse",  # lower CPaC = better = green for negative delta
-    help="Cost Per Actual Conversion = Spend ÷ Paid. Combines ad efficiency (CPR) + landing page paid rate. This is your true acquisition cost.",
-)
+        _paid_count = int(stripe_kpi.get("paid") or 0)
+        _paid_rate = stripe_kpi.get("paid_rate")
+        _prior_paid_rate = prior_stripe_kpi.get("paid_rate")
+        _pr_delta: str | None = None
+        _pr_delta_color = "off"
+        if _paid_rate is not None and _prior_paid_rate is not None:
+            _pr_diff = _paid_rate - _prior_paid_rate
+            _pr_delta = f"{_pr_diff:+.1f}% paid rate vs prior"
+            _pr_delta_color = "normal" if _pr_diff >= 0 else "inverse"
+        elif _paid_rate is not None:
+            _pr_delta = f"{_paid_rate:.1f}% paid rate"
+            _pr_delta_color = "off"
+        l3.metric(
+            "Paid (NSM)",
+            f"{_paid_count:,}" if _paid_count else "—",
+            delta=_pr_delta,
+            delta_color=_pr_delta_color,
+            help="Stripe paid conversions — your North Star Metric (Gate 2 output). "
+                 "Delta = paid rate change vs prior period.",
+        )
+
+        # CPaC = Cost Per Actual Conversion = total spend / paid
+        _total_paid_cpac = int(stripe_kpi.get("paid") or 0)
+        _total_spend_cpac = float(kpi.get("total_spend") or 0)
+        _cpac = (_total_spend_cpac / _total_paid_cpac) if _total_paid_cpac > 0 else None
+
+        _prior_paid_cpac = int(prior_stripe_kpi.get("paid") or 0)
+        _prior_spend_cpac = float(prior_kpi.get("total_spend") or 0)
+        _prior_cpac = (
+            (_prior_spend_cpac / _prior_paid_cpac) if _prior_paid_cpac > 0 else None
+        )
+
+        _cpac_delta: str | None = None
+        if _cpac is not None and _prior_cpac is not None:
+            _cpac_diff = _cpac - _prior_cpac
+            _cpac_delta = f"{_cpac_diff:+.2f} vs prior"
+
+        l4.metric(
+            "CPaC",
+            f"${_cpac:.2f}" if _cpac is not None else "—",
+            delta=_cpac_delta,
+            delta_color="inverse",
+            help="Cost Per Actual Conversion = Spend ÷ Paid. Combines ad efficiency "
+                 "(CPR) + landing page paid rate. Deposit/Stripe-era metric.",
+        )
 
 # --- Secondary KPI row: efficiency metrics ---
 s1, s2, s3, s4 = st.columns(4)
@@ -679,7 +794,11 @@ s1.metric("CTR %", f"{float(kpi.get('overall_ctr') or 0):.2f}%")
 s2.metric("CPM", f"${float(kpi.get('avg_cpm') or 0):.2f}")
 s3.metric("CPC", f"${float(kpi.get('avg_cpc') or 0):.2f}")
 reach = int(kpi.get('total_reach') or 0)
-s4.metric("Reach", f"{reach:,}")
+s4.metric(
+    "Reach (sum of daily)",
+    f"{reach:,}",
+    help="daily reach summed — overcounts unique people across days",
+)
 
 # ---------------------------------------------------------------------------
 # Triangle reconciliation (Phase D trust/UX) — Meta vs GA4 vs actual paid.
