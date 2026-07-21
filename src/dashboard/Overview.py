@@ -878,9 +878,9 @@ with right:
     else:
         st.info("No data in this date range.")
     st.caption(
-        "Gate 1 (blue bars) = everyone who submitted the form · "
-        "Gate 2 (green line) = Stripe paid conversions · "
-        "Gap between the two = your paid rate."
+        "Bars = Meta-attributed Begin Checkout (≈ reserve-click intent; inflated by the "
+        "cart-permalink auto-redirect) · Line = Shopify paid orders (ground truth) · "
+        "Side-by-side, never blended — different attribution scopes."
     )
 
 # ---------------------------------------------------------------------------

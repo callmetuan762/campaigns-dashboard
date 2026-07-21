@@ -2269,9 +2269,23 @@ def get_purchase_divergence(db_path: Path, start_date: str, end_date: str) -> di
     both counts through src.dashboard.components.compute_gap_pct themselves).
     """
     meta_total = get_meta_purchases_total(db_path, start_date, end_date)
-    ga4 = get_ga4_kpi(db_path, start_date, end_date)
-    ga4_total = int(ga4.get("total_purchases", 0) or 0)
-    return {"meta_purchases": meta_total, "ga4_purchases": ga4_total}
+    # Property-wide GA4 purchase event count — the honest comparator, and the
+    # same source the Overview reconciliation triangle uses. The campaign-
+    # attributed ga4_metrics figure undercounts (the server-side purchase event
+    # loses utm_campaign for most orders), which made this chip disagree with
+    # the triangle for the same window (GA4 1 here vs 5 there).
+    ga4_total = int(
+        get_ga4_event_step_totals(db_path, start_date, end_date, ["purchase"])
+        ["purchase"].get("count") or 0
+    )
+    ga4_attributed = int(
+        get_ga4_kpi(db_path, start_date, end_date).get("total_purchases", 0) or 0
+    )
+    return {
+        "meta_purchases": meta_total,
+        "ga4_purchases": ga4_total,
+        "ga4_purchases_attributed": ga4_attributed,
+    }
 
 
 def get_event_daily_counts(

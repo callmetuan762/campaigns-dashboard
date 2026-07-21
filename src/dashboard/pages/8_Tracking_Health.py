@@ -194,7 +194,9 @@ with chip_cols[2]:
     gap_color = gap_chip_color(gap)
     gap_text = f"{gap:.0f}%" if gap is not None else "—"
     st.metric("Meta vs GA4 purchases", f"{chip_emoji(gap_color)} {gap_text}")
-    st.caption(f"Meta {meta_p:,} · GA4 {ga4_p:,} (never blended)")
+    ga4_attr = divergence.get("ga4_purchases_attributed")
+    attr_note = f", {ga4_attr:,} campaign-attributed" if ga4_attr is not None else ""
+    st.caption(f"Meta {meta_p:,} · GA4 {ga4_p:,} property-wide{attr_note} (never blended)")
 
 for i, event_name in enumerate(CRITICAL_EVENTS):
     with chip_cols[3 + i]:
