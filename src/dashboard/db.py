@@ -202,13 +202,30 @@ def get_attribution_comparison(db_path: Path, start_date: str, end_date: str) ->
 
 
 def get_data_freshness(db_path: Path) -> dict[str, str | None]:
-    with _conn(db_path) as con:
-        meta = con.execute(
-            "SELECT MAX(fetched_at) AS fetched, MAX(date) AS last_date FROM ad_metrics"
-        ).fetchone()
-        ga4 = con.execute(
-            "SELECT MAX(fetched_at) AS fetched, MAX(date) AS last_date FROM ga4_metrics"
-        ).fetchone()
+    """Meta/GA4 freshness for the Overview sidebar ("Meta last date: ...").
+
+    D-05 fix: reflects MAX(date) / MAX(fetched_at) straight from ad_metrics /
+    ga4_metrics -- the same tables the backfill (src.meta.ingest / src.ga4.ingest)
+    upserts into, so this always matches what was actually written, whenever it
+    was written. Previously this was the one aggregate-query function in this
+    module without the try/except OperationalError graceful-degradation pattern
+    every other query here follows -- on a brand-new/pre-migration DB (tables
+    missing entirely, not just empty) it would raise instead of showing "—",
+    which is the most likely way the sidebar could end up showing nothing.
+    """
+    try:
+        with _conn(db_path) as con:
+            meta = con.execute(
+                "SELECT MAX(fetched_at) AS fetched, MAX(date) AS last_date FROM ad_metrics"
+            ).fetchone()
+            ga4 = con.execute(
+                "SELECT MAX(fetched_at) AS fetched, MAX(date) AS last_date FROM ga4_metrics"
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return {
+            "meta_fetched": None, "meta_last_date": None,
+            "ga4_fetched": None, "ga4_last_date": None,
+        }
     return {
         "meta_fetched": meta["fetched"] if meta else None,
         "meta_last_date": meta["last_date"] if meta else None,

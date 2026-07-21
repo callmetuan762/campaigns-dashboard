@@ -209,6 +209,24 @@ def test_data_freshness_empty_tables(tmp_path: Path) -> None:
     assert out["ga4_last_date"] is None
 
 
+def test_data_freshness_missing_tables_does_not_raise(tmp_path: Path) -> None:
+    """D-05 regression: a DB where ad_metrics/ga4_metrics don't exist at all (not
+    just empty) must degrade to None values, matching every other query function
+    in this module -- not raise sqlite3.OperationalError, which would crash the
+    Overview sidebar instead of showing 'Meta last date: —'."""
+    db = tmp_path / "no_tables.db"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE placeholder (id INTEGER)")
+    con.commit()
+    con.close()
+
+    out = get_data_freshness(db)
+    assert out == {
+        "meta_fetched": None, "meta_last_date": None,
+        "ga4_fetched": None, "ga4_last_date": None,
+    }
+
+
 # --- get_campaign_names ----------------------------------------------------
 
 def test_campaign_names_alphabetical(db: Path) -> None:
