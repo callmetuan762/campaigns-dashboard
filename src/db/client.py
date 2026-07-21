@@ -127,26 +127,54 @@ class DBClient:
     _UPSERT_AD_METRICS_SQL = """
         INSERT INTO ad_metrics (
             campaign_id, date, ad_set_id, ad_id, spend, impressions, clicks, ctr, cpc, cpm, roas,
-            meta_purchases_7dclick, meta_cost_per_purchase, reach, frequency, meta_form_submit_deposit
+            meta_purchases_7dclick, meta_cost_per_purchase, reach, frequency,
+            meta_form_submit_deposit,
+            landing_page_views, video_3s_views, video_thruplay,
+            meta_begin_checkout, meta_cost_per_begin_checkout, meta_add_to_cart, meta_leads
         ) VALUES (
             :campaign_id, :date, :ad_set_id, :ad_id, :spend, :impressions, :clicks, :ctr, :cpc, :cpm, :roas,
-            :meta_purchases_7dclick, :meta_cost_per_purchase, :reach, :frequency, :meta_form_submit_deposit
+            :meta_purchases_7dclick, :meta_cost_per_purchase, :reach, :frequency,
+            :meta_form_submit_deposit,
+            :landing_page_views, :video_3s_views, :video_thruplay,
+            :meta_begin_checkout, :meta_cost_per_begin_checkout, :meta_add_to_cart, :meta_leads
         )
         ON CONFLICT(campaign_id, date, ad_set_id, ad_id) DO UPDATE SET
-            spend                      = excluded.spend,
-            impressions                = excluded.impressions,
-            clicks                     = excluded.clicks,
-            ctr                        = excluded.ctr,
-            cpc                        = excluded.cpc,
-            cpm                        = excluded.cpm,
-            roas                       = excluded.roas,
-            meta_purchases_7dclick     = excluded.meta_purchases_7dclick,
-            meta_cost_per_purchase     = excluded.meta_cost_per_purchase,
-            reach                      = excluded.reach,
-            frequency                  = excluded.frequency,
-            meta_form_submit_deposit   = excluded.meta_form_submit_deposit,
-            fetched_at                 = datetime('now');
+            spend                         = excluded.spend,
+            impressions                   = excluded.impressions,
+            clicks                        = excluded.clicks,
+            ctr                           = excluded.ctr,
+            cpc                           = excluded.cpc,
+            cpm                           = excluded.cpm,
+            roas                          = excluded.roas,
+            meta_purchases_7dclick        = excluded.meta_purchases_7dclick,
+            meta_cost_per_purchase        = excluded.meta_cost_per_purchase,
+            reach                         = excluded.reach,
+            frequency                     = excluded.frequency,
+            meta_form_submit_deposit      = excluded.meta_form_submit_deposit,
+            landing_page_views            = excluded.landing_page_views,
+            video_3s_views                = excluded.video_3s_views,
+            video_thruplay                = excluded.video_thruplay,
+            meta_begin_checkout           = excluded.meta_begin_checkout,
+            meta_cost_per_begin_checkout  = excluded.meta_cost_per_begin_checkout,
+            meta_add_to_cart              = excluded.meta_add_to_cart,
+            meta_leads                    = excluded.meta_leads,
+            fetched_at                    = datetime('now');
     """
+
+    # funnel-v3: columns added by MIGRATION_011_META_FUNNEL_V3. Defaulted to None here
+    # (merged UNDER each row, so any key the caller supplies wins) so that callers built
+    # before funnel-v3 — hand-built dicts in older tests, dashboard code paths that only
+    # know the Phase 1/2 shape — keep working without every one of them being updated to
+    # know about the new columns (CLAUDE.md graceful degradation: missing == NULL).
+    _AD_METRICS_FUNNEL_V3_DEFAULTS: dict = {
+        "landing_page_views": None,
+        "video_3s_views": None,
+        "video_thruplay": None,
+        "meta_begin_checkout": None,
+        "meta_cost_per_begin_checkout": None,
+        "meta_add_to_cart": None,
+        "meta_leads": None,
+    }
 
     _UPSERT_GA4_METRICS_SQL = """
         INSERT INTO ga4_metrics (
@@ -169,7 +197,8 @@ class DBClient:
     async def upsert_ad_metrics(self, rows: list[dict]) -> int:
         if not rows:
             return 0
-        await self.conn.executemany(self._UPSERT_AD_METRICS_SQL, rows)
+        normalized = [{**self._AD_METRICS_FUNNEL_V3_DEFAULTS, **r} for r in rows]
+        await self.conn.executemany(self._UPSERT_AD_METRICS_SQL, normalized)
         await self.conn.commit()
         return len(rows)
 
@@ -201,6 +230,27 @@ class DBClient:
         if not rows:
             return 0
         await self.conn.executemany(self._UPSERT_GA4_LANDING_PAGES_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- Funnel v3: GA4 event-level metrics ----
+
+    _UPSERT_GA4_EVENTS_SQL = """
+        INSERT INTO ga4_events (
+            event_name, date, campaign_utm, lp_slug, event_count
+        ) VALUES (
+            :event_name, :date, :campaign_utm, :lp_slug, :event_count
+        )
+        ON CONFLICT(event_name, date, campaign_utm, lp_slug) DO UPDATE SET
+            event_count = excluded.event_count,
+            fetched_at  = datetime('now');
+    """
+
+    async def upsert_ga4_events(self, rows: list[dict]) -> int:
+        """Upsert ga4_events rows. Idempotent via PK (event_name, date, campaign_utm, lp_slug)."""
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_GA4_EVENTS_SQL, rows)
         await self.conn.commit()
         return len(rows)
 
@@ -516,5 +566,42 @@ class DBClient:
             for r in rows
         ]
         await self.conn.executemany(self._UPSERT_STRIPE_PAYMENTS_SQL, params)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- Funnel v3: Shopify orders ----
+
+    _UPSERT_SHOPIFY_ORDERS_SQL = """
+        INSERT INTO shopify_orders (
+            order_id, created_at, order_date, total_price, financial_status,
+            utm_source, utm_campaign, utm_content, lp_slug, landing_site, referring_site
+        ) VALUES (
+            :order_id, :created_at, :order_date, :total_price, :financial_status,
+            :utm_source, :utm_campaign, :utm_content, :lp_slug, :landing_site, :referring_site
+        )
+        ON CONFLICT(order_id) DO UPDATE SET
+            created_at       = excluded.created_at,
+            order_date       = excluded.order_date,
+            total_price      = excluded.total_price,
+            financial_status = excluded.financial_status,
+            utm_source       = excluded.utm_source,
+            utm_campaign     = excluded.utm_campaign,
+            utm_content      = excluded.utm_content,
+            lp_slug          = excluded.lp_slug,
+            landing_site     = excluded.landing_site,
+            referring_site   = excluded.referring_site,
+            fetched_at       = datetime('now');
+    """
+
+    async def upsert_shopify_orders(self, rows: list[dict]) -> int:
+        """Upsert shopify_orders rows. Idempotent via PK (order_id).
+
+        INFRA-03: idempotent at SQL layer via INSERT ... ON CONFLICT DO UPDATE, mirroring
+        upsert_stripe_payments — financial_status can transition (e.g. pending -> paid)
+        on re-ingest of the same order.
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_SHOPIFY_ORDERS_SQL, rows)
         await self.conn.commit()
         return len(rows)

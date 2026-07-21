@@ -253,6 +253,78 @@ CREATE INDEX IF NOT EXISTS idx_ad_creatives_format ON ad_creatives(ad_format);
 """
 
 # ---------------------------------------------------------------------------
+# Migration 010 — Funnel v3: GA4 event-level ingestion
+#
+# Tracks raw GA4 event counts (page_view_lp, cta_click, add_to_cart,
+# begin_checkout, purchase, lead_submit, quiz_complete, ...) segmented by the
+# lp_slug custom dimension (routine, big-feelings, screen-anxious, ...).
+# campaign_utm and lp_slug default to '' (not NULL) so the composite PK
+# de-duplicates correctly — same rationale as ad_metrics ad_set_id/ad_id
+# (SQLite NULL != NULL in a PRIMARY KEY).
+# ---------------------------------------------------------------------------
+
+MIGRATION_010_GA4_EVENTS: str = """
+CREATE TABLE IF NOT EXISTS ga4_events (
+    event_name    TEXT NOT NULL,
+    date          TEXT NOT NULL,
+    campaign_utm  TEXT NOT NULL DEFAULT '',
+    lp_slug       TEXT NOT NULL DEFAULT '',
+    event_count   INTEGER,
+    fetched_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (event_name, date, campaign_utm, lp_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_ga4_events_date ON ga4_events(date);
+CREATE INDEX IF NOT EXISTS idx_ga4_events_campaign ON ga4_events(campaign_utm);
+CREATE INDEX IF NOT EXISTS idx_ga4_events_lp_slug ON ga4_events(lp_slug);
+"""
+
+# ---------------------------------------------------------------------------
+# Migration 011 — Funnel v3: Meta landing_page_views, video hook/hold metrics,
+# and Shopify-funnel actions (InitiateCheckout / AddToCart / Lead) on ad_metrics.
+#
+# All columns nullable (no DEFAULT) — CLAUDE.md graceful-degradation rule:
+# a field that errors or is unavailable for a given ad account degrades to NULL
+# rather than failing the whole ingest.
+# ---------------------------------------------------------------------------
+
+MIGRATION_011_META_FUNNEL_V3: str = """
+ALTER TABLE ad_metrics ADD COLUMN landing_page_views INTEGER;
+ALTER TABLE ad_metrics ADD COLUMN video_3s_views INTEGER;
+ALTER TABLE ad_metrics ADD COLUMN video_thruplay INTEGER;
+ALTER TABLE ad_metrics ADD COLUMN meta_begin_checkout INTEGER;
+ALTER TABLE ad_metrics ADD COLUMN meta_cost_per_begin_checkout REAL;
+ALTER TABLE ad_metrics ADD COLUMN meta_add_to_cart INTEGER;
+ALTER TABLE ad_metrics ADD COLUMN meta_leads INTEGER;
+"""
+
+# ---------------------------------------------------------------------------
+# Migration 012 — Funnel v3: Shopify orders (preorder purchases)
+#
+# utm_* / lp_slug / landing_site / referring_site default to '' (not NULL) —
+# parsed from the order's landing_site query string (src/shopify/client.py).
+# ---------------------------------------------------------------------------
+
+MIGRATION_012_SHOPIFY_ORDERS: str = """
+CREATE TABLE IF NOT EXISTS shopify_orders (
+    order_id          TEXT PRIMARY KEY,
+    created_at        TEXT NOT NULL,
+    order_date        TEXT NOT NULL,
+    total_price       REAL,
+    financial_status  TEXT,
+    utm_source        TEXT NOT NULL DEFAULT '',
+    utm_campaign      TEXT NOT NULL DEFAULT '',
+    utm_content       TEXT NOT NULL DEFAULT '',
+    lp_slug           TEXT NOT NULL DEFAULT '',
+    landing_site      TEXT NOT NULL DEFAULT '',
+    referring_site    TEXT NOT NULL DEFAULT '',
+    fetched_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_shopify_orders_date ON shopify_orders(order_date);
+CREATE INDEX IF NOT EXISTS idx_shopify_orders_utm_campaign ON shopify_orders(utm_campaign);
+CREATE INDEX IF NOT EXISTS idx_shopify_orders_lp_slug ON shopify_orders(lp_slug);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -266,4 +338,7 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("007_changelogs", MIGRATION_007_CHANGELOGS),
     ("008_stripe_payments", MIGRATION_008_STRIPE_PAYMENTS),
     ("009_ad_creatives", MIGRATION_009_AD_CREATIVES),
+    ("010_ga4_events", MIGRATION_010_GA4_EVENTS),
+    ("011_meta_funnel_v3", MIGRATION_011_META_FUNNEL_V3),
+    ("012_shopify_orders", MIGRATION_012_SHOPIFY_ORDERS),
 ]

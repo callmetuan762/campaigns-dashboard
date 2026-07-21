@@ -71,10 +71,19 @@ def sample_campaign_row():
         "reach": "900",
         "frequency": "1.1",
         "purchase_roas": [{"action_type": "omni_purchase", "value": "3.0"}],
-        "actions": [{"action_type": "offsite_conversion.fb_pixel_purchase", "value": "10"}],
-        "cost_per_action_type": [
-            {"action_type": "offsite_conversion.fb_pixel_purchase", "value": "10.0"}
+        "actions": [
+            {"action_type": "offsite_conversion.fb_pixel_purchase", "value": "10"},
+            {"action_type": "landing_page_view", "value": "80"},
+            {"action_type": "video_view", "value": "60"},
+            {"action_type": "offsite_conversion.fb_pixel_initiate_checkout", "value": "15"},
+            {"action_type": "offsite_conversion.fb_pixel_add_to_cart", "value": "25"},
+            {"action_type": "offsite_conversion.fb_pixel_lead", "value": "5"},
         ],
+        "cost_per_action_type": [
+            {"action_type": "offsite_conversion.fb_pixel_purchase", "value": "10.0"},
+            {"action_type": "offsite_conversion.fb_pixel_initiate_checkout", "value": "6.5"},
+        ],
+        "video_thruplay_watched_actions": [{"action_type": "video_view", "value": "40"}],
     }
 
 
@@ -154,6 +163,10 @@ def test_parse_row_all_keys_present(sample_campaign_row):
         "roas", "meta_purchases_7dclick", "meta_cost_per_purchase",
         "meta_form_submit_deposit",
         "reach", "frequency",
+        # funnel-v3
+        "landing_page_views", "video_3s_views", "video_thruplay",
+        "meta_begin_checkout", "meta_cost_per_begin_checkout",
+        "meta_add_to_cart", "meta_leads",
     }
     assert set(row.keys()) == expected_keys
 
@@ -166,6 +179,131 @@ def test_parse_row_missing_fields_no_error():
     assert row["impressions"] == 0
     assert row["roas"] == 0.0
     assert row["meta_purchases_7dclick"] == 0
+    # funnel-v3: actions-list-derived fields default to 0 (not None) — the list itself
+    # (row.get("actions")) is simply absent, same as any other missing action_type.
+    assert row["landing_page_views"] == 0
+    assert row["video_3s_views"] == 0
+    assert row["meta_begin_checkout"] == 0
+    assert row["meta_cost_per_begin_checkout"] == 0.0
+    assert row["meta_add_to_cart"] == 0
+    assert row["meta_leads"] == 0
+    # video_thruplay is None (not 0) when the field itself is absent from the API
+    # response — distinguishes "field unavailable/degraded" from "zero views".
+    assert row["video_thruplay"] is None
+
+
+# ---------------------------------------------------------------------------
+# funnel-v3: landing_page_view / video / InitiateCheckout / AddToCart / Lead parsing
+# ---------------------------------------------------------------------------
+
+def test_parse_row_landing_page_views(sample_campaign_row):
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["landing_page_views"] == 80
+
+
+def test_parse_row_video_3s_views(sample_campaign_row):
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["video_3s_views"] == 60
+
+
+def test_parse_row_video_thruplay(sample_campaign_row):
+    """video_thruplay is parsed from the separate video_thruplay_watched_actions field."""
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["video_thruplay"] == 40
+
+
+def test_parse_row_video_thruplay_none_when_field_absent():
+    """video_thruplay is None (degraded), not 0, when the field key is entirely absent."""
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row({"actions": []}, "2026-05-18", "campaign")
+    assert row["video_thruplay"] is None
+
+
+def test_parse_row_meta_begin_checkout(sample_campaign_row):
+    """InitiateCheckout action_type -> meta_begin_checkout."""
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["meta_begin_checkout"] == 15
+
+
+def test_parse_row_meta_cost_per_begin_checkout(sample_campaign_row):
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["meta_cost_per_begin_checkout"] == 6.5
+
+
+def test_parse_row_meta_add_to_cart(sample_campaign_row):
+    """AddToCart action_type -> meta_add_to_cart."""
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["meta_add_to_cart"] == 25
+
+
+def test_parse_row_meta_leads(sample_campaign_row):
+    """Lead action_type -> meta_leads."""
+    from src.meta.client import _parse_insight_row
+    row = _parse_insight_row(sample_campaign_row, "2026-05-18", "campaign")
+    assert row["meta_leads"] == 5
+
+
+# ---------------------------------------------------------------------------
+# funnel-v3: _fetch_insights_sync graceful degradation on optional fields
+# ---------------------------------------------------------------------------
+
+def test_optional_fields_constant_contains_thruplay():
+    from src.meta.client import _OPTIONAL_FIELDS
+    assert "video_thruplay_watched_actions" in _OPTIONAL_FIELDS
+
+
+def test_campaign_fields_contains_video_thruplay():
+    from src.meta.client import _CAMPAIGN_FIELDS
+    assert "video_thruplay_watched_actions" in _CAMPAIGN_FIELDS
+
+
+def test_fetch_insights_sync_retries_without_optional_field_on_error():
+    """If the API rejects video_thruplay_watched_actions, retry once without it."""
+    import json as _json
+    from unittest.mock import MagicMock, patch
+
+    from facebook_business.exceptions import FacebookRequestError
+    from src.meta.client import _fetch_insights_sync
+
+    bad_error = FacebookRequestError(
+        "Unknown field 'video_thruplay_watched_actions'",
+        {},  # request_context — dict (constructor calls request.get(...))
+        400,
+        {},
+        _json.dumps({"error": {"message": "Unknown field 'video_thruplay_watched_actions'"}}),
+    )
+
+    fallback_cursor = iter([{"campaign_id": "c1", "campaign_name": "C1"}])
+
+    call_count = 0
+
+    def fake_get_insights(fields, params):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            assert "video_thruplay_watched_actions" in fields
+            raise bad_error
+        assert "video_thruplay_watched_actions" not in fields
+        cursor = MagicMock()
+        cursor.__iter__.return_value = fallback_cursor
+        cursor.load_next_page.return_value = False
+        return cursor
+
+    mock_account = MagicMock()
+    mock_account.get_insights.side_effect = fake_get_insights
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        rows = _fetch_insights_sync("act_123", "2026-05-18", "campaign")
+
+    assert call_count == 2
+    assert len(rows) == 1
+    assert rows[0]["video_thruplay"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,34 @@ class Settings(BaseSettings):
     ga4_service_account_json: Path | None = None
     ga4_conversion_event: str = "purchase"
 
+    # ---- Shopify (funnel-v3: preorder purchases) ----
+    # Both unset (default) => src/shopify/ingest.py is a clean no-op — same graceful
+    # degradation pattern as the other optional sources (Sheets/Stripe, Sentry).
+    shopify_store_domain: str | None = None       # e.g. "shop.nowaplanet.com"
+    shopify_admin_token: SecretStr | None = None  # custom-app Admin API access token
+    shopify_api_version: str = "2025-01"
+
+    # ---- Funnel v3: config-driven event/conversion definitions ----
+    # New preorder funnel (ads -> LP -> GA4 session -> reserve click -> add_to_cart ->
+    # begin_checkout -> purchase) + quiz funnel (page_view_lp -> quiz_complete ->
+    # lead_submit). Consumed by the new GA4 events ingestion (src/ga4/ingest.py) so it
+    # stops hardcoding event names. Existing FSD/Stripe dashboard pages are NOT
+    # refactored to use these yet (out of scope for this data-layer change).
+    primary_conversion_event: str = "begin_checkout"
+    purchase_event: str = "purchase"
+    lead_event: str = "lead_submit"
+    ga4_event_list: str | list[str] = Field(
+        default_factory=lambda: [
+            "page_view_lp",
+            "cta_click",
+            "add_to_cart",
+            "begin_checkout",
+            "purchase",
+            "lead_submit",
+            "quiz_complete",
+        ]
+    )
+
     # ---- Anthropic (Phase 4) ----
     anthropic_api_key: SecretStr | None = None
     anthropic_monthly_budget_usd: float = 20.0
@@ -90,6 +118,20 @@ class Settings(BaseSettings):
             if stripped.startswith("["):
                 return v  # let pydantic parse JSON
             return [int(x.strip()) for x in stripped.split(",") if x.strip()]
+        return v
+
+    @field_validator("ga4_event_list", mode="before")
+    @classmethod
+    def _split_event_list_csv(cls, v: object) -> object:
+        """Accept comma-separated event names from .env (e.g. "page_view_lp,cta_click")
+        in addition to a JSON array, mirroring _split_csv above for chat/user ids."""
+        if isinstance(v, str):
+            stripped = v.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                return v  # let pydantic parse JSON
+            return [x.strip() for x in stripped.split(",") if x.strip()]
         return v
 
 

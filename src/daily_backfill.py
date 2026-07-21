@@ -105,6 +105,17 @@ async def daily_backfill_job() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.error("daily_backfill_stripe_failed", error=str(exc))
 
+    # Pull Shopify preorder orders (funnel-v3, if configured). run_shopify_ingest_for_range
+    # is itself a clean no-op when SHOPIFY_STORE_DOMAIN/SHOPIFY_ADMIN_TOKEN are unset
+    # (src/shopify/ingest.py), matching the Stripe/Sheets graceful-degradation pattern —
+    # the outer try/except here just guards against unexpected errors during that check.
+    try:
+        from src.shopify.ingest import run_shopify_ingest_for_range
+        await run_shopify_ingest_for_range(_db, _settings, yesterday, yesterday)
+        logger.info("daily_backfill_shopify_done", date=yesterday)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("daily_backfill_shopify_failed", error=str(exc))
+
     logger.info("daily_backfill_complete", meta_date=yesterday, ga4_date=d2)
 
 

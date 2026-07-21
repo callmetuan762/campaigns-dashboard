@@ -33,6 +33,16 @@ logger = structlog.get_logger(__name__)
 _stdlib_log = logging.getLogger(__name__)
 
 # Campaign-level fields requested from Meta Insights API (META-02)
+#
+# funnel-v3 additions (verified against the facebook-business SDK version pinned in
+# pyproject.toml — AdsInsights.Field enum in this SDK release):
+#   - landing_page_view / video 3-second views / InitiateCheckout / AddToCart / Lead
+#     are all parsed from the existing "actions" / "cost_per_action_type" lists below
+#     (no new top-level field needed — same pattern as the existing purchase parsing).
+#   - video_thruplay_watched_actions IS a distinct top-level field (list<AdsActionStats>,
+#     confirmed present on AdsInsights.Field in this SDK version) and must be requested
+#     explicitly. If Meta rejects it for a given ad account, _fetch_insights_sync retries
+#     once without it and video_thruplay degrades to NULL (CLAUDE.md graceful degradation).
 _CAMPAIGN_FIELDS = [
     "campaign_id",
     "campaign_name",
@@ -44,11 +54,16 @@ _CAMPAIGN_FIELDS = [
     "cpm",
     "reach",
     "frequency",
-    "purchase_roas",          # list[{action_type, value}] — parse via _extract_action_value
-    "actions",                # list[{action_type, value}] — filter offsite_conversion.fb_pixel_purchase
-    "cost_per_action_type",   # list[{action_type, value}] — filter offsite_conversion.fb_pixel_purchase
-    "conversions",            # list[{action_type, value}] — includes custom pixel events like form_submit_deposit
+    "purchase_roas",                   # list[{action_type, value}] — parse via _extract_action_value
+    "actions",                         # list[{action_type, value}] — purchase, landing_page_view, video_view, InitiateCheckout, AddToCart, Lead
+    "cost_per_action_type",            # list[{action_type, value}] — cost per purchase / InitiateCheckout
+    "conversions",                     # list[{action_type, value}] — includes custom pixel events like form_submit_deposit
+    "video_thruplay_watched_actions",  # list[{action_type, value}] — ThruPlay count (optional/degradable field)
 ]
+
+# Optional fields that may not be available on every ad account / API version.
+# _fetch_insights_sync retries without these on FacebookRequestError (graceful degradation).
+_OPTIONAL_FIELDS = ["video_thruplay_watched_actions"]
 
 
 def init_meta_api(settings) -> None:
@@ -87,6 +102,14 @@ def _parse_insight_row(row: dict, date_iso: str, level: str = "campaign") -> dic
 
     ad_set_id and ad_id default to '' (sentinel) for campaign-level rows (META-05).
     meta_ prefix applied to conversion fields per CLAUDE.md data model rules.
+
+    funnel-v3: landing_page_views / video_3s_views / meta_begin_checkout /
+    meta_add_to_cart / meta_leads are parsed from the "actions" list (same pattern as
+    the existing purchase parsing). meta_cost_per_begin_checkout comes from
+    "cost_per_action_type". video_thruplay comes from the separate
+    "video_thruplay_watched_actions" field and is None (not 0) when that field was
+    dropped by the graceful-degradation retry in _fetch_insights_sync — distinguishing
+    "field unavailable" from "zero thruplay views".
     """
     purchases = _extract_action_value(
         row.get("actions"), "offsite_conversion.fb_pixel_purchase"
@@ -100,6 +123,29 @@ def _parse_insight_row(row: dict, date_iso: str, level: str = "campaign") -> dic
     form_submit_deposit = _extract_action_value(
         row.get("conversions"), "offsite_conversion.fb_pixel_custom.form_submit_deposit"
     )
+
+    # funnel-v3: landing page views + video hook/hold metrics
+    landing_page_views = _extract_action_value(row.get("actions"), "landing_page_view")
+    video_3s_views = _extract_action_value(row.get("actions"), "video_view")
+
+    thruplay_raw = row.get("video_thruplay_watched_actions")
+    if thruplay_raw is None:
+        video_thruplay: float | None = None
+    else:
+        video_thruplay = _extract_action_value(thruplay_raw, "video_view")
+
+    # funnel-v3: Shopify preorder funnel — InitiateCheckout / AddToCart / Lead
+    begin_checkout = _extract_action_value(
+        row.get("actions"), "offsite_conversion.fb_pixel_initiate_checkout"
+    )
+    cost_per_begin_checkout = _extract_action_value(
+        row.get("cost_per_action_type"), "offsite_conversion.fb_pixel_initiate_checkout"
+    )
+    add_to_cart = _extract_action_value(
+        row.get("actions"), "offsite_conversion.fb_pixel_add_to_cart"
+    )
+    leads = _extract_action_value(row.get("actions"), "offsite_conversion.fb_pixel_lead")
+
     return {
         "campaign_id": row.get("campaign_id", ""),
         "campaign_name": row.get("campaign_name", ""),
@@ -118,6 +164,13 @@ def _parse_insight_row(row: dict, date_iso: str, level: str = "campaign") -> dic
         "reach": int(row.get("reach", 0) or 0),
         "frequency": float(row.get("frequency", 0) or 0),
         "meta_form_submit_deposit": int(form_submit_deposit),
+        "landing_page_views": int(landing_page_views),
+        "video_3s_views": int(video_3s_views),
+        "video_thruplay": int(video_thruplay) if video_thruplay is not None else None,
+        "meta_begin_checkout": int(begin_checkout),
+        "meta_cost_per_begin_checkout": cost_per_begin_checkout,
+        "meta_add_to_cart": int(add_to_cart),
+        "meta_leads": int(leads),
     }
 
 
@@ -143,13 +196,35 @@ def _fetch_insights_sync(ad_account_id: str, date_iso: str, level: str) -> list[
         "time_increment": 1,  # required: without this, some campaigns return $0 spend incorrectly
         "limit": 500,
     }
-    cursor = account.get_insights(fields=fields, params=params)
-    rows = []
-    while True:
-        rows.extend([_parse_insight_row(dict(r), date_iso, level) for r in cursor])
-        if cursor.load_next_page() is False:
-            break
-    return rows
+
+    def _collect(field_list: list[str]) -> list[dict]:
+        cursor = account.get_insights(fields=field_list, params=params)
+        collected = []
+        while True:
+            collected.extend([_parse_insight_row(dict(r), date_iso, level) for r in cursor])
+            if cursor.load_next_page() is False:
+                break
+        return collected
+
+    try:
+        return _collect(fields)
+    except FacebookRequestError as exc:
+        # Graceful degradation (CLAUDE.md): if an optional funnel-v3 field (e.g.
+        # video_thruplay_watched_actions) is rejected by this ad account / API version,
+        # retry once without it rather than failing the whole ingest. That metric then
+        # comes back as None via _parse_insight_row's "field absent" branch.
+        offending = [f for f in _OPTIONAL_FIELDS if f in fields and f in str(exc)]
+        if not offending:
+            raise
+        logger.warning(
+            "meta_optional_field_unavailable_retrying",
+            fields=offending,
+            level=level,
+            date=date_iso,
+            error=str(exc),
+        )
+        fallback_fields = [f for f in fields if f not in offending]
+        return _collect(fallback_fields)
 
 
 @retry(

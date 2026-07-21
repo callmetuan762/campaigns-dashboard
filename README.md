@@ -53,6 +53,9 @@ Non-allowlisted users get **no response** (silent drop by design -- see Security
 | `TELEGRAM_ALLOWED_USER_IDS` | yes | empty | CSV of allowed user IDs (DMs) |
 | `META_APP_ID`, `META_APP_SECRET`, `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID` | Phase 2 | -- | Meta Ads API |
 | `GA4_PROPERTY_ID`, `GA4_SERVICE_ACCOUNT_JSON` | Phase 3 | -- | Google Analytics 4 |
+| `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_TOKEN` | funnel-v3 | -- | Shopify Admin API (preorder purchases); unset = clean no-op |
+| `SHOPIFY_API_VERSION` | no | `2025-01` | Shopify Admin API version |
+| `GA4_EVENT_LIST` | no | `page_view_lp,cta_click,add_to_cart,begin_checkout,purchase,lead_submit,quiz_complete` | Event names pulled by GA4 event-level ingestion (`ga4_events` table) |
 | `ANTHROPIC_API_KEY` | Phase 4 | -- | Claude chat backend |
 | `DB_PATH` | no | `/data/metrics.db` | SQLite file inside container |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |

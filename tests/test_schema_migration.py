@@ -106,6 +106,211 @@ def test_migration_006_creates_mmm_results_table():
             pass
 
 
+def _apply_migration_to_fresh_db(version: str):
+    """Apply ALL migrations up to and including `version` to a fresh temp SQLite DB.
+
+    Applying the full chain (not just the target migration in isolation) matches how
+    run_migrations() actually runs in production and catches ordering bugs (e.g. a
+    migration that assumes a column added by an earlier one).
+    """
+    import os
+    import sqlite3
+    import tempfile
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    for name, sql in ALL_MIGRATIONS:
+        con.executescript(sql)
+        con.commit()
+        if name == version:
+            break
+    return con, db_path
+
+
+def test_migration_010_creates_ga4_events_table():
+    """Funnel v3: MIGRATION_010_GA4_EVENTS creates ga4_events with the documented schema."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "010_ga4_events" in names, f"Migration 010 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("010_ga4_events")
+    try:
+        rows = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ga4_events'"
+        ).fetchall()
+        assert len(rows) == 1, "ga4_events table must exist after migration 010"
+
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(ga4_events)")}
+        required = {"event_name", "date", "campaign_utm", "lp_slug", "event_count", "fetched_at"}
+        missing = required - cols
+        assert not missing, f"Missing columns in ga4_events: {missing}"
+
+        idx_names = {
+            r["name"]
+            for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='ga4_events'"
+            )
+        }
+        assert "idx_ga4_events_date" in idx_names
+        assert "idx_ga4_events_campaign" in idx_names
+        assert "idx_ga4_events_lp_slug" in idx_names
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_010_ga4_events_pk_dedupes_on_conflict():
+    """Composite PK (event_name, date, campaign_utm, lp_slug) with '' defaults dedupes."""
+    import os
+
+    con, db_path = _apply_migration_to_fresh_db("010_ga4_events")
+    try:
+        con.execute(
+            "INSERT INTO ga4_events (event_name, date, campaign_utm, lp_slug, event_count) "
+            "VALUES ('purchase', '2026-05-18', 'nowa_launch', 'routine', 5)"
+        )
+        con.commit()
+        con.execute(
+            "INSERT INTO ga4_events (event_name, date, campaign_utm, lp_slug, event_count) "
+            "VALUES ('purchase', '2026-05-18', 'nowa_launch', 'routine', 9) "
+            "ON CONFLICT(event_name, date, campaign_utm, lp_slug) DO UPDATE SET event_count=excluded.event_count"
+        )
+        con.commit()
+        rows = con.execute(
+            "SELECT event_count FROM ga4_events WHERE event_name='purchase' AND campaign_utm='nowa_launch'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["event_count"] == 9
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_011_adds_meta_funnel_v3_columns_to_ad_metrics():
+    """Funnel v3: MIGRATION_011_META_FUNNEL_V3 adds LPV/video/checkout columns."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "011_meta_funnel_v3" in names, f"Migration 011 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("011_meta_funnel_v3")
+    try:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(ad_metrics)")}
+        required = {
+            "landing_page_views",
+            "video_3s_views",
+            "video_thruplay",
+            "meta_begin_checkout",
+            "meta_cost_per_begin_checkout",
+            "meta_add_to_cart",
+            "meta_leads",
+        }
+        missing = required - cols
+        assert not missing, f"Missing funnel-v3 columns in ad_metrics: {missing}"
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_012_creates_shopify_orders_table():
+    """Funnel v3: MIGRATION_012_SHOPIFY_ORDERS creates shopify_orders with the documented schema."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "012_shopify_orders" in names, f"Migration 012 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("012_shopify_orders")
+    try:
+        rows = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='shopify_orders'"
+        ).fetchall()
+        assert len(rows) == 1, "shopify_orders table must exist after migration 012"
+
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(shopify_orders)")}
+        required = {
+            "order_id", "created_at", "order_date", "total_price", "financial_status",
+            "utm_source", "utm_campaign", "utm_content", "lp_slug",
+            "landing_site", "referring_site", "fetched_at",
+        }
+        missing = required - cols
+        assert not missing, f"Missing columns in shopify_orders: {missing}"
+
+        idx_names = {
+            r["name"]
+            for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='shopify_orders'"
+            )
+        }
+        assert "idx_shopify_orders_date" in idx_names
+        assert "idx_shopify_orders_utm_campaign" in idx_names
+        assert "idx_shopify_orders_lp_slug" in idx_names
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_full_migration_chain_applies_cleanly_on_fresh_db():
+    """All migrations (001..012) apply in order on a brand-new DB without error."""
+    import os
+    import sqlite3
+    import tempfile
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        con = sqlite3.connect(db_path)
+        for _name, sql in ALL_MIGRATIONS:
+            con.executescript(sql)
+            con.commit()
+        # sanity: every funnel-v3 table/column exists at the end of the chain
+        cols = {r[1] for r in con.execute("PRAGMA table_info(ad_metrics)")}
+        assert "meta_begin_checkout" in cols
+        tables = {
+            r[0]
+            for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "ga4_events" in tables
+        assert "shopify_orders" in tables
+        con.close()
+    finally:
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+async def test_run_migrations_applies_all_funnel_v3_migrations(db_client):
+    """run_migrations() (the real async migration runner) picks up 010/011/012 too."""
+    rows = await db_client.fetch_all("SELECT version FROM schema_version")
+    applied = {r["version"] for r in rows}
+    assert {"010_ga4_events", "011_meta_funnel_v3", "012_shopify_orders"} <= applied
+
+
 def test_migration_006_mmm_results_accepts_insert():
     """Migration 006: schema accepts a realistic INSERT (column types correct)."""
     import os
