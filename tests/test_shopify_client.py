@@ -60,6 +60,24 @@ def test_parse_landing_site_lp_slug_values():
         assert result["lp_slug"] == slug
 
 
+def test_parse_landing_site_lp_slug_derived_from_utm_content():
+    """Production shop URLs carry no lp_slug param — only utm_* forwarded by the LP
+    tracking helper. The segment is the prefix of utm_content ("<slug>__<creative-id>")."""
+    from src.shopify.client import _parse_landing_site
+    result = _parse_landing_site(
+        "/cart/47382055289003:1?utm_source=facebook&utm_campaign=nowa_preorder_2026"
+        "&utm_content=routine__c1&fbclid=abc"
+    )
+    assert result["lp_slug"] == "routine"
+    assert result["utm_content"] == "routine__c1"
+    # utm_content without the "__<creative>" suffix (e.g. homepage ads) is the slug itself
+    result = _parse_landing_site("/cart/47382055289003:1?utm_content=home")
+    assert result["lp_slug"] == "home"
+    # an explicit lp_slug param, if ever present, wins over the derived value
+    result = _parse_landing_site("/cart/1?utm_content=routine__c1&lp_slug=big-feelings")
+    assert result["lp_slug"] == "big-feelings"
+
+
 def test_parse_landing_site_full_url_form():
     """landing_site can also be an absolute URL, not just a path — must still parse."""
     from src.shopify.client import _parse_landing_site

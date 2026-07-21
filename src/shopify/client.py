@@ -51,9 +51,15 @@ def _parse_landing_site(landing_site: str | None) -> dict:
     """Extract utm_source / utm_campaign / utm_content / lp_slug from a landing_site URL.
 
     landing_site is a path + query string as Shopify recorded it on first visit, e.g.
-    "/pages/preorder?utm_source=meta&utm_campaign=nowa_launch&lp_slug=routine".
+    "/cart/473820...:1?utm_source=facebook&utm_campaign=nowa_preorder_2026&utm_content=routine__c1".
     Missing params default to '' (never None) — matches the shopify_orders schema's
     NOT NULL DEFAULT '' columns so joins/group-bys never have to special-case NULL.
+
+    lp_slug: the LP tracking helper forwards only utm_* + fbclid/gclid to the shop
+    domain — there is no lp_slug query param on shop URLs. The segment is encoded in
+    utm_content as "<slug>__<creative-id>" (ads-side naming convention), so lp_slug is
+    derived by splitting utm_content on "__". An explicit lp_slug param, if one ever
+    appears, still wins.
     """
     if not landing_site:
         return {"utm_source": "", "utm_campaign": "", "utm_content": "", "lp_slug": ""}
@@ -65,11 +71,14 @@ def _parse_landing_site(landing_site: str | None) -> dict:
         values = qs.get(key)
         return values[0] if values else ""
 
+    utm_content = _first("utm_content")
+    lp_slug = _first("lp_slug") or (utm_content.split("__", 1)[0] if utm_content else "")
+
     return {
         "utm_source": _first("utm_source"),
         "utm_campaign": _first("utm_campaign"),
-        "utm_content": _first("utm_content"),
-        "lp_slug": _first("lp_slug"),
+        "utm_content": utm_content,
+        "lp_slug": lp_slug,
     }
 
 
