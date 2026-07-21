@@ -5,6 +5,8 @@ GA4-02: Two RunReportRequest calls — campaign-level + landing-page-level.
 GA4-03: D-2 freshness (_get_d2_iso): today - timedelta(days=2).
 GA4-04: 6-hour cache check via ingestion_log. returnPropertyQuota=True (in client).
 GA4-05: Writes to ga4_metrics (campaign) + ga4_landing_pages (landing pages) via UPSERT.
+GA4-12: Funnel v3 — also fetches event-level counts (settings.ga4_event_list) into
+        ga4_events via UPSERT, in the same run/ingestion_log entry as campaign + LP.
 D-09: Circuit breaker after 3 consecutive failures — sends Telegram alert.
 D-13: Uses ingestion_log source='ga4'.
 
@@ -99,7 +101,12 @@ async def _run_ga4_ingest(
         logger.info("ingest_start", source="ga4", date=date_iso)
 
         # Step 4: Build GA4 client
-        from src.ga4.client import _build_ga4_client, fetch_campaign_metrics, fetch_landing_page_metrics
+        from src.ga4.client import (
+            _build_ga4_client,
+            fetch_campaign_metrics,
+            fetch_event_metrics,
+            fetch_landing_page_metrics,
+        )
         client = _build_ga4_client(settings.ga4_service_account_json)
 
         # Step 5: Fetch campaign-level metrics (D-08: pass configured conversion event)
@@ -125,14 +132,32 @@ async def _run_ga4_ingest(
         # Step 8: Upsert landing page rows
         upserted_lp = await db.upsert_ga4_landing_pages(lp_rows)
 
+        # Step 8b: Funnel v3 — event-level metrics (settings.ga4_event_list), best-effort.
+        # Guarded independently so an event-report failure (e.g. GA4 API outage on this
+        # specific report) does not fail campaign/landing-page ingestion which already
+        # succeeded above (CLAUDE.md graceful degradation).
+        upserted_events = 0
+        event_list = getattr(settings, "ga4_event_list", None)
+        if event_list:
+            try:
+                event_rows = await fetch_event_metrics(
+                    client, settings.ga4_property_id, date_iso, event_list
+                )
+                upserted_events = await db.upsert_ga4_events(event_rows)
+            except Exception as exc:  # noqa: BLE001
+                sentry_sdk.capture_exception(exc)
+                logger.error("ga4_events_fetch_failed", date=date_iso, error=str(exc))
+
         # Step 9: Finish log
-        await db.log_ingestion_finish(log_id, "success", rows_upserted=upserted_c + upserted_lp)
+        total_upserted = upserted_c + upserted_lp + upserted_events
+        await db.log_ingestion_finish(log_id, "success", rows_upserted=total_upserted)
         logger.info(
             "ingest_complete",
             source="ga4",
             date=date_iso,
             campaign_rows=upserted_c,
             landing_rows=upserted_lp,
+            event_rows=upserted_events,
         )
 
     except Exception as exc:  # noqa: BLE001

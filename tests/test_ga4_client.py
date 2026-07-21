@@ -128,3 +128,116 @@ def test_fetch_landing_page_metrics_is_coroutine():
     """GA4-11: asyncio.to_thread wrapping — function must be async."""
     from src.ga4.client import fetch_landing_page_metrics
     assert inspect.iscoroutinefunction(fetch_landing_page_metrics)
+
+
+# ---------------------------------------------------------------------------
+# funnel-v3: event-level report (GA4-12)
+# ---------------------------------------------------------------------------
+
+def test_event_name_dimension_constant():
+    from src.ga4.client import _EVENT_NAME_DIMENSION
+    assert _EVENT_NAME_DIMENSION == "eventName"
+
+
+def test_lp_slug_dimension_constant():
+    from src.ga4.client import _LP_SLUG_DIMENSION
+    assert _LP_SLUG_DIMENSION == "customEvent:lp_slug"
+
+
+def test_parse_event_row_all_fields():
+    from src.ga4.client import _parse_event_row
+    raw = {
+        "eventName": "begin_checkout",
+        "sessionCampaignName": "nowa_launch",
+        "customEvent:lp_slug": "routine",
+        "eventCount": "42",
+    }
+    row = _parse_event_row(raw, "2026-05-17")
+    assert row["event_name"] == "begin_checkout"
+    assert row["date"] == "2026-05-17"
+    assert row["campaign_utm"] == "nowa_launch"
+    assert row["lp_slug"] == "routine"
+    assert row["event_count"] == 42
+    assert isinstance(row["event_count"], int)
+
+
+def test_parse_event_row_missing_lp_slug_defaults_empty_string():
+    """When customEvent:lp_slug was dropped from the request, lp_slug defaults to ''."""
+    from src.ga4.client import _parse_event_row
+    raw = {"eventName": "purchase", "sessionCampaignName": "nowa_launch", "eventCount": "3"}
+    row = _parse_event_row(raw, "2026-05-17")
+    assert row["lp_slug"] == ""
+
+
+def test_parse_event_row_missing_fields_no_error():
+    from src.ga4.client import _parse_event_row
+    row = _parse_event_row({}, "2026-05-17")
+    assert row["event_name"] == ""
+    assert row["campaign_utm"] == ""
+    assert row["lp_slug"] == ""
+    assert row["event_count"] == 0
+
+
+def test_fetch_event_metrics_is_coroutine():
+    from src.ga4.client import fetch_event_metrics
+    assert inspect.iscoroutinefunction(fetch_event_metrics)
+
+
+def test_fetch_event_metrics_sync_retries_without_lp_slug_on_error():
+    """GA4-12: if customEvent:lp_slug is unregistered, retry without it — lp_slug=''."""
+    from unittest.mock import MagicMock
+
+    from google.api_core.exceptions import GoogleAPIError
+
+    from src.ga4.client import _fetch_event_metrics_sync
+
+    call_count = 0
+
+    def fake_run_report(request):
+        nonlocal call_count
+        call_count += 1
+        dim_names = [d.name for d in request.dimensions]
+        if call_count == 1:
+            assert "customEvent:lp_slug" in dim_names
+            raise GoogleAPIError("customEvent:lp_slug is not a valid dimension")
+        assert "customEvent:lp_slug" not in dim_names
+        response = MagicMock()
+        response.property_quota = "quota"
+        header_names = [d.name for d in request.dimensions] + ["eventCount"]
+        response.dimension_headers = [MagicMock(name=n) for n in dim_names]
+        for h, n in zip(response.dimension_headers, dim_names):
+            h.name = n
+        response.metric_headers = [MagicMock()]
+        response.metric_headers[0].name = "eventCount"
+
+        row = MagicMock()
+        dim_values = []
+        for n in dim_names:
+            v = MagicMock()
+            if n == "date":
+                v.value = "2026-05-17"
+            elif n == "eventName":
+                v.value = "purchase"
+            elif n == "sessionCampaignName":
+                v.value = "nowa_launch"
+            else:
+                v.value = ""
+            dim_values.append(v)
+        row.dimension_values = dim_values
+        met_value = MagicMock()
+        met_value.value = "7"
+        row.metric_values = [met_value]
+        response.rows = [row]
+        return response
+
+    mock_client = MagicMock()
+    mock_client.run_report.side_effect = fake_run_report
+
+    rows = _fetch_event_metrics_sync(mock_client, "534295825", "2026-05-17", ["purchase"])
+
+    assert call_count == 2
+    assert len(rows) == 1
+    assert rows[0]["lp_slug"] == ""
+    assert rows[0]["event_count"] == 7
+    assert rows[0]["event_name"] == "purchase"
+    assert rows[0]["campaign_utm"] == "nowa_launch"

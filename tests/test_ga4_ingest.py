@@ -5,7 +5,7 @@ Covers: GA4-04 (6h cache), GA4-05 (upsert idempotency), D-09 (circuit breaker), 
 from __future__ import annotations
 
 from datetime import date, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -162,6 +162,112 @@ async def test_circuit_breaker_not_triggered_if_success_in_recent(db_client):
 
 
 # ---- register_job_resources ----
+
+# ---------------------------------------------------------------------------
+# funnel-v3: event ingestion wired into _run_ga4_ingest (Step 8b)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_ga4_ingest_upserts_events_and_sums_rows(monkeypatch):
+    """_run_ga4_ingest fetches event-level metrics and folds them into the same
+    ingestion_log entry as campaign + landing-page rows (rows_upserted is the sum)."""
+    import src.ga4.client as client_module
+    from src.ga4.ingest import _run_ga4_ingest
+
+    settings = MagicMock()
+    settings.report_timezone = "UTC"
+    settings.ga4_property_id = "534295825"
+    settings.ga4_service_account_json = "/tmp/fake.json"
+    settings.ga4_conversion_event = "purchase"
+    settings.ga4_event_list = ["begin_checkout", "purchase"]
+
+    monkeypatch.setattr(client_module, "_build_ga4_client", lambda path: MagicMock())
+    monkeypatch.setattr(
+        client_module, "fetch_campaign_metrics",
+        AsyncMock(return_value=[{"campaign_utm": "x", "date": "2026-05-17"}]),
+    )
+    monkeypatch.setattr(
+        client_module, "fetch_landing_page_metrics",
+        AsyncMock(return_value=[{"landing_page": "/y", "date": "2026-05-17"}]),
+    )
+    event_rows = [
+        {"event_name": "begin_checkout", "date": "2026-05-17", "campaign_utm": "x", "lp_slug": "", "event_count": 5},
+        {"event_name": "purchase", "date": "2026-05-17", "campaign_utm": "x", "lp_slug": "", "event_count": 2},
+    ]
+    monkeypatch.setattr(client_module, "fetch_event_metrics", AsyncMock(return_value=event_rows))
+
+    mock_db = AsyncMock()
+    mock_db.log_ingestion_start.return_value = 99
+    mock_db.upsert_ga4_metrics.return_value = 1
+    mock_db.upsert_ga4_landing_pages.return_value = 1
+    mock_db.upsert_ga4_events.return_value = 2
+
+    await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
+
+    mock_db.upsert_ga4_events.assert_called_once_with(event_rows)
+    mock_db.log_ingestion_finish.assert_called_once_with(99, "success", rows_upserted=4)
+
+
+@pytest.mark.asyncio
+async def test_run_ga4_ingest_event_fetch_failure_does_not_fail_whole_run(monkeypatch):
+    """A GA4 events-report failure must not prevent campaign/LP ingestion from succeeding
+    (CLAUDE.md graceful degradation) — the run still finishes with status='success'."""
+    import src.ga4.client as client_module
+    from src.ga4.ingest import _run_ga4_ingest
+
+    settings = MagicMock()
+    settings.report_timezone = "UTC"
+    settings.ga4_property_id = "534295825"
+    settings.ga4_service_account_json = "/tmp/fake.json"
+    settings.ga4_conversion_event = "purchase"
+    settings.ga4_event_list = ["begin_checkout"]
+
+    monkeypatch.setattr(client_module, "_build_ga4_client", lambda path: MagicMock())
+    monkeypatch.setattr(client_module, "fetch_campaign_metrics", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client_module, "fetch_landing_page_metrics", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client_module, "fetch_event_metrics", AsyncMock(side_effect=Exception("ga4 events down")))
+
+    mock_db = AsyncMock()
+    mock_db.log_ingestion_start.return_value = 1
+    mock_db.upsert_ga4_metrics.return_value = 0
+    mock_db.upsert_ga4_landing_pages.return_value = 0
+
+    with patch("sentry_sdk.capture_exception"):
+        await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
+
+    mock_db.upsert_ga4_events.assert_not_called()
+    mock_db.log_ingestion_finish.assert_called_once_with(1, "success", rows_upserted=0)
+
+
+@pytest.mark.asyncio
+async def test_run_ga4_ingest_skips_events_when_event_list_empty(monkeypatch):
+    """settings.ga4_event_list=[] must not call fetch_event_metrics at all."""
+    import src.ga4.client as client_module
+    from src.ga4.ingest import _run_ga4_ingest
+
+    settings = MagicMock()
+    settings.report_timezone = "UTC"
+    settings.ga4_property_id = "534295825"
+    settings.ga4_service_account_json = "/tmp/fake.json"
+    settings.ga4_conversion_event = "purchase"
+    settings.ga4_event_list = []
+
+    monkeypatch.setattr(client_module, "_build_ga4_client", lambda path: MagicMock())
+    monkeypatch.setattr(client_module, "fetch_campaign_metrics", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client_module, "fetch_landing_page_metrics", AsyncMock(return_value=[]))
+    mock_fetch_events = AsyncMock()
+    monkeypatch.setattr(client_module, "fetch_event_metrics", mock_fetch_events)
+
+    mock_db = AsyncMock()
+    mock_db.log_ingestion_start.return_value = 1
+    mock_db.upsert_ga4_metrics.return_value = 0
+    mock_db.upsert_ga4_landing_pages.return_value = 0
+
+    await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
+
+    mock_fetch_events.assert_not_called()
+    mock_db.upsert_ga4_events.assert_not_called()
+
 
 def test_register_job_resources_sets_globals():
     """D-09: register_job_resources sets module globals for APScheduler."""

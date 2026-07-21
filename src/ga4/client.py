@@ -44,6 +44,10 @@ _stdlib_log = logging.getLogger(__name__)
 _LANDING_PAGE_DIMENSION = "landingPagePlusQueryString"  # NOT deprecated "landingPage"
 _CONVERSION_METRIC = "keyEvents"                         # NOT deprecated "conversions"
 
+# Funnel v3 — event-level report (GA4-12)
+_EVENT_NAME_DIMENSION = "eventName"
+_LP_SLUG_DIMENSION = "customEvent:lp_slug"  # custom dimension; may be unregistered on the property
+
 
 def _build_ga4_client(service_account_path) -> BetaAnalyticsDataClient:
     """Build a BetaAnalyticsDataClient from a service account file path.
@@ -85,6 +89,23 @@ def _parse_landing_row(raw: dict, date_iso: str) -> dict:
         "ga4_purchases_lastclick": int(raw.get(_CONVERSION_METRIC) or 0),
         "screen_page_views": int(raw.get("screenPageViews") or 0),
         "avg_engagement_time": float(raw.get("userEngagementDuration") or 0.0),
+    }
+
+
+def _parse_event_row(raw: dict, date_iso: str) -> dict:
+    """Map a raw GA4 event-level dimension+metric dict to a ga4_events-compatible dict.
+
+    GA4-12: campaign_utm and lp_slug default to '' (not None) — composite PK requires
+    NOT NULL DEFAULT '' to de-duplicate correctly (SQLite NULL != NULL in a PRIMARY KEY).
+    lp_slug is '' whenever the customEvent:lp_slug dimension was dropped from the
+    request (unregistered custom dimension — see _fetch_event_metrics_sync).
+    """
+    return {
+        "event_name": raw.get(_EVENT_NAME_DIMENSION, "") or "",
+        "date": date_iso,
+        "campaign_utm": raw.get("sessionCampaignName", "") or "",
+        "lp_slug": raw.get(_LP_SLUG_DIMENSION, "") or "",
+        "event_count": int(raw.get("eventCount") or 0),
     }
 
 
@@ -338,4 +359,93 @@ async def fetch_landing_page_metrics(
         _fetch_landing_page_metrics_sync, client, property_id, start_date, end_date, conversion_event
     )
     logger.info("ga4_fetch_complete", type="landing_page", rows=len(rows))
+    return rows
+
+
+def _build_event_name_filter(event_names: list[str]) -> FilterExpression:
+    """FilterExpression restricting eventName to the configured funnel event list."""
+    return FilterExpression(
+        filter=Filter(
+            field_name=_EVENT_NAME_DIMENSION,
+            in_list_filter=Filter.InListFilter(values=list(event_names)),
+        )
+    )
+
+
+def _fetch_event_metrics_sync(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    date_iso: str,
+    event_names: list[str],
+) -> list[dict]:
+    """Synchronous GA4 event-level metrics fetch — called via asyncio.to_thread().
+
+    GA4-12: dimensions [date, eventName, sessionCampaignName, customEvent:lp_slug],
+    metric eventCount, restricted to the configured funnel event names (src.config
+    Settings.ga4_event_list) via an eventName IN (...) filter.
+
+    The customEvent:lp_slug dimension may be unregistered on the GA4 property (it has
+    to be created as a custom dimension in the GA4 UI before the API will accept it).
+    If the request errors, retry WITHOUT that dimension and fall back to lp_slug=''
+    for every row (CLAUDE.md graceful degradation) rather than failing the whole fetch.
+    """
+
+    def _run(include_lp_slug: bool):
+        dimensions = [
+            Dimension(name="date"),
+            Dimension(name=_EVENT_NAME_DIMENSION),
+            Dimension(name="sessionCampaignName"),
+        ]
+        if include_lp_slug:
+            dimensions.append(Dimension(name=_LP_SLUG_DIMENSION))
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=dimensions,
+            metrics=[Metric(name="eventCount")],
+            date_ranges=[DateRange(start_date=date_iso, end_date=date_iso)],
+            dimension_filter=_build_event_name_filter(event_names),
+            return_property_quota=True,
+            keep_empty_rows=False,
+            limit=100000,
+        )
+        return client.run_report(request)
+
+    try:
+        response = _run(True)
+    except GoogleAPIError as exc:
+        logger.warning(
+            "ga4_lp_slug_dimension_unavailable", dimension=_LP_SLUG_DIMENSION, error=str(exc)
+        )
+        response = _run(False)
+
+    logger.info("ga4_quota", tokens_per_project_per_hour=str(response.property_quota))
+
+    rows = []
+    for row in response.rows:
+        dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
+        met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
+        raw = {**dim_vals, **met_vals}
+        rows.append(_parse_event_row(raw, date_iso))
+    return rows
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_event_metrics(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    date_iso: str,
+    event_names: list[str],
+) -> list[dict]:
+    """Async wrapper: fetch event-level GA4 metrics for a single date. GA4-12."""
+    logger.info("ga4_fetch_start", type="events", date=date_iso, events=event_names)
+    rows = await asyncio.to_thread(
+        _fetch_event_metrics_sync, client, property_id, date_iso, event_names
+    )
+    logger.info("ga4_fetch_complete", type="events", date=date_iso, rows=len(rows))
     return rows
