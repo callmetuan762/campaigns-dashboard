@@ -374,6 +374,38 @@ def get_campaign_daily(
     return [dict(r) for r in rows]
 
 
+def get_ga4_daily_by_utm(
+    db_path: Path, utm_campaign: str, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """Daily GA4 sessions + purchases for one utm_campaign value (exact match).
+
+    Campaign Detail fallback (2026-07-22): GA4's utm_campaign values for the
+    current campaign generation ('nowa_preorder' / 'nowa_quiz') never
+    exact-match a Meta campaign *name* ('Nowa | SALES | ... '), so
+    get_campaign_daily's join always returns zero GA4 rows for these
+    campaigns. This function fetches GA4 data straight by utm value (via
+    src.config.utm_campaign_map's reverse substring lookup) so the page can
+    show real GA4 numbers with a caption explaining the utm covers the whole
+    campaign generation, not just the one campaign drilled into.
+
+    Returns [] on a missing table / no rows (graceful degradation).
+    """
+    sql = """
+        SELECT date,
+               COALESCE(sessions, 0)                 AS sessions,
+               COALESCE(ga4_purchases_lastclick, 0)  AS ga4_purchases
+        FROM ga4_metrics
+        WHERE campaign_utm = ? AND date BETWEEN ? AND ?
+        ORDER BY date
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (utm_campaign, start_date, end_date)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+
+
 def get_campaign_ga4_engagement(
     db_path: Path,
     campaign_name: str,

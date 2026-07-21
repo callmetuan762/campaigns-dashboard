@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.dashboard.db import get_campaign_daily
+from src.dashboard.db import get_campaign_daily, get_ga4_daily_by_utm
 
 
 # --- Fixture ---------------------------------------------------------------
@@ -138,6 +138,62 @@ class TestGetCampaignDaily:
         assert "meta_purchases" in row
 
 
+# --- get_ga4_daily_by_utm (utm mapping fix, 2026-07-22) ---------------------
+#
+# get_campaign_daily's exact-name join never matches GA4 rows whose
+# campaign_utm is a plain utm value ('nowa_preorder') rather than the full
+# Meta campaign name -- this is exactly that scenario, verifying the
+# Campaign Detail page's reverse-utm fallback query directly.
+
+@pytest.fixture
+def db_with_utm_ga4(tmp_path: Path) -> Path:
+    db = tmp_path / "utm.db"
+    con = sqlite3.connect(str(db))
+    con.executescript(
+        """
+        CREATE TABLE ga4_metrics (
+            date TEXT, campaign_utm TEXT, sessions INTEGER,
+            users INTEGER, bounce_rate REAL, ga4_purchases_lastclick INTEGER,
+            fetched_at TEXT
+        );
+        INSERT INTO ga4_metrics VALUES
+            ('2025-05-01', 'nowa_preorder', 300, 250, 0.3, 4, '2025-05-02'),
+            ('2025-05-02', 'nowa_preorder', 350, 260, 0.28, 5, '2025-05-03'),
+            ('2025-05-01', 'nowa_quiz', 100, 80, 0.4, 1, '2025-05-02');
+        """
+    )
+    con.commit()
+    con.close()
+    return db
+
+
+class TestGetGa4DailyByUtm:
+    def test_returns_rows_for_matching_utm(self, db_with_utm_ga4):
+        rows = get_ga4_daily_by_utm(db_with_utm_ga4, "nowa_preorder", "2025-05-01", "2025-05-31")
+        assert len(rows) == 2
+        by_date = {r["date"]: r for r in rows}
+        assert by_date["2025-05-01"]["sessions"] == 300
+        assert by_date["2025-05-01"]["ga4_purchases"] == 4
+        assert by_date["2025-05-02"]["ga4_purchases"] == 5
+
+    def test_does_not_leak_other_utm_values(self, db_with_utm_ga4):
+        rows = get_ga4_daily_by_utm(db_with_utm_ga4, "nowa_quiz", "2025-05-01", "2025-05-31")
+        assert len(rows) == 1
+        assert rows[0]["sessions"] == 100
+
+    def test_unknown_utm_returns_empty(self, db_with_utm_ga4):
+        rows = get_ga4_daily_by_utm(db_with_utm_ga4, "no_such_utm", "2025-05-01", "2025-05-31")
+        assert rows == []
+
+    def test_missing_table_returns_empty(self, tmp_path):
+        db = tmp_path / "missing.db"
+        con = sqlite3.connect(str(db))
+        con.execute("CREATE TABLE placeholder (id INTEGER)")
+        con.commit()
+        con.close()
+        assert get_ga4_daily_by_utm(db, "nowa_preorder", "2025-05-01", "2025-05-31") == []
+
+
 # --- Page module importability --------------------------------------------
 
 class TestPageModule:
@@ -179,3 +235,22 @@ class TestPageModule:
         path = Path("src/dashboard/pages/1_Campaign_Detail.py")
         src = path.read_text(encoding="utf-8")
         assert "Never blend" in src or "7-day click" in src
+
+    def test_utm_campaign_map_declared_and_matches_config(self):
+        """UTM_CAMPAIGN_MAP is duplicated in this page per the D-19 standalone
+        rule -- must stay in sync with src.config.utm_campaign_map."""
+        from src.config import utm_campaign_map
+
+        path = Path("src/dashboard/pages/1_Campaign_Detail.py")
+        src = path.read_text(encoding="utf-8")
+        assert "UTM_CAMPAIGN_MAP = " in src
+        for utm, substring in utm_campaign_map.items():
+            assert utm in src
+            assert substring in src
+
+    def test_uses_reverse_utm_fallback_and_ga4_daily_by_utm(self):
+        path = Path("src/dashboard/pages/1_Campaign_Detail.py")
+        src = path.read_text(encoding="utf-8")
+        assert "_reverse_utm_match" in src
+        assert "get_ga4_daily_by_utm" in src
+        assert "GA4 matched via utm mapping" in src

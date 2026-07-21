@@ -30,6 +30,18 @@ QUIZ_LP_SLUGS: list[str] = ["routine-break", "big-feelings-type", "screen-kid"]
 # comparison only ever shows the current, real landing pages individually.
 PREORDER_LP_SLUGS: list[str] = ["home", "routine", "big-feelings", "screen-anxious", "preorder"]
 
+# UTM <-> campaign-name mapping (Campaign Detail "Meta vs GA4 attribution"
+# fix, 2026-07-22). GA4's utm_campaign values for this campaign generation
+# are 'nowa_preorder' / 'nowa_quiz', while Meta campaign names look like
+# 'Nowa | SALES | broad | 20260715' / 'Nowa | LEADS | quiz | 20260715' --
+# the repo's exact-name join (campaign_utm = campaign_name, CLAUDE.md's
+# stated join key) can never match for these, so any query joining GA4 to
+# a specific Meta campaign by name returns empty for this generation. Maps
+# utm_campaign value -> the Meta campaign-name substring shared by every
+# campaign under that utm, so callers can look up GA4 data by utm when the
+# exact-name join comes back empty (see pages/1_Campaign_Detail.py).
+utm_campaign_map: dict[str, str] = {"nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
+
 
 class Settings(BaseSettings):
     # ---- Telegram (required) ----

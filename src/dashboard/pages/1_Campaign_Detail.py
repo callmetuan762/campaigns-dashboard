@@ -37,6 +37,26 @@ COLOR_META = "#60a5fa"
 COLOR_GA4 = "#a78bfa"
 COLOR_CPD = "#f59e0b"
 
+# UTM <-> campaign-name mapping -- duplicated from src/config.py
+# utm_campaign_map per the D-19 standalone-page rule (pages never import
+# src.config; see the palette constants above, duplicated for the same
+# reason). GA4's utm_campaign values for this campaign generation
+# ('nowa_preorder' / 'nowa_quiz') never exact-match a Meta campaign *name*
+# ('Nowa | SALES | ...' / 'Nowa | LEADS | ...'), so the "Meta vs GA4
+# attribution (daily)" chart's exact-name join below comes back empty for
+# these campaigns. Used as a reverse lookup: campaign name contains
+# substring -> utm value.
+UTM_CAMPAIGN_MAP = {"nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
+
+
+def _reverse_utm_match(campaign_name: str) -> str | None:
+    """Return the utm_campaign value whose Meta campaign-name substring
+    appears in `campaign_name`, or None if no mapping matches."""
+    for utm, substring in UTM_CAMPAIGN_MAP.items():
+        if substring in campaign_name:
+            return utm
+    return None
+
 
 def _check_auth(password_required: str) -> bool:
     if not password_required:
@@ -67,6 +87,18 @@ def _cached_daily(db_path_str: str, campaign: str, start: str, end: str) -> list
 def _cached_ga4_engagement(db_path_str: str, campaign: str, start: str, end: str) -> dict[str, Any]:
     from pathlib import Path
     return db.get_campaign_ga4_engagement(Path(db_path_str), campaign, start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_ga4_by_utm(db_path_str: str, utm: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_ga4_daily_by_utm(Path(db_path_str), utm, start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_campaign_names(db_path_str: str) -> list[str]:
+    from pathlib import Path
+    return db.get_campaign_names(Path(db_path_str))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -248,6 +280,39 @@ else:
     meta_conv_y = [r["meta_purchases"] for r in rows]
     meta_conv_label = "Meta purchases (7d-click)"
 
+# get_campaign_daily's exact-name join (g.campaign_utm = c.name) never
+# matches for this campaign generation (GA4 utm_campaign = 'nowa_preorder'/
+# 'nowa_quiz' vs Meta names like 'Nowa | SALES | ...') -- when that join
+# comes back empty, fall back to a reverse utm-substring match instead of
+# silently showing a flat zero GA4 series (utm mapping fix, 2026-07-22).
+_ga4_join_empty = (
+    all(r["sessions"] == 0 for r in rows) and all(r["ga4_purchases"] == 0 for r in rows)
+)
+ga4_purchases_y = [r["ga4_purchases"] for r in rows]
+_utm_caption: str | None = None
+
+if _ga4_join_empty:
+    _utm_match = _reverse_utm_match(campaign)
+    if _utm_match is not None:
+        _utm_rows = _cached_ga4_by_utm(
+            db_path_str, _utm_match, start_date.isoformat(), end_date.isoformat()
+        )
+        _utm_by_date = {r["date"]: int(r["ga4_purchases"] or 0) for r in _utm_rows}
+        ga4_purchases_y = [_utm_by_date.get(r["date"], 0) for r in rows]
+
+        _substring = UTM_CAMPAIGN_MAP[_utm_match]
+        _all_names = _cached_campaign_names(db_path_str)
+        _n_sharing = sum(1 for n in _all_names if _substring in n)
+        _utm_caption = (
+            f"GA4 matched via utm mapping '{_utm_match}' -- {_n_sharing} Meta campaigns "
+            "share this utm, so GA4 figures cover the whole utm, not this campaign alone."
+        )
+    else:
+        _utm_caption = (
+            "GA4 side is empty for this campaign -- no utm_campaign_map entry matches "
+            f"this campaign name, and GA4's exact-name join found no `{campaign}` rows."
+        )
+
 fig_attr = go.Figure()
 fig_attr.add_trace(go.Bar(
     x=[r["date"] for r in rows],
@@ -257,7 +322,7 @@ fig_attr.add_trace(go.Bar(
 ))
 fig_attr.add_trace(go.Bar(
     x=[r["date"] for r in rows],
-    y=[r["ga4_purchases"] for r in rows],
+    y=ga4_purchases_y,
     name="GA4 purchases (last-click)",
     marker_color=COLOR_GA4,
 ))
@@ -276,6 +341,8 @@ fig_attr.update_layout(
 st.subheader("Meta vs GA4 attribution (daily)")
 st.plotly_chart(fig_attr, use_container_width=True)
 st.caption("Never blend -- Meta uses 7-day click attribution; GA4 uses last-click.")
+if _utm_caption:
+    st.caption(_utm_caption)
 
 st.divider()
 
