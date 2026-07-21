@@ -93,13 +93,15 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
         "Owner note": "get_kpi_summary.avg_cpm.",
     },
     {
-        "Metric": "Reach",
-        "Definition": "Estimated number of unique people who saw the ads.",
+        "Metric": "Reach (sum of daily)",
+        "Definition": "Estimated number of unique people who saw the ads, summed across the "
+                      "days in the selected period.",
         "Source": "Meta",
         "Attribution window": "N/A",
-        "Owner note": "Summed across campaigns on Overview -- Meta reach does not de-duplicate "
-                       "across campaigns, so the summed figure is directional, not a true "
-                       "unique-person count.",
+        "Owner note": "Overview secondary KPI row. Daily reach summed -- overcounts unique "
+                       "people across days (the same person seen on multiple days is counted "
+                       "once per day), so treat this as directional volume, not a true "
+                       "unique-person count for the period.",
     },
     {
         "Metric": "Frequency",
@@ -110,14 +112,60 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
                        "page; fatigue threshold flagged at ≥3.0.",
     },
     {
-        "Metric": "ROAS (platform)",
+        "Metric": "Meta ROAS (7d-click)",
         "Definition": "Meta's self-reported Return on Ad Spend (attributed revenue ÷ spend), "
                       "spend-weighted across campaigns.",
         "Source": "Meta",
         "Attribution window": "7-day click / 1-day view",
-        "Owner note": "Overview 'Blended ROAS' card. Platform-side only -- not reconciled "
-                       "against Stripe revenue. See the Reconciliation block for the "
-                       "conversion-count (not revenue) cross-check.",
+        "Owner note": "Overview KPI row (v2, 2026-07-22) -- honestly relabeled from the old "
+                       "'Blended ROAS' card, which was never actually blended: this is, and "
+                       "always was, spend-weighted Meta *platform* ROAS only. Platform-side, "
+                       "expect over-reporting -- compare against MER (blended), which is "
+                       "Shopify-anchored ground truth. Not reconciled against Shopify revenue "
+                       "directly; see the Reconciliation block for the conversion-count "
+                       "(not revenue) cross-check.",
+    },
+    {
+        "Metric": "MER (blended)",
+        "Definition": "Marketing Efficiency Ratio = Shopify paid revenue ÷ Meta ad spend -- "
+                      "attribution-free (no click/view window on either side).",
+        "Source": "Shopify revenue ÷ Meta spend",
+        "Attribution window": "N/A -- attribution-free",
+        "Owner note": "Overview KPI row (v2, 2026-07-22): get_shopify_paid_summary.revenue ÷ "
+                       "get_kpi_summary.total_spend, respecting orders_valid_from. Compare "
+                       "against Meta ROAS (7d-click) -- MER is the trustworthy one when the "
+                       "two disagree, since it isn't subject to platform attribution-window "
+                       "over-reporting.",
+    },
+    {
+        "Metric": "Blended CAC",
+        "Definition": "Blended Customer Acquisition Cost = Meta spend ÷ Shopify paid order "
+                      "count -- the true cost per preorder across all Meta spend.",
+        "Source": "Meta spend ÷ Shopify paid count",
+        "Attribution window": "N/A -- Shopify side is ground truth",
+        "Owner note": "Overview KPI row (v2, 2026-07-22). Replaces the deposit-era CPaC card "
+                       "for the current (Shopify-checkout, no Stripe/$1-deposit step) funnel. "
+                       "Lower is better -- the card's delta color is inverted accordingly.",
+    },
+    {
+        "Metric": "Pre-orders",
+        "Definition": "Count of Shopify orders with financial_status = 'paid' in the selected "
+                      "period.",
+        "Source": "Shopify",
+        "Attribution window": "N/A -- ground truth, no attribution window",
+        "Owner note": "Overview KPI row (v2, 2026-07-22). get_shopify_paid_summary.count, "
+                       "respecting the orders_valid_from cutoff that excludes pre-launch/test "
+                       "orders (query-time filter only, no rows deleted).",
+    },
+    {
+        "Metric": "LPV → Checkout (Meta-attributed)",
+        "Definition": "Meta begin_checkout ÷ Meta landing_page_views, expressed as a %.",
+        "Source": "Meta",
+        "Attribution window": "7-day click / 1-day view",
+        "Owner note": "Overview KPI row (v2, 2026-07-22). Platform-side only -- both the "
+                       "numerator and denominator are Meta-reported figures, so this measures "
+                       "on-site checkout-intent conversion as Meta sees it, not a "
+                       "Shopify-verified rate.",
     },
     {
         "Metric": "FSD",
@@ -126,16 +174,22 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
                       "submitted the deposit form, including both paid and still-pending.",
         "Source": "Meta",
         "Attribution window": "7-day click / 1-day view",
-        "Owner note": "meta_form_submit_deposit. Never blend with GA4 sessions/purchases or "
-                       "Stripe paid counts -- always side-by-side.",
+        "Owner note": "meta_form_submit_deposit. Deposit/Stripe-era metric -- Overview (v2, "
+                       "2026-07-22) moved this behind the 'Legacy deposit funnel (FSD/Stripe "
+                       "era)' expander, which only renders when there was FSD activity in the "
+                       "selected range (the $1-deposit/Stripe step no longer exists in the "
+                       "live funnel). Never blend with GA4 sessions/purchases or Shopify order "
+                       "counts -- always side-by-side.",
     },
     {
         "Metric": "CPR (FSD)",
         "Definition": "Cost Per Result = Spend ÷ FSD.",
         "Source": "Meta",
         "Attribution window": "7-day click / 1-day view",
-        "Owner note": "Primary campaign-tiering metric -- drives the ★ SCALE / MAINTAIN / "
-                       "REDUCE / PAUSED tags on the Overview campaign table.",
+        "Owner note": "Deposit/Stripe-era metric, now inside the Overview legacy expander "
+                       "(see FSD above). Primary campaign-tiering metric -- still drives the "
+                       "★ SCALE / MAINTAIN / REDUCE / PAUSED tags on the Overview campaign "
+                       "table.",
     },
     {
         "Metric": "Paid Rate",
@@ -143,10 +197,11 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
                       "the Gate 2 conversion rate (FSD → Paid).",
         "Source": "Stripe",
         "Attribution window": "N/A -- ground truth, no attribution window",
-        "Owner note": "get_stripe_period_totals / get_stripe_daily .paid_rate. Practitioner "
-                       "benchmark: some drop-off between FSD and paid is normal; a rate near "
-                       "0% across several days usually means a payment-page or webhook issue, "
-                       "not a tracking gap.",
+        "Owner note": "get_stripe_period_totals / get_stripe_daily .paid_rate. Deposit/"
+                       "Stripe-era metric, now inside the Overview legacy expander. "
+                       "Practitioner benchmark: some drop-off between FSD and paid is normal; "
+                       "a rate near 0% across several days usually means a payment-page or "
+                       "webhook issue, not a tracking gap.",
     },
     {
         "Metric": "CPaC",
@@ -154,28 +209,62 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
                       "ad efficiency (CPR) with landing-page paid rate.",
         "Source": "Meta spend + Stripe paid",
         "Attribution window": "N/A -- Stripe side is ground truth",
-        "Owner note": "Overview 'CPaC' card -- the dashboard's best estimate of true "
-                       "acquisition cost.",
+        "Owner note": "Deposit/Stripe-era metric, now inside the Overview 'Legacy deposit "
+                       "funnel (FSD/Stripe era)' expander. Superseded by Blended CAC (Shopify- "
+                       "anchored) for the current funnel.",
     },
     {
-        "Metric": "MER",
-        "Definition": "Marketing Efficiency Ratio = Total revenue ÷ Total ad spend, across "
-                      "all channels.",
-        "Source": "Stripe revenue ÷ Meta spend",
-        "Attribution window": "N/A -- ground truth revenue, no attribution window",
-        "Owner note": "Not currently rendered as its own KPI card in this dashboard -- listed "
-                       "here for reference since it's a common team term. CPaC and Blended "
-                       "ROAS are the closest cards to it today; ping the data-tracking owner "
-                       "before quoting an MER figure that isn't on-screen.",
+        "Metric": "GA4 Sessions (all)",
+        "Definition": "Total GA4 sessions across ALL traffic, including untagged / "
+                      "'(not set)' campaign_utm rows -- no campaign filter.",
+        "Source": "GA4",
+        "Attribution window": "N/A -- raw session count, not a conversion",
+        "Owner note": "Overview KPI row (v2, 2026-07-22). get_total_sessions_summary, sourced "
+                       "from ga4_landing_pages (which carries no campaign filter) -- NOT "
+                       "ga4_metrics, which excludes '(not set)' rows and therefore undercounts "
+                       "true GA4 traffic. Compare against 'GA4 Sessions (campaign-attributed)' "
+                       "below to see how much traffic GA4 couldn't tie to a campaign.",
     },
     {
-        "Metric": "GA4 Sessions",
-        "Definition": "Number of GA4 sessions on the landing page, joined by exact UTM "
+        "Metric": "GA4 Sessions (campaign-attributed)",
+        "Definition": "Number of GA4 sessions joined to a specific campaign by exact UTM "
                       "campaign-name match.",
         "Source": "GA4",
         "Attribution window": "Last-click (GA4 default channel grouping)",
-        "Owner note": "get_ga4_kpi.total_sessions / ga4_metrics.sessions. Includes GA4 "
-                       "consent-mode gaps -- visitors who declined cookies are undercounted.",
+        "Owner note": "get_ga4_kpi.total_sessions / ga4_metrics.sessions (this was previously "
+                       "just labeled 'GA4 Sessions' on Overview; see 'GA4 Sessions (all)' "
+                       "above for the property-wide figure it undercounts against). Includes "
+                       "GA4 consent-mode gaps -- visitors who declined cookies are "
+                       "undercounted -- plus every session GA4 couldn't tie to a campaign "
+                       "(the attribution gap, below).",
+    },
+    {
+        "Metric": "Capture Gap",
+        "Definition": "1 − (GA4 Sessions, all traffic) ÷ Meta Landing-Page Views -- the share "
+                      "of Meta-counted visits GA4 never tracked at all.",
+        "Source": "Meta LPV vs GA4 (all sessions)",
+        "Attribution window": "N/A -- a coverage/tracking metric, not a conversion",
+        "Owner note": "Funnel page 'Click → Session Gap' section (get_click_session_gap."
+                       "capture_gap_pct). Driven by consent-denied visitors (no GA4 hit fires "
+                       "at all), in-app browsers/ad blockers, slow tag load, or server 503s -- "
+                       "a real tracking/capture-coverage problem, distinct from the "
+                       "Attribution Gap below. Bands: 🟢 ≤30% normal · 🟡 30–50% watch · "
+                       "🔴 >50% investigate consent rate / tag latency / transport failures.",
+    },
+    {
+        "Metric": "Attribution Gap",
+        "Definition": "1 − (campaign-attributed GA4 sessions) ÷ (GA4 sessions, all traffic) "
+                      "-- of the sessions GA4 DID track, the share it couldn't tie back to a "
+                      "campaign.",
+        "Source": "GA4 (attributed vs all)",
+        "Attribution window": "N/A -- a UTM-tagging coverage metric, not a conversion",
+        "Owner note": "Funnel page 'Click → Session Gap' section (get_click_session_gap."
+                       "attribution_gap_pct). Driven by consent-denied sessions that still "
+                       "fire a bare pageview without a campaign-carrying hit, plus genuinely "
+                       "untagged/organic-looking traffic -- a UTM-tagging discipline issue, "
+                       "NOT the same failure mode as the Capture Gap above (which is about "
+                       "whether GA4 tracked the visit at all). Bands: 🟢 ≤40% normal · "
+                       "🟡 40–70% watch · 🔴 >70% investigate utm tagging discipline.",
     },
     {
         "Metric": "Engagement Rate",
@@ -195,9 +284,26 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
                       "last-click model.",
         "Source": "GA4",
         "Attribution window": "Last-click",
-        "Owner note": "ga4_metrics.ga4_purchases_lastclick. Never blend with Meta purchases -- "
-                       "see the Overview Reconciliation block and the 'Why don't these match?' "
-                       "explainer.",
+        "Owner note": "ga4_metrics.ga4_purchases_lastclick -- campaign-attributed only. The "
+                       "Overview Reconciliation block's GA4 leg (v2, 2026-07-22) uses the "
+                       "property-wide ga4_events 'purchase' event count instead (see below), "
+                       "with this campaign-attributed figure shown as a smaller caption "
+                       "underneath to make the utm-loss visible. Never blend with Meta "
+                       "purchases -- see the 'Why don't these match?' explainer.",
+    },
+    {
+        "Metric": "GA4 purchases (property-wide)",
+        "Definition": "SUM of ga4_events where event_name = 'purchase', across the whole GA4 "
+                      "property -- not restricted to sessions GA4 could tie to a campaign.",
+        "Source": "GA4",
+        "Attribution window": "Last-click, property-wide",
+        "Owner note": "Overview Reconciliation block (v2, 2026-07-22). Much larger than "
+                       "ga4_purchases_lastclick / ga4_metrics because the server-side purchase "
+                       "event loses utm_campaign for most orders -- most real purchases have "
+                       "no campaign attribution at all, not because GA4 missed them, but "
+                       "because the utm never made it onto that specific event. Treat this as "
+                       "the true GA4 purchase-event count and the campaign-attributed figure "
+                       "as a narrower, utm-loss-affected subset of it.",
     },
     {
         "Metric": "meta_purchases_7dclick",
@@ -240,6 +346,8 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.subheader("Changelog")
 st.markdown(
+    "- **2026-07-22** -- Overview v2 — MER/CAC/preorder KPI row, Shopify-anchored "
+    "reconciliation, gap decomposition; deposit-era tiles moved behind legacy expander.\n"
     "- **2026-07-21** -- Scope line + triangle reconciliation added; attribution windows "
     "now labeled on every page."
 )
