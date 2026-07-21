@@ -44,6 +44,13 @@ COLOR_WARN = "#f87171"                   # red dashed — warning threshold
 
 PAID_RATE_WARNING_PCT = 25.0            # horizontal warning threshold line
 
+# Quiz-funnel landing pages — duplicated from src/config.py QUIZ_LP_SLUGS per
+# the D-19 standalone-page rule (pages never import src.config; see the
+# palette constants above, duplicated from app.py for the same reason).
+QUIZ_LP_SLUGS = ["routine-break", "big-feelings-type", "screen-kid"]
+
+_BAND_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴", "gray": "⚪"}
+
 settings = DashboardSettings()
 
 # ---------------------------------------------------------------------------
@@ -122,6 +129,46 @@ def _cached_tracking_gap(db_path_str: str, start: str, end: str) -> list[dict[st
 def _cached_source_trend(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
     from pathlib import Path
     return db.get_stripe_source_trend(Path(db_path_str), start, end)
+
+
+# ---------------------------------------------------------------------------
+# Cached DB calls — Preorder Funnel (v3)
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_funnel_steps(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_preorder_funnel_steps(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_segment_funnels(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_segment_mini_funnels(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_click_gap(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_click_session_gap(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_not_set_share(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_ga4_not_set_share(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_quiz_funnel(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_quiz_funnel(Path(db_path_str), start, end, QUIZ_LP_SLUGS)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_quiz_cpl(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_quiz_cost_per_lead(Path(db_path_str), start, end, QUIZ_LP_SLUGS)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +278,229 @@ start_str = start_date.isoformat()
 end_str = end_date.isoformat()
 
 render_scope_line(start_date, end_date, campaign_filter="All")
+
+# ---------------------------------------------------------------------------
+# Preorder Funnel (v3) — new GA4-events + Meta-funnel-columns + Shopify-orders
+# data layer. Rendered here, above everything else (including the legacy
+# empty-state st.stop() below), so it always shows regardless of whether the
+# legacy Stripe funnel has data.
+# ---------------------------------------------------------------------------
+st.subheader("Preorder Funnel (v3)")
+st.caption(
+    "Ads → Landing Page → GA4 Session → Reserve Click → Add to Cart → "
+    "Begin Checkout → Order. Built on the new funnel-v3 data layer "
+    "(ga4_events, ad_metrics funnel columns, shopify_orders) — may show "
+    "\"n/a\" until ingestion has run."
+)
+
+_funnel_steps = _cached_funnel_steps(db_path_str, start_str, end_str)
+_click_gap = _cached_click_gap(db_path_str, start_str, end_str)
+_not_set_share = _cached_not_set_share(db_path_str, start_str, end_str)
+_segment_funnels = _cached_segment_funnels(db_path_str, start_str, end_str)
+_quiz_funnel = _cached_quiz_funnel(db_path_str, start_str, end_str)
+_quiz_cpl = _cached_quiz_cpl(db_path_str, start_str, end_str)
+
+_v3_available_steps = [s for s in _funnel_steps if s["available"]]
+
+if not _v3_available_steps:
+    st.info(
+        "📭 No funnel-v3 data ingested yet. This section populates once GA4 "
+        "event ingestion, the Meta landing-page-view/checkout columns, and "
+        "the Shopify orders ingest have run."
+    )
+else:
+    _v3_labels = [s["label"] for s in _v3_available_steps]
+    _v3_values = [s["value"] for s in _v3_available_steps]
+    _v3_conv = [s["conversion_pct"] for s in _v3_available_steps]
+    _v3_text = [
+        f"{v:,}" + (f"  ·  {c:.0f}% of prev step" if c is not None else "")
+        for v, c in zip(_v3_values, _v3_conv)
+    ]
+    _n_steps = len(_v3_values)
+    # Gradient shading — lightest at the top of the funnel (largest volume),
+    # darkest toward the bottom (smallest). Plotly renders horizontal-bar
+    # categories bottom-to-top, so the lists are reversed before plotting.
+    _v3_colors = [
+        f"rgba(99, 125, 255, {0.30 + 0.55 * (i / max(_n_steps - 1, 1)):.2f})"
+        for i in range(_n_steps)
+    ]
+
+    fig_v3 = go.Figure(go.Bar(
+        y=_v3_labels[::-1],
+        x=_v3_values[::-1],
+        text=_v3_text[::-1],
+        textposition="outside",
+        orientation="h",
+        marker_color=_v3_colors[::-1],
+    ))
+    fig_v3.update_layout(
+        paper_bgcolor=COLOR_BG_PAPER,
+        plot_bgcolor=COLOR_BG_PLOT,
+        font={"color": COLOR_FONT},
+        margin={"l": 20, "r": 140, "t": 10, "b": 10},
+        xaxis={"title": "Count", "gridcolor": COLOR_GRID},
+        yaxis={"gridcolor": COLOR_GRID, "showgrid": False},
+        height=max(320, _n_steps * 48),
+        showlegend=False,
+    )
+    st.plotly_chart(fig_v3, use_container_width=True)
+
+    _v3_skipped = [s["label"] for s in _funnel_steps if not s["available"]]
+    if _v3_skipped:
+        st.caption("n/a — no data ingested yet: " + ", ".join(_v3_skipped))
+
+    _orders_step = next((s for s in _funnel_steps if s["label"] == "Orders"), None)
+    if _orders_step and _orders_step.get("note"):
+        st.caption(f"ℹ️ {_orders_step['note']}")
+
+    st.caption(
+        "⚠️ **Directional, not blended.** Meta steps (Impressions / Clicks / "
+        "Landing-Page Views) count platform-side ad delivery; GA4 and Shopify "
+        "steps count on-site / order events — different scopes, shown "
+        "side-by-side, never averaged (CLAUDE.md). Begin Checkout is inflated "
+        "by an auto-redirect (the cart permalink lands directly on Shopify "
+        "checkout), so Begin Checkout ≈ reserve-click intent, not deliberate "
+        "checkout entry — expect it to sit close to Add to Cart rather than "
+        "showing real funnel drop-off."
+    )
+
+    if _segment_funnels:
+        st.markdown(
+            "**Segment comparison** — Sessions¹ → Add to Cart → Begin "
+            "Checkout → Orders, by landing page"
+        )
+        st.caption(
+            "¹ 'Sessions' = GA4 page_view_lp event count for that landing "
+            "page — ga4_metrics has no per-lp_slug dimension, so this is the "
+            "closest per-segment top-of-funnel proxy, not a blended GA4 "
+            "session count."
+        )
+        _seg_max = max(
+            (max(r["sessions"], r["add_to_cart"], r["begin_checkout"], r["orders"])
+             for r in _segment_funnels),
+            default=1,
+        ) or 1
+        _seg_cols = st.columns(min(len(_segment_funnels), 4))
+        for _i, _seg in enumerate(_segment_funnels):
+            with _seg_cols[_i % len(_seg_cols)]:
+                fig_seg = go.Figure(go.Bar(
+                    x=["Sessions", "ATC", "BC", "Orders"],
+                    y=[_seg["sessions"], _seg["add_to_cart"],
+                       _seg["begin_checkout"], _seg["orders"]],
+                    marker_color=[COLOR_GA4, COLOR_META, COLOR_CPD, COLOR_PAID],
+                ))
+                fig_seg.update_layout(
+                    title={"text": db.segment_display_name(_seg["lp_slug"]),
+                           "font": {"size": 12}},
+                    paper_bgcolor=COLOR_BG_PAPER,
+                    plot_bgcolor=COLOR_BG_PLOT,
+                    font={"color": COLOR_FONT, "size": 10},
+                    yaxis={"range": [0, _seg_max], "gridcolor": COLOR_GRID},
+                    xaxis={"showgrid": False},
+                    margin={"l": 30, "r": 10, "t": 30, "b": 20},
+                    height=220,
+                    showlegend=False,
+                )
+                st.plotly_chart(fig_seg, use_container_width=True)
+    else:
+        st.caption(
+            "No per-landing-page segment data yet "
+            "(ga4_events.lp_slug / shopify_orders.lp_slug empty for this range)."
+        )
+
+st.markdown("**Click → Session Gap**")
+_g1, _g2, _g3, _g4, _g5 = st.columns(5)
+_g1.metric(
+    "Meta Clicks",
+    f"{_click_gap['meta_clicks']:,}" if _click_gap["meta_clicks"] is not None else "n/a",
+)
+_g2.metric(
+    "Meta LPV",
+    f"{_click_gap['meta_lpv']:,}" if _click_gap["meta_lpv"] is not None else "n/a",
+)
+_g3.metric(
+    "GA4 Sessions",
+    f"{_click_gap['ga4_sessions']:,}" if _click_gap["ga4_sessions"] is not None else "n/a",
+)
+
+
+def _band_chip_text(pct: float | None, band: str) -> str:
+    emoji = _BAND_EMOJI[band]
+    return f"{emoji} {pct:.0f}%" if pct is not None else f"{emoji} n/a"
+
+
+_clicks_gap_band = db.click_session_gap_band(_click_gap["gap_clicks_pct"])
+_lpv_gap_band = db.click_session_gap_band(_click_gap["gap_lpv_pct"])
+_g4.metric("Gap (Clicks→Sessions)", _band_chip_text(_click_gap["gap_clicks_pct"], _clicks_gap_band))
+_g5.metric("Gap (LPV→Sessions)", _band_chip_text(_click_gap["gap_lpv_pct"], _lpv_gap_band))
+
+with st.expander("Why is there a gap between Clicks / LPV and GA4 Sessions?"):
+    st.markdown(
+        "- **Click ≠ LPV metric mismatch** — Meta 'clicks' counts all click "
+        "types (not only link clicks that land on the page); landing-page "
+        "views are a closer proxy but still platform-side.\n"
+        "- **Consent-mode loss** — visitors who decline analytics consent "
+        "never fire a GA4 session, but Meta still counts the click / LPV.\n"
+        "- **Tracking-transport failures** — in-app browsers, ad blockers, "
+        "slow tag load, or server 503s can drop the GA4 hit entirely.\n\n"
+        "Bands: 🟢 ≤20% normal (consent + platform counting) · 🟡 20–30% "
+        "watch · 🔴 >30% investigate: consent rate, tag latency, server 503s."
+    )
+
+st.markdown("**Checkout-events \"(not set)\" share**")
+_ns_band = db.not_set_share_band(_not_set_share["share_pct"])
+_ns_text = (
+    f"{_not_set_share['share_pct']:.0f}%" if _not_set_share["share_pct"] is not None else "n/a"
+)
+st.metric(
+    "(not set) share of add_to_cart + begin_checkout + purchase",
+    f"{_BAND_EMOJI[_ns_band]} {_ns_text}",
+    help=(
+        "checkout events GA4 couldn't tie to a campaign — utm forwarding + "
+        "tagging discipline"
+    ),
+)
+
+st.markdown("**Quiz Funnel**")
+st.caption(f"Landing pages: {', '.join(QUIZ_LP_SLUGS)}")
+_quiz_has_data = any(v["available"] for v in _quiz_funnel.values())
+if not _quiz_has_data:
+    st.info("n/a — no quiz-funnel data ingested yet for these landing pages.")
+else:
+    _q1, _q2, _q3, _q4 = st.columns(4)
+    _q1.metric(
+        "Page Views",
+        f"{_quiz_funnel['page_view_lp']['count']:,}"
+        if _quiz_funnel["page_view_lp"]["available"] else "n/a",
+    )
+    _q2.metric(
+        "Quiz Complete",
+        f"{_quiz_funnel['quiz_complete']['count']:,}"
+        if _quiz_funnel["quiz_complete"]["available"] else "n/a",
+    )
+    _q3.metric(
+        "Lead Submit",
+        f"{_quiz_funnel['lead_submit']['count']:,}"
+        if _quiz_funnel["lead_submit"]["available"] else "n/a",
+    )
+    _q4.metric(
+        "Cost per Lead",
+        f"${_quiz_cpl['cpl']:.2f}" if _quiz_cpl["cpl"] is not None else "—",
+    )
+    st.caption(
+        f"CPL = Meta spend from campaigns named 'LEADS' "
+        f"(${_quiz_cpl['spend']:.2f} across {_quiz_cpl['leads_campaign_count']} "
+        "campaign(s)) ÷ lead_submit count. Approximation: LEADS-named "
+        "campaigns may include non-quiz lead campaigns, so treat CPL here as "
+        "directional rather than an exact quiz-only figure."
+    )
+
+st.divider()
+st.caption(
+    "⬇️ Legacy deposit-funnel sections below track the original $1 Stripe "
+    "pre-order flow (form_submit_deposit → paid) and remain fully functional "
+    "independent of the funnel-v3 data above."
+)
 
 # ---------------------------------------------------------------------------
 # Load data

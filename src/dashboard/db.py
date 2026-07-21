@@ -1348,3 +1348,482 @@ def get_weekly_contributions(
     # Returned DESC from SQL; reverse to ASC for stacked-bar oldest-first display.
     out.reverse()
     return out
+
+
+# ---------------------------------------------------------------------------
+# Funnel v3 — preorder funnel, click->session gap, (not set) share, quiz strip
+#
+# Data-honesty rules (CLAUDE.md + funnel-v3 data layer):
+#   - Never blend or average Meta and GA4 conversion numbers -- every step here
+#     is reported straight from its own source table (ad_metrics = Meta,
+#     ga4_metrics/ga4_events = GA4, shopify_orders = Shopify), never combined.
+#   - A step whose source has NEVER been ingested (zero rows ever, not just
+#     zero in the selected date range) is reported as *unavailable* ("n/a"),
+#     not a measured zero. A dashboard viewer seeing "0" assumes something ran
+#     and produced zero conversions; "n/a" correctly signals "not measured
+#     yet". All queries below therefore return an `available` flag alongside
+#     the value, computed from whether that specific source/event has *ever*
+#     had a row (any date), independent of the selected range.
+#   - All queries follow the get_tracking_gap_days try/except OperationalError
+#     pattern so a fresh/partially-migrated DB degrades to a friendly
+#     "no data yet" empty state instead of crashing the page.
+# ---------------------------------------------------------------------------
+
+
+def get_meta_funnel_summary(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """Impressions / clicks / landing_page_views from ad_metrics (Meta side).
+
+    Campaign-level rows only (ad_set_id = '' AND ad_id = '').
+
+    `available` reflects whether ad_metrics has ever had campaign-level rows
+    at all (table missing/empty => False). `lpv_available` is a separate,
+    stricter flag: landing_page_views is a new nullable column (funnel-v3
+    migration 011), so most historical rows predate it -- a row existing does
+    not mean this particular metric was ever populated.
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                """
+                SELECT COALESCE(SUM(impressions), 0)          AS impressions,
+                       COALESCE(SUM(clicks), 0)                AS clicks,
+                       COALESCE(SUM(landing_page_views), 0)    AS landing_page_views
+                FROM ad_metrics
+                WHERE ad_set_id = '' AND ad_id = ''
+                  AND date BETWEEN ? AND ?
+                """,
+                (start_date, end_date),
+            ).fetchone()
+            available = con.execute(
+                "SELECT 1 FROM ad_metrics WHERE ad_set_id = '' AND ad_id = '' LIMIT 1"
+            ).fetchone() is not None
+            lpv_available = con.execute(
+                "SELECT 1 FROM ad_metrics WHERE landing_page_views IS NOT NULL LIMIT 1"
+            ).fetchone() is not None
+        return {
+            "impressions": int(row["impressions"]) if row else 0,
+            "clicks": int(row["clicks"]) if row else 0,
+            "landing_page_views": int(row["landing_page_views"]) if row else 0,
+            "available": available,
+            "lpv_available": lpv_available,
+        }
+    except sqlite3.OperationalError:
+        return {
+            "impressions": 0, "clicks": 0, "landing_page_views": 0,
+            "available": False, "lpv_available": False,
+        }
+
+
+def get_ga4_sessions_summary(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """GA4 sessions total for the range, plus whether ga4_metrics has ever had rows."""
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                "SELECT COALESCE(SUM(sessions), 0) AS sessions FROM ga4_metrics "
+                "WHERE date BETWEEN ? AND ?",
+                (start_date, end_date),
+            ).fetchone()
+            available = con.execute("SELECT 1 FROM ga4_metrics LIMIT 1").fetchone() is not None
+        return {"sessions": int(row["sessions"]) if row else 0, "available": available}
+    except sqlite3.OperationalError:
+        return {"sessions": 0, "available": False}
+
+
+def get_ga4_event_step_totals(
+    db_path: Path, start_date: str, end_date: str, event_names: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Per-event totals from ga4_events, each with its own 'ever ingested' flag.
+
+    Returns {event_name: {"count": int, "available": bool}} for every name in
+    `event_names`. Distinct GA4 events can be enabled/backfilled at different
+    times, so availability is checked per event_name (not per-table) -- e.g.
+    'cta_click' having zero rows ever must not be masked by 'begin_checkout'
+    already having data.
+    """
+    result: dict[str, dict[str, Any]] = {
+        name: {"count": 0, "available": False} for name in event_names
+    }
+    if not event_names:
+        return result
+    try:
+        with _conn(db_path) as con:
+            placeholders = ",".join("?" * len(event_names))
+            rows = con.execute(
+                f"""
+                SELECT event_name, COALESCE(SUM(event_count), 0) AS total
+                FROM ga4_events
+                WHERE event_name IN ({placeholders})
+                  AND date BETWEEN ? AND ?
+                GROUP BY event_name
+                """,
+                (*event_names, start_date, end_date),
+            ).fetchall()
+            counts = {r["event_name"]: int(r["total"]) for r in rows}
+            ever_rows = con.execute(
+                f"SELECT DISTINCT event_name FROM ga4_events WHERE event_name IN ({placeholders})",
+                tuple(event_names),
+            ).fetchall()
+            ever = {r["event_name"] for r in ever_rows}
+        for name in event_names:
+            result[name] = {"count": counts.get(name, 0), "available": name in ever}
+        return result
+    except sqlite3.OperationalError:
+        return result
+
+
+def get_orders_step(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """Orders count for the preorder funnel: Shopify paid orders, falling back
+    to the GA4 'purchase' event count when Shopify hasn't been ingested yet.
+
+    Returns {"count": int, "available": bool,
+             "source": "shopify_orders" | "ga4_events" | None}.
+    `source` tells the caller which caption to render ("falling back to GA4
+    purchase event count" per the funnel-v3 spec).
+    """
+    try:
+        with _conn(db_path) as con:
+            shopify_ingested = con.execute(
+                "SELECT 1 FROM shopify_orders LIMIT 1"
+            ).fetchone() is not None
+            if shopify_ingested:
+                row = con.execute(
+                    "SELECT COUNT(*) AS n FROM shopify_orders "
+                    "WHERE financial_status = 'paid' AND order_date BETWEEN ? AND ?",
+                    (start_date, end_date),
+                ).fetchone()
+                return {
+                    "count": int(row["n"]) if row else 0,
+                    "available": True,
+                    "source": "shopify_orders",
+                }
+    except sqlite3.OperationalError:
+        pass
+
+    ga4_purchase = get_ga4_event_step_totals(db_path, start_date, end_date, ["purchase"])["purchase"]
+    if ga4_purchase["available"]:
+        return {"count": ga4_purchase["count"], "available": True, "source": "ga4_events"}
+    return {"count": 0, "available": False, "source": None}
+
+
+def get_preorder_funnel_steps(
+    db_path: Path, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """Assemble the full preorder funnel with step-conversion %.
+
+    Order: Impressions -> Clicks -> Landing-Page Views -> GA4 Sessions ->
+    CTA Clicks -> Add to Cart -> Begin Checkout -> Orders.
+
+    Each step: {"label", "value" (int, None when unavailable), "available",
+    "conversion_pct" (value / previous *available* step's value * 100, or
+    None for the first available step or when the previous value was 0), "note"}.
+    Unavailable steps are skipped when locating "previous" so a later
+    available step still gets a meaningful conversion rate.
+    """
+    meta = get_meta_funnel_summary(db_path, start_date, end_date)
+    ga4_sessions = get_ga4_sessions_summary(db_path, start_date, end_date)
+    events = get_ga4_event_step_totals(
+        db_path, start_date, end_date, ["cta_click", "add_to_cart", "begin_checkout"]
+    )
+    orders = get_orders_step(db_path, start_date, end_date)
+
+    orders_note: str | None = None
+    if orders["source"] == "shopify_orders":
+        orders_note = "Source: Shopify orders (financial_status = 'paid')"
+    elif orders["source"] == "ga4_events":
+        orders_note = "Source: GA4 purchase events (Shopify orders not yet ingested)"
+
+    steps: list[dict[str, Any]] = [
+        {"label": "Impressions", "value": meta["impressions"],
+         "available": meta["available"], "note": None},
+        {"label": "Clicks", "value": meta["clicks"],
+         "available": meta["available"], "note": None},
+        {"label": "Landing-Page Views", "value": meta["landing_page_views"],
+         "available": meta["lpv_available"], "note": None},
+        {"label": "GA4 Sessions", "value": ga4_sessions["sessions"],
+         "available": ga4_sessions["available"], "note": None},
+        {"label": "CTA Clicks", "value": events["cta_click"]["count"],
+         "available": events["cta_click"]["available"], "note": None},
+        {"label": "Add to Cart", "value": events["add_to_cart"]["count"],
+         "available": events["add_to_cart"]["available"], "note": None},
+        {"label": "Begin Checkout", "value": events["begin_checkout"]["count"],
+         "available": events["begin_checkout"]["available"], "note": None},
+        {"label": "Orders", "value": orders["count"],
+         "available": orders["available"], "note": orders_note},
+    ]
+
+    prev_value: int | None = None
+    for step in steps:
+        if not step["available"]:
+            step["value"] = None
+            step["conversion_pct"] = None
+            continue
+        if prev_value is not None and prev_value > 0:
+            step["conversion_pct"] = round(step["value"] * 100.0 / prev_value, 1)
+        else:
+            step["conversion_pct"] = None
+        prev_value = step["value"]
+
+    return steps
+
+
+def get_segment_mini_funnels(
+    db_path: Path, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """Per-lp_slug mini funnel: page views -> add-to-cart -> begin-checkout -> orders.
+
+    'sessions' here is GA4 page_view_lp *event* volume from ga4_events, not a
+    true GA4 session count -- ga4_metrics carries no lp_slug dimension, so
+    page_view_lp is the closest per-landing-page top-of-funnel proxy available
+    (callers should label the axis accordingly, not as raw "GA4 Sessions").
+    Orders are Shopify paid orders joined on shopify_orders.lp_slug.
+    Returns [] when neither source has any lp_slug-tagged rows in range.
+    """
+    events_by_slug: dict[str, dict[str, int]] = {}
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(
+                """
+                SELECT lp_slug,
+                       SUM(CASE WHEN event_name = 'page_view_lp' THEN event_count ELSE 0 END)
+                           AS sessions,
+                       SUM(CASE WHEN event_name = 'add_to_cart' THEN event_count ELSE 0 END)
+                           AS add_to_cart,
+                       SUM(CASE WHEN event_name = 'begin_checkout' THEN event_count ELSE 0 END)
+                           AS begin_checkout
+                FROM ga4_events
+                WHERE lp_slug != '' AND date BETWEEN ? AND ?
+                GROUP BY lp_slug
+                """,
+                (start_date, end_date),
+            ).fetchall()
+        for r in rows:
+            events_by_slug[r["lp_slug"]] = {
+                "sessions": int(r["sessions"] or 0),
+                "add_to_cart": int(r["add_to_cart"] or 0),
+                "begin_checkout": int(r["begin_checkout"] or 0),
+            }
+    except sqlite3.OperationalError:
+        pass
+
+    orders_by_slug: dict[str, int] = {}
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(
+                """
+                SELECT lp_slug, COUNT(*) AS n
+                FROM shopify_orders
+                WHERE lp_slug != '' AND financial_status = 'paid'
+                  AND order_date BETWEEN ? AND ?
+                GROUP BY lp_slug
+                """,
+                (start_date, end_date),
+            ).fetchall()
+        orders_by_slug = {r["lp_slug"]: int(r["n"]) for r in rows}
+    except sqlite3.OperationalError:
+        pass
+
+    slugs = sorted(set(events_by_slug) | set(orders_by_slug))
+    results: list[dict[str, Any]] = []
+    for slug in slugs:
+        e = events_by_slug.get(slug, {"sessions": 0, "add_to_cart": 0, "begin_checkout": 0})
+        results.append({
+            "lp_slug": slug,
+            "sessions": e["sessions"],
+            "add_to_cart": e["add_to_cart"],
+            "begin_checkout": e["begin_checkout"],
+            "orders": orders_by_slug.get(slug, 0),
+        })
+    results.sort(key=lambda r: r["sessions"], reverse=True)
+    return results
+
+
+def get_click_session_gap(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """Meta clicks/LPV vs GA4 sessions -- the gap between ad-platform-reported
+    landing traffic and GA4-recorded sessions.
+
+    gap_clicks_pct = 1 - sessions/clicks ; gap_lpv_pct = 1 - sessions/landing_page_views.
+    Both are None when the relevant Meta metric is unavailable/zero or GA4
+    sessions are unavailable (rather than a misleading 0% or 100%).
+    """
+    meta = get_meta_funnel_summary(db_path, start_date, end_date)
+    ga4 = get_ga4_sessions_summary(db_path, start_date, end_date)
+
+    sessions = ga4["sessions"] if ga4["available"] else None
+    clicks = meta["clicks"] if meta["available"] else None
+    lpv = meta["landing_page_views"] if meta["lpv_available"] else None
+
+    gap_clicks_pct: float | None = None
+    if clicks and sessions is not None and clicks > 0:
+        gap_clicks_pct = round((1 - sessions / clicks) * 100, 1)
+
+    gap_lpv_pct: float | None = None
+    if lpv and sessions is not None and lpv > 0:
+        gap_lpv_pct = round((1 - sessions / lpv) * 100, 1)
+
+    return {
+        "meta_clicks": clicks,
+        "meta_lpv": lpv,
+        "ga4_sessions": sessions,
+        "gap_clicks_pct": gap_clicks_pct,
+        "gap_lpv_pct": gap_lpv_pct,
+    }
+
+
+_GAP_BAND_GREEN_MAX = 20.0
+_GAP_BAND_AMBER_MAX = 30.0
+
+
+def click_session_gap_band(gap_pct: float | None) -> str:
+    """Classify a click/LPV -> GA4-session gap % into a trust-signal band.
+
+    gap <= 20%        -> "green"  (normal -- consent + platform counting)
+    20% < gap <= 30%   -> "amber"  (watch)
+    gap > 30%          -> "red"    (investigate: consent rate, tag latency, server 503s)
+    gap is None        -> "gray"   (no data)
+    """
+    if gap_pct is None:
+        return "gray"
+    if gap_pct <= _GAP_BAND_GREEN_MAX:
+        return "green"
+    if gap_pct <= _GAP_BAND_AMBER_MAX:
+        return "amber"
+    return "red"
+
+
+def get_ga4_not_set_share(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """% of checkout-adjacent GA4 event volume (add_to_cart + begin_checkout +
+    purchase) whose campaign_utm is '(not set)' or '' -- events GA4 could not
+    tie back to a campaign (utm forwarding / tagging gaps).
+
+    Weighted by event_count (volume), not by number of grouped rows.
+    Returns {"share_pct", "not_set_count", "total_count", "available"}.
+    available is False (share_pct None) when there is no add_to_cart /
+    begin_checkout / purchase volume at all in range.
+    """
+    events = ("add_to_cart", "begin_checkout", "purchase")
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                """
+                SELECT
+                    COALESCE(SUM(event_count), 0) AS total,
+                    COALESCE(SUM(CASE WHEN campaign_utm IN ('(not set)', '')
+                                       THEN event_count ELSE 0 END), 0) AS not_set
+                FROM ga4_events
+                WHERE event_name IN (?, ?, ?)
+                  AND date BETWEEN ? AND ?
+                """,
+                (*events, start_date, end_date),
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return {"share_pct": None, "not_set_count": 0, "total_count": 0, "available": False}
+
+    total = int(row["total"]) if row else 0
+    not_set = int(row["not_set"]) if row else 0
+    if total <= 0:
+        return {"share_pct": None, "not_set_count": 0, "total_count": 0, "available": False}
+    share = round(not_set * 100.0 / total, 1)
+    return {"share_pct": share, "not_set_count": not_set, "total_count": total, "available": True}
+
+
+_NOT_SET_BAND_GREEN_MAX = 30.0
+_NOT_SET_BAND_AMBER_MAX = 60.0
+
+
+def not_set_share_band(share_pct: float | None) -> str:
+    """green <= 30% · amber 30-60% · red > 60% · gray when no data."""
+    if share_pct is None:
+        return "gray"
+    if share_pct <= _NOT_SET_BAND_GREEN_MAX:
+        return "green"
+    if share_pct <= _NOT_SET_BAND_AMBER_MAX:
+        return "amber"
+    return "red"
+
+
+def get_quiz_funnel(
+    db_path: Path, start_date: str, end_date: str, lp_slugs: list[str]
+) -> dict[str, dict[str, Any]]:
+    """page_view_lp -> quiz_complete -> lead_submit, restricted to `lp_slugs`.
+
+    Returns {"page_view_lp": {"count","available"}, "quiz_complete": {...},
+    "lead_submit": {...}}. Availability reflects whether that event_name has
+    ever been ingested for ANY of the given slugs.
+    """
+    events = ("page_view_lp", "quiz_complete", "lead_submit")
+    result: dict[str, dict[str, Any]] = {name: {"count": 0, "available": False} for name in events}
+    if not lp_slugs:
+        return result
+    try:
+        with _conn(db_path) as con:
+            ev_ph = ",".join("?" * len(events))
+            slug_ph = ",".join("?" * len(lp_slugs))
+            rows = con.execute(
+                f"""
+                SELECT event_name, COALESCE(SUM(event_count), 0) AS total
+                FROM ga4_events
+                WHERE event_name IN ({ev_ph})
+                  AND lp_slug IN ({slug_ph})
+                  AND date BETWEEN ? AND ?
+                GROUP BY event_name
+                """,
+                (*events, *lp_slugs, start_date, end_date),
+            ).fetchall()
+            counts = {r["event_name"]: int(r["total"]) for r in rows}
+            ever_rows = con.execute(
+                f"SELECT DISTINCT event_name FROM ga4_events "
+                f"WHERE event_name IN ({ev_ph}) AND lp_slug IN ({slug_ph})",
+                (*events, *lp_slugs),
+            ).fetchall()
+            ever = {r["event_name"] for r in ever_rows}
+        for name in events:
+            result[name] = {"count": counts.get(name, 0), "available": name in ever}
+        return result
+    except sqlite3.OperationalError:
+        return result
+
+
+def get_quiz_cost_per_lead(
+    db_path: Path, start_date: str, end_date: str, lp_slugs: list[str]
+) -> dict[str, Any]:
+    """Cost-per-lead for the quiz funnel: quiz-campaign Meta spend / lead_submit count.
+
+    Campaign scope: campaign name LIKE '%LEADS%' -- the naming convention this
+    codebase already uses to tag lead-gen campaigns (see
+    src/dashboard/Overview.py `_shorten_campaign`, which strips a
+    'Nowa | SALES/LEADS | X.X ' prefix). This is a caption-worthy
+    approximation: LEADS-named campaigns may include non-quiz lead campaigns,
+    so CPL here is directional, not an exact quiz-only figure.
+
+    Returns {"cpl": float | None, "spend": float, "lead_submit": int,
+    "leads_campaign_count": int}. cpl is None when spend or lead_submit is 0.
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                """
+                SELECT COALESCE(SUM(m.spend), 0)     AS spend,
+                       COUNT(DISTINCT m.campaign_id)  AS n_campaigns
+                FROM ad_metrics m
+                JOIN campaigns c ON c.id = m.campaign_id
+                WHERE m.ad_set_id = '' AND m.ad_id = ''
+                  AND c.name LIKE '%LEADS%'
+                  AND m.date BETWEEN ? AND ?
+                """,
+                (start_date, end_date),
+            ).fetchone()
+        spend = float(row["spend"]) if row else 0.0
+        n_campaigns = int(row["n_campaigns"]) if row else 0
+    except sqlite3.OperationalError:
+        spend, n_campaigns = 0.0, 0
+
+    quiz = get_quiz_funnel(db_path, start_date, end_date, lp_slugs)
+    lead_submit = quiz["lead_submit"]["count"] if quiz["lead_submit"]["available"] else 0
+
+    cpl = round(spend / lead_submit, 2) if spend > 0 and lead_submit > 0 else None
+    return {
+        "cpl": cpl,
+        "spend": spend,
+        "lead_submit": lead_submit,
+        "leads_campaign_count": n_campaigns,
+    }

@@ -10,6 +10,16 @@ from typing import Any
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Quiz-funnel landing pages (funnel v3): page_view_lp -> quiz_complete ->
+# lead_submit is tracked only for these lp_slug values. Kept as a plain module
+# constant (not a Settings field) since it's a fixed product taxonomy, not
+# environment-configurable -- mirrors the ALL_MIGRATIONS registry pattern in
+# src/db/schema.py. Consumers (dashboard queries, ingestion) take this as an
+# explicit parameter rather than importing Settings, so they stay decoupled
+# from the required-env-var Settings class (see src/dashboard/settings.py
+# "standalone" rationale).
+QUIZ_LP_SLUGS: list[str] = ["routine-break", "big-feelings-type", "screen-kid"]
+
 
 class Settings(BaseSettings):
     # ---- Telegram (required) ----
