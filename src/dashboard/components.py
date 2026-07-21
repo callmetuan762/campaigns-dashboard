@@ -30,8 +30,8 @@ GA4_WINDOW_LABEL = "GA4: last-click"
 
 # Shorter forms used inline in the triangle block captions.
 META_WINDOW_CAPTION = "7-day click / 1-day view"
-GA4_WINDOW_CAPTION = "Last-click"
-STRIPE_CAPTION = "Stripe payment records — ground truth"
+GA4_WINDOW_CAPTION = "Last-click, property-wide"
+SHOPIFY_CAPTION = "Shopify paid orders — ground truth"
 
 # Gap-chip thresholds (practitioner benchmark: 15-30% platform-vs-actual
 # variance is normal; >40% signals a tracking problem).
@@ -131,14 +131,24 @@ def gap_chip_color(gap_pct: float | None) -> str:
 def render_reconciliation_block(
     meta_purchases: int,
     ga4_purchases: int,
-    actual_paid: int,
+    shopify_paid_orders: int,
+    ga4_purchases_attributed: int | None = None,
 ) -> None:
-    """Render the Meta / GA4 / actual-paid ("triangle") reconciliation block.
+    """Render the Meta / GA4 / Shopify ("triangle") reconciliation block (v2).
 
     Three side-by-side counts (never blended -- CLAUDE.md house rule), each
     with its attribution-window caption, plus a fourth gap chip showing the
     max pairwise variance -- and an expander explaining why the numbers
     normally disagree.
+
+    Overview v2 (2026-07-22): the GA4 leg is now the property-wide purchase
+    *event* count (SUM of ga4_events where event_name='purchase'), not the
+    campaign-attributed ga4_metrics figure -- the latter undercounts because
+    the server-side purchase event loses utm_campaign for most orders. The
+    Shopify leg (ground truth, orders_valid_from-filtered) replaces the old
+    Stripe/deposit-era "Actual paid" leg. When `ga4_purchases_attributed` is
+    given, a fourth caption line under the GA4 metric shows that narrower
+    campaign-attributed figure so the utm-loss is visible at a glance.
     """
     col1, col2, col3, col4 = st.columns(4)
 
@@ -147,11 +157,13 @@ def render_reconciliation_block(
 
     col2.metric("GA4 purchases (last-click)", f"{int(ga4_purchases):,}")
     col2.caption(GA4_WINDOW_CAPTION)
+    if ga4_purchases_attributed is not None:
+        col2.caption(f"campaign-attributed: {int(ga4_purchases_attributed):,}")
 
-    col3.metric("Actual paid (Stripe)", f"{int(actual_paid):,}")
-    col3.caption(STRIPE_CAPTION)
+    col3.metric("Shopify paid orders (ground truth)", f"{int(shopify_paid_orders):,}")
+    col3.caption(SHOPIFY_CAPTION)
 
-    gap = max_pairwise_gap_pct(meta_purchases, ga4_purchases, actual_paid)
+    gap = max_pairwise_gap_pct(meta_purchases, ga4_purchases, shopify_paid_orders)
     color = gap_chip_color(gap)
     emoji = _GAP_CHIP_EMOJI[color]
     gap_text = f"{gap:.0f}%" if gap is not None else "—"
@@ -163,12 +175,18 @@ def render_reconciliation_block(
             "Meta credits a purchase to an ad within its 7-day-click / "
             "1-day-view attribution window, so a sale can count even if the "
             "click (or view) happened up to a week earlier or was influenced "
-            "by other channels. GA4 instead uses last-click within its own "
-            "session model, and consent-mode opt-outs mean some conversions "
-            "are never recorded there at all. Both ad platforms also tend to "
-            "over-attribute conversions that would have happened anyway, "
-            "which inflates their self-reported numbers relative to reality. "
-            "Stripe (via Shopify checkout) reflects only real, completed "
-            "payments, so treat it as ground truth and the platform numbers "
-            "as directional signals rather than exact counts."
+            "by other channels. Both ad platforms also tend to over-attribute "
+            "conversions that would have happened anyway, which inflates "
+            "their self-reported numbers relative to reality.\n\n"
+            "GA4's purchase count above is property-wide (every purchase "
+            "event GA4 recorded, last-click model) -- but the server-side "
+            "purchase event loses `utm_campaign` for most orders, so the "
+            "narrower campaign-attributed figure (shown as a caption under "
+            "the GA4 metric) is always much smaller than the property-wide "
+            "total. That gap is a utm-tagging/forwarding issue, not a real "
+            "drop in purchases -- don't read it as tracking failure.\n\n"
+            "Shopify reflects only real, completed orders "
+            "(financial_status = 'paid'), so treat it as ground truth and "
+            "the platform numbers as directional signals rather than exact "
+            "counts."
         )

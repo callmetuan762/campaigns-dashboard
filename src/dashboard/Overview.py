@@ -182,6 +182,16 @@ def _cached_total_sessions(db_path_str: str, start: str, end: str) -> dict[str, 
     return db.get_total_sessions_summary(Path(db_path_str), start, end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_ga4_purchase_events(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    """Property-wide GA4 'purchase' event count from ga4_events (Overview v2
+    reconciliation triangle) -- NOT the campaign-attributed ga4_metrics figure,
+    which undercounts because the server-side purchase event loses utm_campaign
+    for most orders."""
+    from pathlib import Path
+    return db.get_ga4_event_step_totals(Path(db_path_str), start, end, ["purchase"])["purchase"]
+
+
 # ---------------------------------------------------------------------------
 # Plotly figure builders (D-06, D-10)
 # ---------------------------------------------------------------------------
@@ -801,18 +811,23 @@ s4.metric(
 )
 
 # ---------------------------------------------------------------------------
-# Triangle reconciliation (Phase D trust/UX) — Meta vs GA4 vs actual paid.
-# Never blended (CLAUDE.md house rule): three independent counts side by
-# side, plus a gap chip and a plain-English "why don't these match" note.
+# Triangle reconciliation v2 (Overview v2, 2026-07-22) — Meta vs GA4
+# (property-wide) vs Shopify (ground truth). Never blended (CLAUDE.md house
+# rule): three independent counts side by side, plus a gap chip, a
+# campaign-attributed GA4 caption so the utm-loss is visible, and a
+# plain-English "why don't these match" note.
 # ---------------------------------------------------------------------------
-st.subheader("Reconciliation: Meta vs GA4 vs Actual")
+st.subheader("Reconciliation: Meta vs GA4 vs Shopify")
 _meta_purchases_total = _cached_meta_purchases_total(db_path_str, start_iso, end_iso)
-_ga4_purchases_total = int(ga4_kpi.get("total_purchases") or 0)
-_actual_paid_total = int(stripe_kpi.get("paid") or 0)
+_ga4_purchase_events = _cached_ga4_purchase_events(db_path_str, start_iso, end_iso)
+_ga4_purchases_total = int(_ga4_purchase_events.get("count") or 0)
+_ga4_purchases_attributed = int(ga4_kpi.get("total_purchases") or 0)
+_shopify_paid_total = int(shopify_kpi.get("count") or 0)
 render_reconciliation_block(
     meta_purchases=_meta_purchases_total,
     ga4_purchases=_ga4_purchases_total,
-    actual_paid=_actual_paid_total,
+    shopify_paid_orders=_shopify_paid_total,
+    ga4_purchases_attributed=_ga4_purchases_attributed,
 )
 
 # ---------------------------------------------------------------------------
