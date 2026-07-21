@@ -141,6 +141,32 @@ def get_shopify_paid_summary(
         return {"count": 0, "revenue": 0.0}
 
 
+def get_shopify_paid_daily(
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
+) -> list[dict[str, Any]]:
+    """Daily Shopify paid order count -- used by the "Meta Begin Checkout vs
+    Shopify Paid Orders" Overview chart (Overview v2, 2026-07-22).
+
+    Returns [] on a missing table / no rows (graceful degradation).
+    """
+    valid_from_clause = " AND order_date >= ?" if orders_valid_from else ""
+    params: list[str] = [start_date, end_date]
+    if orders_valid_from:
+        params.append(orders_valid_from)
+    sql = (
+        "SELECT order_date AS date, COUNT(*) AS paid FROM shopify_orders "
+        "WHERE financial_status = 'paid' AND order_date BETWEEN ? AND ?"
+        + valid_from_clause
+        + " GROUP BY order_date ORDER BY order_date"
+    )
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+
+
 def get_meta_begin_checkout_total(db_path: Path, start_date: str, end_date: str) -> int:
     """Period total of Meta meta_begin_checkout (campaign-level ad_metrics rows).
 
@@ -167,6 +193,7 @@ def get_daily_trend(db_path: Path, start_date: str, end_date: str) -> list[dict[
             m.date,
             COALESCE(SUM(m.spend), 0)                        AS spend,
             COALESCE(SUM(m.meta_form_submit_deposit), 0)     AS deposits,
+            COALESCE(SUM(m.meta_begin_checkout), 0)          AS begin_checkout,
             COALESCE(g.sessions, 0)                          AS sessions
         FROM ad_metrics m
         LEFT JOIN (
@@ -187,9 +214,13 @@ def get_daily_trend(db_path: Path, start_date: str, end_date: str) -> list[dict[
 def get_campaign_daily_breakdown(
     db_path: Path, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
-    """Per-day × per-campaign: spend, FSD, CPR (FSD), CTR.
-    Campaign-level rows only (ad_set_id = '', ad_id = '').
-    Used by the Overview daily-trends-by-campaign charts.
+    """Per-day × per-campaign: spend, FSD, CPR (FSD), begin_checkout,
+    cost-per-begin-checkout, CTR. Campaign-level rows only
+    (ad_set_id = '', ad_id = ''). Used by the Overview daily-trends-by-
+    campaign charts. `fsd`/`cpr` are kept for backward compatibility
+    (legacy deposit-era charts); `begin_checkout`/`cost_per_bc` power the
+    Overview v2 "Begin Checkout by campaign" / "Cost per Begin Checkout per
+    campaign" charts.
     """
     sql = """
         SELECT
@@ -200,6 +231,10 @@ def get_campaign_daily_breakdown(
             CASE WHEN m.meta_form_submit_deposit > 0
                  THEN m.spend / m.meta_form_submit_deposit
                  ELSE NULL END                                           AS cpr,
+            COALESCE(m.meta_begin_checkout, 0)                           AS begin_checkout,
+            CASE WHEN m.meta_begin_checkout > 0
+                 THEN m.spend / m.meta_begin_checkout
+                 ELSE NULL END                                           AS cost_per_bc,
             m.ctr
         FROM ad_metrics m
         JOIN campaigns c ON m.campaign_id = c.id

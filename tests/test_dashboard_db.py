@@ -30,6 +30,7 @@ def _make_fixture_db(path: Path) -> None:
             meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
             reach INTEGER, frequency REAL,
             meta_form_submit_deposit INTEGER NOT NULL DEFAULT 0,
+            meta_begin_checkout INTEGER,
             fetched_at TEXT,
             PRIMARY KEY (campaign_id, date, ad_set_id, ad_id)
         );
