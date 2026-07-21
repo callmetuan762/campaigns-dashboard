@@ -116,6 +116,18 @@ async def daily_backfill_job() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.error("daily_backfill_shopify_failed", error=str(exc))
 
+    # Pull Meta Pixel health (per-event browser/server counts + best-effort EMQ,
+    # Phase C). run_pixel_health_ingest_for_date is itself a clean no-op when
+    # META_PIXEL_ID is unset, and never raises on stats-endpoint errors
+    # (src/meta/pixel_ingest.py) — the outer try/except here just guards
+    # against unexpected errors during that check, matching the Shopify pattern above.
+    try:
+        from src.meta.pixel_ingest import run_pixel_health_ingest_for_date
+        await run_pixel_health_ingest_for_date(_db, _settings, yesterday)
+        logger.info("daily_backfill_pixel_health_done", date=yesterday)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("daily_backfill_pixel_health_failed", error=str(exc))
+
     logger.info("daily_backfill_complete", meta_date=yesterday, ga4_date=d2)
 
 

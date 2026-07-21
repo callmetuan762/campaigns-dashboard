@@ -296,6 +296,7 @@ def test_full_migration_chain_applies_cleanly_on_fresh_db():
         }
         assert "ga4_events" in tables
         assert "shopify_orders" in tables
+        assert "pixel_health" in tables
         con.close()
     finally:
         try:
@@ -309,6 +310,103 @@ async def test_run_migrations_applies_all_funnel_v3_migrations(db_client):
     rows = await db_client.fetch_all("SELECT version FROM schema_version")
     applied = {r["version"] for r in rows}
     assert {"010_ga4_events", "011_meta_funnel_v3", "012_shopify_orders"} <= applied
+
+
+def test_migration_013_creates_pixel_health_table():
+    """Phase C: MIGRATION_013_PIXEL_HEALTH creates pixel_health with the documented schema."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "013_pixel_health" in names, f"Migration 013 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("013_pixel_health")
+    try:
+        rows = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='pixel_health'"
+        ).fetchall()
+        assert len(rows) == 1, "pixel_health table must exist after migration 013"
+
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(pixel_health)")}
+        required = {
+            "date", "event_name", "browser_count", "server_count",
+            "dedup_rate", "emq_score", "fetched_at",
+        }
+        missing = required - cols
+        assert not missing, f"Missing columns in pixel_health: {missing}"
+
+        idx_names = {
+            r["name"]
+            for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pixel_health'"
+            )
+        }
+        assert "idx_pixel_health_date" in idx_names
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_013_pixel_health_pk_dedupes_on_conflict():
+    """Composite PK (date, event_name) dedupes on conflict, like ga4_events."""
+    import os
+
+    con, db_path = _apply_migration_to_fresh_db("013_pixel_health")
+    try:
+        con.execute(
+            "INSERT INTO pixel_health (date, event_name, browser_count, server_count) "
+            "VALUES ('2026-05-18', 'purchase', 10, 8)"
+        )
+        con.commit()
+        con.execute(
+            "INSERT INTO pixel_health (date, event_name, browser_count, server_count) "
+            "VALUES ('2026-05-18', 'purchase', 15, 9) "
+            "ON CONFLICT(date, event_name) DO UPDATE SET "
+            "browser_count=excluded.browser_count, server_count=excluded.server_count"
+        )
+        con.commit()
+        rows = con.execute(
+            "SELECT browser_count, server_count FROM pixel_health "
+            "WHERE date='2026-05-18' AND event_name='purchase'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["browser_count"] == 15
+        assert rows[0]["server_count"] == 9
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_013_pixel_health_emq_and_dedup_nullable():
+    """emq_score / dedup_rate must accept NULL (graceful degradation — EMQ best-effort)."""
+    import os
+
+    con, db_path = _apply_migration_to_fresh_db("013_pixel_health")
+    try:
+        con.execute(
+            "INSERT INTO pixel_health (date, event_name, browser_count, server_count, "
+            "dedup_rate, emq_score) VALUES ('2026-05-18', 'lead_submit', 5, 3, NULL, NULL)"
+        )
+        con.commit()
+        row = con.execute(
+            "SELECT dedup_rate, emq_score FROM pixel_health "
+            "WHERE date='2026-05-18' AND event_name='lead_submit'"
+        ).fetchone()
+        assert row["dedup_rate"] is None
+        assert row["emq_score"] is None
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
 
 
 def test_migration_006_mmm_results_accepts_insert():

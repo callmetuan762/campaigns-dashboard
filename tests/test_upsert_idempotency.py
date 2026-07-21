@@ -213,3 +213,51 @@ async def test_shopify_orders_upsert_is_idempotent(db_client):
 async def test_shopify_orders_upsert_empty_list_returns_zero(db_client):
     result = await db_client.upsert_shopify_orders([])
     assert result == 0
+
+
+# ---------------------------------------------------------------------------
+# Phase C: pixel_health UPSERT idempotency
+# ---------------------------------------------------------------------------
+
+async def test_pixel_health_upsert_is_idempotent(db_client):
+    row = {
+        "date": "2026-05-18",
+        "event_name": "purchase",
+        "browser_count": 100,
+        "server_count": 80,
+        "dedup_rate": 0.65,
+        "emq_score": None,
+    }
+    await db_client.upsert_pixel_health([row])
+    await db_client.upsert_pixel_health([row])
+    await db_client.upsert_pixel_health([{**row, "browser_count": 150}])
+    res = await db_client.fetch_all(
+        "SELECT * FROM pixel_health WHERE date=? AND event_name=?",
+        ("2026-05-18", "purchase"),
+    )
+    assert len(res) == 1, f"expected 1 row, got {len(res)}"
+    assert res[0]["browser_count"] == 150, "UPSERT must update browser_count on conflict"
+    assert res[0]["server_count"] == 80
+    assert res[0]["dedup_rate"] == pytest.approx(0.65)
+    assert res[0]["emq_score"] is None
+
+
+async def test_pixel_health_different_event_name_is_separate_row(db_client):
+    base = {
+        "date": "2026-05-18",
+        "browser_count": 10,
+        "server_count": 5,
+        "dedup_rate": None,
+        "emq_score": None,
+    }
+    await db_client.upsert_pixel_health([{**base, "event_name": "begin_checkout"}])
+    await db_client.upsert_pixel_health([{**base, "event_name": "purchase"}])
+    res = await db_client.fetch_all(
+        "SELECT event_name FROM pixel_health WHERE date='2026-05-18'"
+    )
+    assert {r["event_name"] for r in res} == {"begin_checkout", "purchase"}
+
+
+async def test_pixel_health_upsert_empty_list_returns_zero(db_client):
+    result = await db_client.upsert_pixel_health([])
+    assert result == 0

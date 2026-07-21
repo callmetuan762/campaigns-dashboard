@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-from src.alerts.engine import AlertType, evaluate_alerts
+from src.alerts.engine import AlertType, evaluate_alerts, evaluate_tracking_anomalies
 
 
 # ---------------------------------------------------------------------------
@@ -294,3 +294,118 @@ async def test_telegram_error_does_not_propagate(db_client):
     settings = _make_settings(roas_floor=1.0)
     # Must not raise even when bot.send_message raises
     await evaluate_alerts(db_client, bot, settings, "2026-05-19")
+
+
+# ---------------------------------------------------------------------------
+# ALERT-06 (Phase C): evaluate_tracking_anomalies
+# ---------------------------------------------------------------------------
+
+async def _seed_ga4_events(db_client, event_name: str, counts_by_date: dict[str, int]) -> None:
+    for d, count in counts_by_date.items():
+        await db_client.execute(
+            "INSERT INTO ga4_events (event_name, date, campaign_utm, lp_slug, event_count) "
+            "VALUES (?, ?, '', '', ?)",
+            (event_name, d, count),
+        )
+
+
+async def _seed_ga4_sessions(db_client, sessions_by_date: dict[str, int]) -> None:
+    for d, sessions in sessions_by_date.items():
+        await db_client.execute(
+            "INSERT INTO ga4_metrics (campaign_utm, date, sessions) VALUES ('', ?, ?)",
+            (d, sessions),
+        )
+
+
+def _trailing_dates(target: str = "2026-05-19", n: int = 7) -> list[str]:
+    from datetime import date, timedelta
+
+    t = date.fromisoformat(target)
+    return [(t - timedelta(days=i)).isoformat() for i in range(1, n + 1)]
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_fires_when_event_drops_without_traffic_drop(db_client):
+    """ALERT-06: begin_checkout drops 90%% while sessions barely move -> alert fires."""
+    trailing = _trailing_dates()
+    await _seed_ga4_events(db_client, "begin_checkout", {d: 100 for d in trailing})
+    await _seed_ga4_events(db_client, "begin_checkout", {"2026-05-19": 5})
+    await _seed_ga4_sessions(db_client, {d: 1000 for d in trailing})
+    await _seed_ga4_sessions(db_client, {"2026-05-19": 980})
+
+    bot = _make_bot()
+    settings = _make_settings()
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+
+    calls = bot.send_message.call_args_list
+    anomaly_calls = [c for c in calls if "Tracking Anomaly" in str(c)]
+    assert len(anomaly_calls) >= 1
+    assert "begin_checkout" in str(anomaly_calls[0])
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_does_not_fire_when_traffic_also_dropped(db_client):
+    """ALERT-06: a real traffic dip (sessions also crater) must NOT fire."""
+    trailing = _trailing_dates()
+    await _seed_ga4_events(db_client, "purchase", {d: 100 for d in trailing})
+    await _seed_ga4_events(db_client, "purchase", {"2026-05-19": 10})
+    await _seed_ga4_sessions(db_client, {d: 1000 for d in trailing})
+    await _seed_ga4_sessions(db_client, {"2026-05-19": 100})  # sessions also crashed
+
+    bot = _make_bot()
+    settings = _make_settings()
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+
+    calls = bot.send_message.call_args_list
+    anomaly_calls = [c for c in calls if "Tracking Anomaly" in str(c)]
+    assert len(anomaly_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_no_data_no_error(db_client):
+    """No ga4_events rows at all -> returns silently, no crash."""
+    bot = _make_bot()
+    settings = _make_settings()
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+    bot.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_no_chat_id_no_error(db_client):
+    bot = _make_bot()
+    settings = _make_settings(chat_ids=[])
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+    bot.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_dedup_second_call_does_not_resend(db_client):
+    """D-18: calling evaluate_tracking_anomalies twice for same date does not double-send."""
+    trailing = _trailing_dates()
+    await _seed_ga4_events(db_client, "lead_submit", {d: 100 for d in trailing})
+    await _seed_ga4_events(db_client, "lead_submit", {"2026-05-19": 5})
+    await _seed_ga4_sessions(db_client, {d: 1000 for d in trailing})
+    await _seed_ga4_sessions(db_client, {"2026-05-19": 990})
+
+    bot = _make_bot()
+    settings = _make_settings()
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+    first_count = bot.send_message.call_count
+    assert first_count >= 1
+
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")
+    assert bot.send_message.call_count == first_count
+
+
+@pytest.mark.asyncio
+async def test_tracking_anomaly_telegram_error_does_not_propagate(db_client):
+    trailing = _trailing_dates()
+    await _seed_ga4_events(db_client, "purchase", {d: 100 for d in trailing})
+    await _seed_ga4_events(db_client, "purchase", {"2026-05-19": 5})
+    await _seed_ga4_sessions(db_client, {d: 1000 for d in trailing})
+    await _seed_ga4_sessions(db_client, {"2026-05-19": 990})
+
+    bot = _make_bot(send_ok=False)
+    settings = _make_settings()
+    # Must not raise even when bot.send_message raises
+    await evaluate_tracking_anomalies(db_client, bot, settings, "2026-05-19")

@@ -148,6 +148,22 @@ async def _run_ga4_ingest(
                 sentry_sdk.capture_exception(exc)
                 logger.error("ga4_events_fetch_failed", date=date_iso, error=str(exc))
 
+            # Phase C / ALERT-06: tracking-anomaly evaluation, final step after a
+            # successful event upsert (mirrors D-17's meta_ingest_job placement of
+            # evaluate_alerts). Guarded independently so an alert-evaluation error
+            # never turns an otherwise-successful ingest into a failure, and skipped
+            # entirely during backfill (bot=None — run_ga4_ingest_for_date's contract).
+            if bot is not None and upserted_events:
+                try:
+                    from src.alerts.engine import evaluate_tracking_anomalies
+
+                    await evaluate_tracking_anomalies(db, bot, settings, date_iso)
+                except Exception as exc:  # noqa: BLE001
+                    sentry_sdk.capture_exception(exc)
+                    logger.error(
+                        "evaluate_tracking_anomalies_failed", date=date_iso, error=str(exc)
+                    )
+
         # Step 9: Finish log
         total_upserted = upserted_c + upserted_lp + upserted_events
         await db.log_ingestion_finish(log_id, "success", rows_upserted=total_upserted)

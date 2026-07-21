@@ -1827,3 +1827,179 @@ def get_quiz_cost_per_lead(
         "lead_submit": lead_submit,
         "leads_campaign_count": n_campaigns,
     }
+# Phase C: Tracking Health page queries
+# ---------------------------------------------------------------------------
+
+def get_click_session_ratio(db_path: Path, start_date: str, end_date: str) -> float | None:
+    """Overall click->session ratio %% over a window: total GA4 sessions / total Meta clicks.
+
+    Uses period TOTALS (not an average of daily ratios) — more statistically sound
+    when daily click volume is uneven. Returns None when there were zero clicks in
+    the window (ratio undefined) or the underlying tables don't exist yet.
+    """
+    sql = """
+        SELECT
+            COALESCE((SELECT SUM(clicks) FROM ad_metrics
+                      WHERE ad_set_id = '' AND ad_id = '' AND date BETWEEN ? AND ?), 0) AS total_clicks,
+            COALESCE((SELECT SUM(sessions) FROM ga4_metrics
+                      WHERE date BETWEEN ? AND ?), 0) AS total_sessions
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(sql, (start_date, end_date, start_date, end_date)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row:
+        return None
+    total_clicks = row["total_clicks"] or 0
+    if total_clicks <= 0:
+        return None
+    return round((row["total_sessions"] or 0) * 100.0 / total_clicks, 1)
+
+
+def get_purchase_divergence(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """Meta vs GA4 purchase counts, side-by-side (never blended — CLAUDE.md).
+
+    Returns {"meta_purchases": int, "ga4_purchases": int, "gap_pct": float | None}.
+    gap_pct reuses the same max-two-value gap formula as components.compute_gap_pct
+    (kept as a plain calculation here to avoid a Streamlit-adjacent module importing
+    from components for a single number — callers that want banding should pass
+    both counts through src.dashboard.components.compute_gap_pct themselves).
+    """
+    meta_total = get_meta_purchases_total(db_path, start_date, end_date)
+    ga4 = get_ga4_kpi(db_path, start_date, end_date)
+    ga4_total = int(ga4.get("total_purchases", 0) or 0)
+    return {"meta_purchases": meta_total, "ga4_purchases": ga4_total}
+
+
+def get_event_daily_counts(
+    db_path: Path, event_name: str, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """Daily ga4_events counts for one event name, summed across campaign_utm/lp_slug.
+
+    Returns [] on missing table / no data (graceful degradation for empty-DB state).
+    """
+    sql = """
+        SELECT date, COALESCE(SUM(event_count), 0) AS event_count
+        FROM ga4_events
+        WHERE event_name = ? AND date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (event_name, start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
+
+
+def get_sessions_daily(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """Daily total GA4 sessions across all campaigns. Returns [] on missing table."""
+    sql = """
+        SELECT date, COALESCE(SUM(sessions), 0) AS sessions
+        FROM ga4_metrics
+        WHERE date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
+
+
+def get_not_set_campaign_share(
+    db_path: Path, event_name: str, start_date: str, end_date: str
+) -> float | None:
+    """%% of `event_name` rows attributed to campaign_utm='' ("(not set)") in a window.
+
+    Returns None when there's no data at all for the event in this window
+    (share is undefined, not zero) or the table doesn't exist yet.
+    """
+    sql = """
+        SELECT
+            COALESCE(SUM(CASE WHEN campaign_utm = '' THEN event_count ELSE 0 END), 0) AS not_set,
+            COALESCE(SUM(event_count), 0) AS total
+        FROM ga4_events
+        WHERE event_name = ? AND date BETWEEN ? AND ?
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(sql, (event_name, start_date, end_date)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row or (row["total"] or 0) <= 0:
+        return None
+    return round((row["not_set"] or 0) * 100.0 / row["total"], 1)
+
+
+def get_event_freshness_hours(db_path: Path, event_names: list[str]) -> dict[str, float | None]:
+    """Hours since the most recent ga4_events ingestion for each event name.
+
+    Uses MAX(fetched_at) (an ingestion timestamp), not MAX(date) (a calendar day) —
+    freshness is about whether the pipeline is still delivering data, not how
+    recent the underlying event's calendar date is. Returns None per event when
+    that event has never been ingested, or the table doesn't exist yet.
+    """
+    out: dict[str, float | None] = dict.fromkeys(event_names)
+    if not event_names:
+        return out
+    placeholders = ",".join("?" for _ in event_names)
+    sql = f"""
+        SELECT event_name, MAX(fetched_at) AS last_fetched
+        FROM ga4_events
+        WHERE event_name IN ({placeholders})
+        GROUP BY event_name
+    """  # noqa: S608 — placeholders are '?' marks, not interpolated values
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, tuple(event_names)).fetchall()
+    except sqlite3.OperationalError:
+        return out
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    for r in rows:
+        last_fetched = r["last_fetched"]
+        if not last_fetched:
+            continue
+        try:
+            # SQLite datetime('now') produces 'YYYY-MM-DD HH:MM:SS' (naive, UTC).
+            parsed = datetime.fromisoformat(last_fetched.replace(" ", "T")).replace(
+                tzinfo=timezone.utc
+            )
+            hours = (now - parsed).total_seconds() / 3600.0
+            out[r["event_name"]] = round(hours, 1)
+        except ValueError:
+            continue
+    return out
+
+
+def get_pixel_health(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """pixel_health rows for a window, one row per (event_name) aggregated over the range.
+
+    Returns [] on missing table / no data (empty-DB graceful degradation — pixel_health
+    is only populated once META_PIXEL_ID is configured and the daily backfill has run).
+    """
+    sql = """
+        SELECT
+            event_name,
+            COALESCE(SUM(browser_count), 0) AS browser_count,
+            COALESCE(SUM(server_count), 0) AS server_count,
+            AVG(dedup_rate) AS dedup_rate,
+            AVG(emq_score) AS emq_score
+        FROM pixel_health
+        WHERE date BETWEEN ? AND ?
+        GROUP BY event_name
+        ORDER BY event_name
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
