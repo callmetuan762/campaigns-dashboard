@@ -58,11 +58,34 @@ def _build_ga4_client(service_account_path) -> BetaAnalyticsDataClient:
     return BetaAnalyticsDataClient.from_service_account_file(str(service_account_path))
 
 
-def _parse_campaign_row(raw: dict, date_iso: str) -> dict:
+def _scoped_conversion_metric(conversion_event: str) -> str:
+    """Event-scoped keyEvents metric name for a single conversion event.
+
+    D-08 fix: the unscoped ``keyEvents`` metric sums ALL key events configured on the
+    GA4 property (this property has 4: begin_checkout, purchase, lead_submit,
+    form_submit_deposit) — using it for ga4_purchases_lastclick massively inflates the
+    count (verified live: unscoped keyEvents returned 29 for 2026-07-15..21 vs the
+    correct keyEvents:purchase = 5). The event-scoped metric syntax ``keyEvents:<event>``
+    restricts the count to exactly one event. The GA4 API echoes this exact string back
+    as the metric header name in the response, so callers must look up the same string
+    in the parsed row (see _parse_campaign_row / _parse_landing_row's conversion_metric
+    parameter and the `raw.get(scoped_metric)` lookups in the two _fetch_*_sync functions).
+    """
+    return f"keyEvents:{conversion_event}"
+
+
+def _parse_campaign_row(
+    raw: dict, date_iso: str, conversion_metric: str = _CONVERSION_METRIC
+) -> dict:
     """Map a raw GA4 API dimension+metric dict to a ga4_metrics-compatible dict.
 
     All int/float conversions use `int(raw.get(key) or 0)` pattern — safe on None and "".
     GA4-05: ga4_purchases_lastclick uses ga4_ prefix per CLAUDE.md.
+    D-08: `conversion_metric` is the metric header name to read the conversion count
+    from — the caller passes the event-scoped name (e.g. "keyEvents:purchase") since
+    that's the header name the GA4 API returns for a scoped metric request. Defaults to
+    the unscoped `_CONVERSION_METRIC` only so existing raw dicts built with the plain
+    "keyEvents" key (e.g. hand-rolled test fixtures) keep working.
     """
     return {
         "campaign_utm": raw.get("sessionCampaignName", "") or "",
@@ -72,21 +95,25 @@ def _parse_campaign_row(raw: dict, date_iso: str) -> dict:
         "new_users": int(raw.get("newUsers") or 0),
         "bounce_rate": float(raw.get("bounceRate") or 0.0),
         "avg_engagement_time": float(raw.get("userEngagementDuration") or 0.0),
-        "ga4_purchases_lastclick": int(raw.get(_CONVERSION_METRIC) or 0),
+        "ga4_purchases_lastclick": int(raw.get(conversion_metric) or 0),
     }
 
 
-def _parse_landing_row(raw: dict, date_iso: str) -> dict:
+def _parse_landing_row(
+    raw: dict, date_iso: str, conversion_metric: str = _CONVERSION_METRIC
+) -> dict:
     """Map a raw GA4 API landing page dict to a ga4_landing_pages-compatible dict.
 
     GA4-05: ga4_purchases_lastclick uses ga4_ prefix per CLAUDE.md.
+    D-08: see _parse_campaign_row's `conversion_metric` docstring — same event-scoped
+    keyEvents:<event> lookup applies here.
     """
     return {
         "landing_page": raw.get(_LANDING_PAGE_DIMENSION, "") or "",
         "date": date_iso,
         "sessions": int(raw.get("sessions") or 0),
         "total_users": int(raw.get("totalUsers") or 0),
-        "ga4_purchases_lastclick": int(raw.get(_CONVERSION_METRIC) or 0),
+        "ga4_purchases_lastclick": int(raw.get(conversion_metric) or 0),
         "screen_page_views": int(raw.get("screenPageViews") or 0),
         "avg_engagement_time": float(raw.get("userEngagementDuration") or 0.0),
     }
@@ -117,11 +144,16 @@ def _fetch_campaign_metrics_sync(
 ) -> list[dict]:
     """Synchronous GA4 campaign metrics fetch — called via asyncio.to_thread().
 
-    D-08: MetricFilter on eventName restricts keyEvents to only the configured
-    conversion event so ga4_purchases_lastclick counts only that event.
+    D-08: uses the event-scoped `keyEvents:<conversion_event>` metric name (NOT the
+    unscoped "keyEvents", which sums every key event configured on the property —
+    this one has 4: begin_checkout, purchase, lead_submit, form_submit_deposit — and
+    silently inflates ga4_purchases_lastclick). GA4 has no eventName dimension in this
+    request to filter on (it isn't requested), so metric-name scoping is the only way
+    to restrict the count to one event; see _scoped_conversion_metric's docstring.
     Two-request architecture required: sessionCampaignName and landingPagePlusQueryString
     are in different scopes and cannot be combined (RESEARCH.md Critical Finding).
     """
+    scoped_metric = _scoped_conversion_metric(conversion_event)
     request = RunReportRequest(
         property=f"properties/{property_id}",
         dimensions=[
@@ -134,7 +166,7 @@ def _fetch_campaign_metrics_sync(
             Metric(name="newUsers"),
             Metric(name="bounceRate"),
             Metric(name="userEngagementDuration"),
-            Metric(name=_CONVERSION_METRIC),
+            Metric(name=scoped_metric),
             Metric(name="screenPageViews"),
         ],
         date_ranges=[DateRange(start_date=date_iso, end_date=date_iso)],
@@ -146,8 +178,6 @@ def _fetch_campaign_metrics_sync(
                 )
             )
         ),
-        # metric_filter on eventName removed — eventName is a dimension, not a metric.
-        # keyEvents counts all configured key events (typically just the purchase event).
         return_property_quota=True,
         keep_empty_rows=False,
     )
@@ -159,7 +189,7 @@ def _fetch_campaign_metrics_sync(
         dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
         met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
         raw = {**dim_vals, **met_vals}
-        parsed = _parse_campaign_row(raw, date_iso)
+        parsed = _parse_campaign_row(raw, date_iso, scoped_metric)
         if parsed["campaign_utm"] and parsed["campaign_utm"] != "(not set)":
             rows.append(parsed)
     return rows
@@ -188,6 +218,8 @@ def _fetch_landing_page_metrics_sync(
     """
     from collections import defaultdict
 
+    scoped_metric = _scoped_conversion_metric(conversion_event)
+
     def _paginate(req: RunReportRequest) -> list[dict]:
         """Fetch all pages for a request, returning raw dicts."""
         raw_rows: list[dict] = []
@@ -208,7 +240,7 @@ def _fetch_landing_page_metrics_sync(
     METRICS = [
         Metric(name="sessions"),
         Metric(name="totalUsers"),
-        Metric(name=_CONVERSION_METRIC),
+        Metric(name=scoped_metric),
         Metric(name="screenPageViews"),
         Metric(name="userEngagementDuration"),
     ]
@@ -278,7 +310,7 @@ def _fetch_landing_page_metrics_sync(
         m = merged[k]
         m["sessions"]               += int(raw.get("sessions") or 0)
         m["total_users"]            += int(raw.get("totalUsers") or 0)
-        m["ga4_purchases_lastclick"] += int(raw.get(_CONVERSION_METRIC) or 0)
+        m["ga4_purchases_lastclick"] += int(raw.get(scoped_metric) or 0)
         m["screen_page_views"]      += int(raw.get("screenPageViews") or 0)
         eng = float(raw.get("userEngagementDuration") or 0.0)
         if eng > 0:
