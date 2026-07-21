@@ -24,6 +24,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                            # noqa: E402
+from src.dashboard.components import render_scope_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings    # noqa: E402
 
 # --- Dark-theme palette -- duplicated from app.py per D-19 standalone rule ---
@@ -321,6 +322,13 @@ st.caption(
     "OLS decomposition. Estimates Meta media's incremental contribution to "
     "deposits, separate from baseline (organic) demand."
 )
+
+# Fixed 30-day lookback window used by this page's attribution table below
+# (no date-range picker on this page). Computed once here so the scope line
+# and the Row-3 query use the exact same window.
+_end_date = date.today() - timedelta(days=1)
+_start_date = date.today() - timedelta(days=30)
+render_scope_line(_start_date, _end_date, campaign_filter="All")
 
 db_path_str = str(settings.db_path)
 mmm = _cached_mmm_result(db_path_str)

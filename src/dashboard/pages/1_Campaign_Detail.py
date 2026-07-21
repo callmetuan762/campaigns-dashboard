@@ -23,6 +23,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                          # noqa: E402
+from src.dashboard.components import render_scope_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # Dark-theme palette -- duplicated from app.py per D-19 standalone rule
@@ -134,6 +135,8 @@ with st.sidebar:
         key="detail_conv_metric",
     )
     use_form_submit: bool = conv_metric == "FSD (form_submit)"
+
+render_scope_line(start_date, end_date, campaign_filter=campaign)
 
 db_path_str = str(settings.db_path)
 rows = _cached_daily(db_path_str, campaign, start_date.isoformat(), end_date.isoformat())

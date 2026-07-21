@@ -24,6 +24,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                            # noqa: E402
+from src.dashboard.components import render_scope_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings    # noqa: E402
 
 # --- Dark-theme palette — duplicated from app.py per D-19 standalone rule ---
@@ -336,6 +337,8 @@ with st.sidebar:
 
 start_iso = start_date.isoformat()
 end_iso = end_date.isoformat()
+
+render_scope_line(start_date, end_date, campaign_filter="All")
 
 # ---------------------------------------------------------------------------
 # Load data

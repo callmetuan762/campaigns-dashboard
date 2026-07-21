@@ -14,8 +14,11 @@ FORBIDDEN_MODULES_ALL = {
 FORBIDDEN_PREFIXES_ALL = (
     "src.ai", "src.bot", "src.meta", "src.ga4", "src.reports",
 )
-# streamlit is allowed only in app.py.
-STREAMLIT_ALLOWED_FILES = {"Overview.py"}
+# streamlit is allowed only in app.py, plus components.py (Phase D shared UI
+# tier -- render_scope_line/render_reconciliation_block are used by Overview.py
+# and by pages/*.py, so they live at the top level like db.py/settings.py, but
+# unlike those data-tier modules they intentionally render Streamlit widgets).
+STREAMLIT_ALLOWED_FILES = {"Overview.py", "components.py"}
 
 
 def _collect_imports(py_path: Path) -> set[str]:

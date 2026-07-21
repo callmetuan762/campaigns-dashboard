@@ -67,6 +67,25 @@ def get_kpi_summary(db_path: Path, start_date: str, end_date: str) -> dict[str, 
     return dict(row)
 
 
+def get_meta_purchases_total(db_path: Path, start_date: str, end_date: str) -> int:
+    """Period total of Meta 7-day-click purchases (campaign-level ad_metrics rows).
+
+    Added for the Overview triangle-reconciliation block (Phase D): no existing
+    query returns this as a period aggregate across all campaigns (only
+    per-campaign via get_attribution_comparison), so this mirrors the
+    get_kpi_summary / get_ga4_kpi filtering convention.
+    """
+    sql = """
+        SELECT COALESCE(SUM(m.meta_purchases_7dclick), 0) AS total
+        FROM ad_metrics m
+        WHERE m.ad_set_id = '' AND m.ad_id = ''
+          AND m.date BETWEEN ? AND ?
+    """
+    with _conn(db_path) as con:
+        row = con.execute(sql, (start_date, end_date)).fetchone()
+    return int(row["total"]) if row else 0
+
+
 def get_ga4_kpi(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
     sql = """
         SELECT
