@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     meta_access_token: SecretStr | None = None
     meta_ad_account_id: str | None = None
 
+    # ---- Meta Pixel health (Phase C: tracking-health page) ----
+    # Pixel/dataset ID used for /{pixel_id}/stats (event counts) + best-effort
+    # dataset_quality (EMQ) calls. Unset (None) => pixel health ingestion is a
+    # clean no-op, same graceful-degradation pattern as Shopify/Sheets below.
+    # Intentionally NOT hardcoded/defaulted here — see .env.example for Nowa's value.
+    meta_pixel_id: str | None = None
+
     # ---- Report scheduling (Phase 2) ----
     meta_ingest_hour: int = 2
     daily_report_hour: int = 9

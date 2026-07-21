@@ -605,3 +605,32 @@ class DBClient:
         await self.conn.executemany(self._UPSERT_SHOPIFY_ORDERS_SQL, rows)
         await self.conn.commit()
         return len(rows)
+
+    # ---- Phase C: Meta Pixel health (per-event browser/server counts, EMQ) ----
+
+    _UPSERT_PIXEL_HEALTH_SQL = """
+        INSERT INTO pixel_health (
+            date, event_name, browser_count, server_count, dedup_rate, emq_score
+        ) VALUES (
+            :date, :event_name, :browser_count, :server_count, :dedup_rate, :emq_score
+        )
+        ON CONFLICT(date, event_name) DO UPDATE SET
+            browser_count = excluded.browser_count,
+            server_count  = excluded.server_count,
+            dedup_rate    = excluded.dedup_rate,
+            emq_score     = excluded.emq_score,
+            fetched_at    = datetime('now');
+    """
+
+    async def upsert_pixel_health(self, rows: list[dict]) -> int:
+        """Upsert pixel_health rows. Idempotent via PK (date, event_name).
+
+        INFRA-03: idempotent at SQL layer via INSERT ... ON CONFLICT DO UPDATE, mirroring
+        upsert_ga4_events. dedup_rate / emq_score may be None (graceful degradation —
+        see src/meta/client.py fetch_pixel_emq for why EMQ is best-effort).
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_PIXEL_HEALTH_SQL, rows)
+        await self.conn.commit()
+        return len(rows)

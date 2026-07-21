@@ -513,3 +513,164 @@ async def fetch_ad_creatives(ad_account_id: str) -> list[dict]:
     """Fetch all active/paused ads with creative metadata. Async wrapper."""
     logger.info('ad_creatives_fetch_start')
     return await asyncio.to_thread(_fetch_ad_creatives_sync, ad_account_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase C: Pixel health — per-event browser/server counts + best-effort EMQ.
+#
+# RESEARCH FINDING (documented here for the PR, per Phase C spec):
+#
+#   1. Event counts (browser_count / server_count): the standard
+#      /{pixel_id}/stats Graph API endpoint (AdsPixel.get_stats in the
+#      facebook-business SDK) supports aggregation="event" (breaks results
+#      down per standard/custom event name) plus an event_source filter of
+#      "WEB_ONLY" or "SERVER_ONLY" — exactly the browser-vs-server split this
+#      table needs. This data IS retrievable with the same system-user
+#      token already used for Insights (ads_read). Caveat: Meta only retains
+#      pixel /stats data for ~7 days from request time, so (like the Meta
+#      Insights D-1 pull elsewhere in this codebase) this only ever fetches
+#      recent days — there is no historical pixel-stats backfill possible.
+#
+#   2. Event Match Quality (EMQ): confirmed NOT present as a field on the
+#      AdsPixel object in the facebook-business SDK, and NOT returned by the
+#      /{pixel_id}/stats endpoint above. EMQ is exposed by a separate Graph
+#      API node, GET /{version}/dataset_quality?dataset_id={pixel_id}, which
+#      is documented as requiring Advanced Access to the Marketing API (an
+#      app-review-gated feature tier) beyond the basic ads_read /
+#      business_management scopes this project's token already holds for
+#      Insights. We cannot assume that tier is granted for every ad account
+#      this dashboard will ever run against, so EMQ is fetched best-effort
+#      (fetch_pixel_emq below): on ANY error (permission, 404, network,
+#      unexpected shape) it degrades to {} and emq_score/dedup_rate stay NULL
+#      in pixel_health — exactly the "build the column anyway" fallback
+#      called for in the Phase C spec, to be filled later by a manual /
+#      Playwright-based process if this account never gets Advanced Access.
+# ---------------------------------------------------------------------------
+
+_PIXEL_STATS_API_VERSION = "v24.0"
+
+
+def _parse_pixel_stats_rows(rows: list[dict] | None) -> dict[str, int]:
+    """Map event name -> summed count from a /{pixel_id}/stats aggregation=event response.
+
+    Row shape (Graph API docs): {"start_time": ..., "end_time": ..., "event": "Purchase",
+    "count": "12", ...}. Defensive: tolerates 'count' as str/int/missing and either
+    'event' or 'event_name' as the key; unparseable rows are skipped rather than raising
+    (CLAUDE.md graceful degradation — a single malformed row must not lose the whole day).
+    """
+    counts: dict[str, int] = {}
+    for row in rows or []:
+        event_name = row.get("event") or row.get("event_name")
+        if not event_name:
+            continue
+        try:
+            count = int(float(row.get("count", 0) or 0))
+        except (TypeError, ValueError):
+            count = 0
+        counts[event_name] = counts.get(event_name, 0) + count
+    return counts
+
+
+def _fetch_pixel_event_counts_sync(pixel_id: str, date_iso: str, event_source: str) -> list[dict]:
+    """Synchronous /{pixel_id}/stats call for one event_source (WEB_ONLY or SERVER_ONLY).
+
+    Called via asyncio.to_thread() from async context (same pattern as
+    _fetch_insights_sync — the SDK's HTTP layer is synchronous 'requests').
+    """
+    from facebook_business.adobjects.adspixel import AdsPixel
+
+    pixel = AdsPixel(pixel_id)
+    params = {
+        "aggregation": "event",
+        "event_source": event_source,
+        "start_time": date_iso,
+        "end_time": date_iso,
+    }
+    cursor = pixel.get_stats(fields=[], params=params)
+    return [dict(r) for r in cursor]
+
+
+async def fetch_pixel_event_counts(pixel_id: str, date_iso: str) -> dict[str, dict[str, int]]:
+    """Fetch per-event browser vs server counts for one day.
+
+    Returns {event_name: {"browser_count": int, "server_count": int}}.
+    Each event_source call is independent and never raises FacebookRequestError to the
+    caller: a failure on one side (e.g. SERVER_ONLY rejected for this pixel) still
+    returns whatever the other side produced, rather than losing the whole day
+    (CLAUDE.md graceful degradation — mirrors the video_thruplay retry pattern above).
+    """
+    result: dict[str, dict[str, int]] = {}
+
+    for event_source, count_key in (("WEB_ONLY", "browser_count"), ("SERVER_ONLY", "server_count")):
+        try:
+            rows = await asyncio.to_thread(
+                _fetch_pixel_event_counts_sync, pixel_id, date_iso, event_source
+            )
+            counts = _parse_pixel_stats_rows(rows)
+        except FacebookRequestError as exc:
+            logger.warning(
+                "pixel_stats_fetch_failed",
+                event_source=event_source,
+                date=date_iso,
+                error=str(exc),
+            )
+            counts = {}
+        for event_name, count in counts.items():
+            result.setdefault(event_name, {"browser_count": 0, "server_count": 0})
+            result[event_name][count_key] = count
+
+    return result
+
+
+def _fetch_dataset_quality_sync(pixel_id: str, access_token: str) -> dict:
+    """Best-effort raw call to the Dataset Quality API (/dataset_quality node).
+
+    Not exposed via a dedicated facebook-business SDK object (it is a top-level
+    node, not an AdsPixel edge), so this uses a plain HTTP GET. See the module-level
+    RESEARCH FINDING comment above for why this is expected to fail for accounts
+    without Advanced Access, and why that's handled as a normal, logged outcome
+    rather than an error.
+    """
+    import requests
+
+    url = f"https://graph.facebook.com/{_PIXEL_STATS_API_VERSION}/dataset_quality"
+    resp = requests.get(
+        url,
+        params={"dataset_id": pixel_id, "access_token": access_token},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def fetch_pixel_emq(pixel_id: str, access_token: str) -> dict[str, dict[str, float | None]]:
+    """Best-effort per-event EMQ + dedup rate. Returns {} on ANY failure.
+
+    Deliberately broad except clause: permission errors, 404s (feature not enabled
+    for this account), network failures, and unexpected response shapes must all
+    degrade the same way — emq_score/dedup_rate NULL in pixel_health, never a
+    crashed ingest (CLAUDE.md graceful degradation). See RESEARCH FINDING above.
+    """
+    try:
+        data = await asyncio.to_thread(_fetch_dataset_quality_sync, pixel_id, access_token)
+    except Exception as exc:  # noqa: BLE001 — intentionally broad, see docstring
+        logger.info("pixel_emq_not_available", error=str(exc))
+        return {}
+
+    result: dict[str, dict[str, float | None]] = {}
+    for entry in (data.get("web") or []):
+        event_name = entry.get("event_name") or entry.get("event")
+        if not event_name:
+            continue
+        emq = entry.get("event_match_quality")
+        dedup = entry.get("deduplication_rate", entry.get("dedup_rate"))
+        try:
+            emq_val = float(emq) if emq is not None else None
+        except (TypeError, ValueError):
+            emq_val = None
+        try:
+            dedup_val = float(dedup) if dedup is not None else None
+        except (TypeError, ValueError):
+            dedup_val = None
+        result[event_name] = {"emq_score": emq_val, "dedup_rate": dedup_val}
+    return result

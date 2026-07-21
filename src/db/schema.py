@@ -325,6 +325,37 @@ CREATE INDEX IF NOT EXISTS idx_shopify_orders_lp_slug ON shopify_orders(lp_slug)
 """
 
 # ---------------------------------------------------------------------------
+# Migration 013 — Phase C: Meta Pixel health (per-event browser/server counts,
+# dedup rate, EMQ score).
+#
+# emq_score is nullable and populated on a best-effort basis: the standard
+# /{pixel_id}/stats Graph API endpoint (used for browser_count/server_count)
+# does NOT expose event_match_quality (confirmed against the facebook-business
+# SDK's AdsPixel field list — see src/meta/client.py fetch_pixel_emq docstring
+# for the full research finding). EMQ is only available via the separate
+# Dataset Quality API node, which requires Advanced Access to the Marketing
+# API (an app-review-gated tier) beyond the basic token this project already
+# uses for Insights. The column exists regardless so a manual / Playwright-
+# based filler can populate it later without another migration.
+# dedup_rate is likewise nullable — populated only when the (also best-effort)
+# Dataset Quality call succeeds and returns a deduplication metric; else NULL.
+# ---------------------------------------------------------------------------
+
+MIGRATION_013_PIXEL_HEALTH: str = """
+CREATE TABLE IF NOT EXISTS pixel_health (
+    date            TEXT NOT NULL,
+    event_name      TEXT NOT NULL,
+    browser_count   INTEGER,
+    server_count    INTEGER,
+    dedup_rate      REAL,
+    emq_score       REAL,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (date, event_name)
+);
+CREATE INDEX IF NOT EXISTS idx_pixel_health_date ON pixel_health(date);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -341,4 +372,5 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("010_ga4_events", MIGRATION_010_GA4_EVENTS),
     ("011_meta_funnel_v3", MIGRATION_011_META_FUNNEL_V3),
     ("012_shopify_orders", MIGRATION_012_SHOPIFY_ORDERS),
+    ("013_pixel_health", MIGRATION_013_PIXEL_HEALTH),
 ]
