@@ -104,7 +104,31 @@ def test_quiz_lp_slugs_constant_declared() -> None:
 
 def test_db_module_used_for_band_helpers() -> None:
     """The gap / not-set-share color bands must come from the tested db.py
-    pure functions, not be re-implemented ad hoc in the page."""
+    pure functions, not be re-implemented ad hoc in the page.
+
+    D-11 fix: the old single-metric click_session_gap_band chip was replaced by
+    the capture-gap / attribution-gap decomposition — the page now calls the two
+    new band helpers instead (click_session_gap_band is kept in db.py only for
+    backward compatibility with the legacy gap_clicks_pct/gap_lpv_pct fields)."""
     source = PAGE_PATH.read_text(encoding="utf-8")
-    assert "db.click_session_gap_band(" in source
+    assert "db.capture_gap_band(" in source
+    assert "db.attribution_gap_band(" in source
     assert "db.not_set_share_band(" in source
+
+
+def test_click_session_gap_decomposition_present() -> None:
+    """The 4-step decomposition and its two separately-labeled gaps must be
+    present in the page (D-11 fix — capture loss vs attribution loss)."""
+    source = PAGE_PATH.read_text(encoding="utf-8")
+    required = [
+        "GA4 Sessions (all)",
+        "Campaign-Attributed Sessions",
+        "Capture Gap",
+        "Attribution Gap",
+        "ga4_sessions_all",
+        "ga4_sessions_attributed",
+        "capture_gap_pct",
+        "attribution_gap_pct",
+    ]
+    missing = [r for r in required if r not in source]
+    assert not missing, f"Missing required decomposition elements: {missing}"

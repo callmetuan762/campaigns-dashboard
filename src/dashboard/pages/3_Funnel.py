@@ -409,7 +409,19 @@ else:
         )
 
 st.markdown("**Click → Session Gap**")
-_g1, _g2, _g3, _g4, _g5 = st.columns(5)
+st.caption(
+    "4-step decomposition: Meta Clicks → Meta LPV → GA4 Sessions (all traffic) → "
+    "Campaign-Attributed Sessions. Two separately-labeled gaps below — never "
+    "blended into one number (D-11 fix)."
+)
+
+
+def _band_chip_text(pct: float | None, band: str) -> str:
+    emoji = _BAND_EMOJI[band]
+    return f"{emoji} {pct:.0f}%" if pct is not None else f"{emoji} n/a"
+
+
+_g1, _g2, _g3, _g4 = st.columns(4)
 _g1.metric(
     "Meta Clicks",
     f"{_click_gap['meta_clicks']:,}" if _click_gap["meta_clicks"] is not None else "n/a",
@@ -419,32 +431,53 @@ _g2.metric(
     f"{_click_gap['meta_lpv']:,}" if _click_gap["meta_lpv"] is not None else "n/a",
 )
 _g3.metric(
-    "GA4 Sessions",
-    f"{_click_gap['ga4_sessions']:,}" if _click_gap["ga4_sessions"] is not None else "n/a",
+    "GA4 Sessions (all)",
+    f"{_click_gap['ga4_sessions_all']:,}" if _click_gap["ga4_sessions_all"] is not None else "n/a",
+    help="All GA4 sessions from ga4_landing_pages — no campaign filter, includes "
+         "'(not set)' / untagged traffic.",
+)
+_g4.metric(
+    "Campaign-Attributed Sessions",
+    f"{_click_gap['ga4_sessions_attributed']:,}"
+    if _click_gap["ga4_sessions_attributed"] is not None else "n/a",
+    help="GA4 sessions from ga4_metrics — excludes '(not set)' campaign rows.",
 )
 
-
-def _band_chip_text(pct: float | None, band: str) -> str:
-    emoji = _BAND_EMOJI[band]
-    return f"{emoji} {pct:.0f}%" if pct is not None else f"{emoji} n/a"
-
-
-_clicks_gap_band = db.click_session_gap_band(_click_gap["gap_clicks_pct"])
-_lpv_gap_band = db.click_session_gap_band(_click_gap["gap_lpv_pct"])
-_g4.metric("Gap (Clicks→Sessions)", _band_chip_text(_click_gap["gap_clicks_pct"], _clicks_gap_band))
-_g5.metric("Gap (LPV→Sessions)", _band_chip_text(_click_gap["gap_lpv_pct"], _lpv_gap_band))
+_h1, _h2 = st.columns(2)
+_capture_band = db.capture_gap_band(_click_gap["capture_gap_pct"])
+_attribution_band = db.attribution_gap_band(_click_gap["attribution_gap_pct"])
+_h1.metric(
+    "Capture Gap (LPV → GA4 Sessions)",
+    _band_chip_text(_click_gap["capture_gap_pct"], _capture_band),
+    help="Consent/tracking loss — visits Meta counted that never fired a GA4 "
+         "session at all.",
+)
+_h2.metric(
+    "Attribution Gap (Sessions → Campaign-Attributed)",
+    _band_chip_text(_click_gap["attribution_gap_pct"], _attribution_band),
+    help="Of the sessions GA4 did track, the share it couldn't tie to a "
+         "campaign — driven by consent-denied + untagged traffic.",
+)
 
 with st.expander("Why is there a gap between Clicks / LPV and GA4 Sessions?"):
     st.markdown(
-        "- **Click ≠ LPV metric mismatch** — Meta 'clicks' counts all click "
-        "types (not only link clicks that land on the page); landing-page "
-        "views are a closer proxy but still platform-side.\n"
-        "- **Consent-mode loss** — visitors who decline analytics consent "
-        "never fire a GA4 session, but Meta still counts the click / LPV.\n"
-        "- **Tracking-transport failures** — in-app browsers, ad blockers, "
-        "slow tag load, or server 503s can drop the GA4 hit entirely.\n\n"
-        "Bands: 🟢 ≤20% normal (consent + platform counting) · 🟡 20–30% "
-        "watch · 🔴 >30% investigate: consent rate, tag latency, server 503s."
+        "This gap has **two distinct causes** that used to be blended into one "
+        "number — they are now reported separately:\n\n"
+        "- **Capture gap** (LPV → GA4 Sessions, all traffic) — visitors who "
+        "decline analytics consent never fire a GA4 session at all, and "
+        "in-app browsers / ad blockers / slow tag load / server 503s can drop "
+        "the GA4 hit entirely, even though Meta still counted the click/LPV. "
+        "Bands: 🟢 ≤30% normal · 🟡 30–50% watch · 🔴 >50% investigate consent "
+        "rate, tag latency, transport failures.\n"
+        "- **Attribution gap** (GA4 Sessions, all → Campaign-Attributed) — of "
+        "the sessions GA4 *did* track, some fire without a campaign-carrying "
+        "hit (a consent-denied session can still register a bare pageview) "
+        "or arrive genuinely untagged/organic-looking. Bands: 🟢 ≤40% normal · "
+        "🟡 40–70% watch · 🔴 >70% investigate utm tagging discipline.\n\n"
+        "Reporting these as one blended gap masked which failure mode was "
+        "actually driving the loss — a campaign-attributed-only 'GA4 Sessions' "
+        "figure will always understate real traffic by however much sits in "
+        "'(not set)', even when tracking itself is perfectly healthy."
     )
 
 st.markdown("**Checkout-events \"(not set)\" share**")

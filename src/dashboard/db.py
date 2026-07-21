@@ -1649,18 +1649,98 @@ def get_segment_mini_funnels(
     return results
 
 
-def get_click_session_gap(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
-    """Meta clicks/LPV vs GA4 sessions -- the gap between ad-platform-reported
-    landing traffic and GA4-recorded sessions.
+def get_total_sessions_daily(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """Daily TOTAL GA4 sessions from ga4_landing_pages -- NOT ga4_metrics.
 
-    gap_clicks_pct = 1 - sessions/clicks ; gap_lpv_pct = 1 - sessions/landing_page_views.
-    Both are None when the relevant Meta metric is unavailable/zero or GA4
-    sessions are unavailable (rather than a misleading 0% or 100%).
+    D-11 fix: _fetch_campaign_metrics_sync's dimension_filter EXCLUDES
+    campaign_utm = '(not set)' rows entirely (see that function's not_expression
+    filter), so SUM(sessions) over ga4_metrics only ever reflects
+    campaign-*attributed* sessions -- every "GA4 sessions" figure derived from it
+    (get_ga4_sessions_summary, get_click_session_gap's old `ga4_sessions` field,
+    get_click_session_ratio, get_tracking_gap_days) silently undercounts real GA4
+    traffic by however much sits in '(not set)' (verified live: ~650 attributed vs
+    ~1,800 real sessions for 2026-07-15..21, with 939 sessions in '(not set)').
+
+    ga4_landing_pages' fetch (_fetch_landing_page_metrics_sync) has no such
+    campaign filter, so summing its `sessions` column per date recovers the true
+    GA4 session total -- this is the "all sessions" leg of the capture-gap /
+    attribution-gap decomposition (see get_click_session_gap).
+
+    Returns [] on missing table / no data (graceful degradation, matching
+    get_sessions_daily's convention).
+    """
+    sql = """
+        SELECT date, COALESCE(SUM(sessions), 0) AS sessions
+        FROM ga4_landing_pages
+        WHERE date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
+
+
+def get_total_sessions_summary(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """Period-total GA4 sessions (all campaigns incl. '(not set)') + availability flag.
+
+    Thin wrapper around get_total_sessions_daily for callers (get_click_session_gap,
+    Tracking Health's click->session chip) that need one number + an "ever ingested"
+    flag rather than a daily series. `available` reflects whether ga4_landing_pages
+    has ever had ANY row (independent of this specific date range), matching the
+    convention used by get_ga4_sessions_summary / get_meta_funnel_summary.
+    """
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                "SELECT COALESCE(SUM(sessions), 0) AS sessions FROM ga4_landing_pages "
+                "WHERE date BETWEEN ? AND ?",
+                (start_date, end_date),
+            ).fetchone()
+            available = con.execute(
+                "SELECT 1 FROM ga4_landing_pages LIMIT 1"
+            ).fetchone() is not None
+        return {"sessions": int(row["sessions"]) if row else 0, "available": available}
+    except sqlite3.OperationalError:
+        return {"sessions": 0, "available": False}
+
+
+def get_click_session_gap(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
+    """4-step decomposition: Meta Clicks -> Meta LPV -> GA4 sessions (all) ->
+    campaign-attributed GA4 sessions.
+
+    D-11 fix: the click/LPV -> GA4-session gap used to conflate two very different
+    failure modes into one number computed against campaign-*attributed* sessions
+    only (ga4_metrics excludes '(not set)' rows -- see get_total_sessions_daily's
+    docstring). This function now separates them:
+
+      - capture_gap_pct      = 1 - ga4_sessions_all / meta_lpv
+        "Did the visit get tracked by GA4 at all?" -- consent-denied visitors and
+        tag/transport failures never fire a GA4 session, but Meta still counted
+        the LPV. Band: <=30% green / 30-50% amber / >50% red.
+
+      - attribution_gap_pct  = 1 - ga4_sessions_attributed / ga4_sessions_all
+        "Of the sessions GA4 DID track, how many could it tie to a campaign?"
+        Driven by consent-denied sessions that still fire a bare pageview without
+        a campaign-carrying analytics hit, plus genuinely untagged/organic-looking
+        traffic. Band: <=40% green / 40-70% amber / >70% red.
+
+    Legacy fields (`gap_clicks_pct`, `gap_lpv_pct`, `ga4_sessions`) are kept,
+    unchanged, for backward compatibility with existing callers/tests -- they are
+    computed against campaign-attributed sessions only, exactly as before. New
+    callers should prefer `ga4_sessions_all` / `ga4_sessions_attributed` /
+    `capture_gap_pct` / `attribution_gap_pct`, which correctly separate capture
+    loss from attribution loss instead of blending them into one gap.
     """
     meta = get_meta_funnel_summary(db_path, start_date, end_date)
     ga4 = get_ga4_sessions_summary(db_path, start_date, end_date)
+    ga4_all = get_total_sessions_summary(db_path, start_date, end_date)
 
     sessions = ga4["sessions"] if ga4["available"] else None
+    all_sessions = ga4_all["sessions"] if ga4_all["available"] else None
     clicks = meta["clicks"] if meta["available"] else None
     lpv = meta["landing_page_views"] if meta["lpv_available"] else None
 
@@ -1672,12 +1752,24 @@ def get_click_session_gap(db_path: Path, start_date: str, end_date: str) -> dict
     if lpv and sessions is not None and lpv > 0:
         gap_lpv_pct = round((1 - sessions / lpv) * 100, 1)
 
+    capture_gap_pct: float | None = None
+    if lpv and all_sessions is not None and lpv > 0:
+        capture_gap_pct = round((1 - all_sessions / lpv) * 100, 1)
+
+    attribution_gap_pct: float | None = None
+    if all_sessions and sessions is not None and all_sessions > 0:
+        attribution_gap_pct = round((1 - sessions / all_sessions) * 100, 1)
+
     return {
         "meta_clicks": clicks,
         "meta_lpv": lpv,
         "ga4_sessions": sessions,
+        "ga4_sessions_attributed": sessions,
+        "ga4_sessions_all": all_sessions,
         "gap_clicks_pct": gap_clicks_pct,
         "gap_lpv_pct": gap_lpv_pct,
+        "capture_gap_pct": capture_gap_pct,
+        "attribution_gap_pct": attribution_gap_pct,
     }
 
 
@@ -1687,6 +1779,11 @@ _GAP_BAND_AMBER_MAX = 30.0
 
 def click_session_gap_band(gap_pct: float | None) -> str:
     """Classify a click/LPV -> GA4-session gap % into a trust-signal band.
+
+    Kept for backward compatibility with the legacy gap_clicks_pct/gap_lpv_pct
+    fields -- new code computing the capture/attribution decomposition should use
+    capture_gap_band / attribution_gap_band instead, which have their own,
+    intentionally different thresholds (see get_click_session_gap's docstring).
 
     gap <= 20%        -> "green"  (normal -- consent + platform counting)
     20% < gap <= 30%   -> "amber"  (watch)
@@ -1698,6 +1795,52 @@ def click_session_gap_band(gap_pct: float | None) -> str:
     if gap_pct <= _GAP_BAND_GREEN_MAX:
         return "green"
     if gap_pct <= _GAP_BAND_AMBER_MAX:
+        return "amber"
+    return "red"
+
+
+_CAPTURE_GAP_GREEN_MAX = 30.0
+_CAPTURE_GAP_AMBER_MAX = 50.0
+
+
+def capture_gap_band(gap_pct: float | None) -> str:
+    """Classify the LPV -> all-GA4-sessions "capture gap" % (consent/tracking loss).
+
+    gap <= 30%         -> "green"  (normal)
+    30% < gap <= 50%    -> "amber"  (watch)
+    gap > 50%           -> "red"    (investigate consent rate, tag load, transport failures)
+    gap is None         -> "gray"   (no data)
+    """
+    if gap_pct is None:
+        return "gray"
+    if gap_pct <= _CAPTURE_GAP_GREEN_MAX:
+        return "green"
+    if gap_pct <= _CAPTURE_GAP_AMBER_MAX:
+        return "amber"
+    return "red"
+
+
+_ATTRIBUTION_GAP_GREEN_MAX = 40.0
+_ATTRIBUTION_GAP_AMBER_MAX = 70.0
+
+
+def attribution_gap_band(gap_pct: float | None) -> str:
+    """Classify the all-sessions -> campaign-attributed-sessions "attribution gap" %.
+
+    Driven by consent-denied sessions (no campaign-carrying hit fires) plus
+    genuinely untagged/organic-looking traffic -- NOT the same failure mode as the
+    capture gap, hence a separate, wider band (some attribution loss is normal).
+
+    gap <= 40%          -> "green"  (normal)
+    40% < gap <= 70%     -> "amber"  (watch)
+    gap > 70%            -> "red"    (investigate utm tagging discipline, consent rate)
+    gap is None          -> "gray"   (no data)
+    """
+    if gap_pct is None:
+        return "gray"
+    if gap_pct <= _ATTRIBUTION_GAP_GREEN_MAX:
+        return "green"
+    if gap_pct <= _ATTRIBUTION_GAP_AMBER_MAX:
         return "amber"
     return "red"
 
@@ -1843,7 +1986,16 @@ def get_quiz_cost_per_lead(
 # ---------------------------------------------------------------------------
 
 def get_click_session_ratio(db_path: Path, start_date: str, end_date: str) -> float | None:
-    """Overall click->session ratio %% over a window: total GA4 sessions / total Meta clicks.
+    """Overall click->session ratio %% over a window: total GA4 sessions (ALL
+    traffic) / total Meta clicks -- the Tracking Health "capture rate" chip.
+
+    D-11 fix: previously sourced sessions from ga4_metrics, whose fetch EXCLUDES
+    campaign_utm = '(not set)' rows entirely (see _fetch_campaign_metrics_sync's
+    dimension_filter) -- undercounting true GA4 session volume and making this
+    chip conflate genuine tracking-capture failures with campaign-attribution
+    gaps (utm tagging). ga4_landing_pages has no such campaign filter, so this
+    now measures the thing the chip's label claims: did the visit get captured
+    by GA4 at all, regardless of whether it could be tied back to a campaign.
 
     Uses period TOTALS (not an average of daily ratios) — more statistically sound
     when daily click volume is uneven. Returns None when there were zero clicks in
@@ -1853,7 +2005,7 @@ def get_click_session_ratio(db_path: Path, start_date: str, end_date: str) -> fl
         SELECT
             COALESCE((SELECT SUM(clicks) FROM ad_metrics
                       WHERE ad_set_id = '' AND ad_id = '' AND date BETWEEN ? AND ?), 0) AS total_clicks,
-            COALESCE((SELECT SUM(sessions) FROM ga4_metrics
+            COALESCE((SELECT SUM(sessions) FROM ga4_landing_pages
                       WHERE date BETWEEN ? AND ?), 0) AS total_sessions
     """
     try:

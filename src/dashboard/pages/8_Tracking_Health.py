@@ -175,8 +175,11 @@ chip_cols = st.columns(4 + len(CRITICAL_EVENTS))
 with chip_cols[0]:
     color = click_session_ratio_color(ratio_pct)
     ratio_text = f"{ratio_pct:.0f}%" if ratio_pct is not None else "—"
-    st.metric("Click → Session (7d)", f"{chip_emoji(color)} {ratio_text}")
-    st.caption("Meta clicks vs GA4 sessions")
+    st.metric("Click → Session (7d, all traffic)", f"{chip_emoji(color)} {ratio_text}")
+    st.caption(
+        "Meta clicks vs ALL GA4 sessions (ga4_landing_pages, incl. '(not set)') — "
+        "capture rate, not campaign attribution"
+    )
 
 with chip_cols[1]:
     not_set_color = not_set_share_color(not_set_pct)

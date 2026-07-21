@@ -212,10 +212,23 @@ def _make_populated_db(path: Path) -> None:
             dedup_rate REAL, emq_score REAL, fetched_at TEXT,
             PRIMARY KEY (date, event_name)
         );
+        CREATE TABLE ga4_landing_pages (
+            landing_page TEXT NOT NULL, date TEXT NOT NULL,
+            sessions INTEGER, total_users INTEGER, ga4_purchases_lastclick INTEGER,
+            screen_page_views INTEGER, avg_engagement_time REAL,
+            fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (landing_page, date)
+        );
         INSERT INTO ad_metrics(campaign_id, date, ad_set_id, ad_id, spend, clicks, fetched_at)
         VALUES ('c1', '2026-05-01', '', '', 100.0, 100, '2026-05-02T00:00:00');
         INSERT INTO ga4_metrics(campaign_utm, date, sessions, fetched_at)
         VALUES ('', '2026-05-01', 60, '2026-05-02T00:00:00');
+        -- Deliberately higher than ga4_metrics' 60 (campaign-attributed only) --
+        -- ga4_landing_pages has no campaign filter, so it captures MORE traffic
+        -- (e.g. '(not set)' sessions). get_click_session_ratio must read from
+        -- here (75), not from ga4_metrics' 60 (D-11 fix).
+        INSERT INTO ga4_landing_pages(landing_page, date, sessions, fetched_at)
+        VALUES ('/lp/', '2026-05-01', 75, '2026-05-02T00:00:00');
         INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
         VALUES ('begin_checkout', '2026-05-01', '', 'routine', 40);
         INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
@@ -236,11 +249,12 @@ def populated_db(tmp_path: Path) -> Path:
 
 
 def test_get_click_session_ratio_computes_percentage(populated_db):
+    """D-11 fix: sourced from ga4_landing_pages (all sessions = 75), NOT
+    ga4_metrics (campaign-attributed only = 60) — 75 / 100 clicks = 75%."""
     from src.dashboard.db import get_click_session_ratio
 
-    # 60 sessions / 100 clicks = 60%
     ratio = get_click_session_ratio(populated_db, "2026-05-01", "2026-05-01")
-    assert ratio == pytest.approx(60.0)
+    assert ratio == pytest.approx(75.0)
 
 
 def test_get_click_session_ratio_zero_clicks_is_none(populated_db):

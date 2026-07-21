@@ -23,6 +23,8 @@ from pathlib import Path
 import pytest
 
 from src.dashboard.db import (
+    attribution_gap_band,
+    capture_gap_band,
     click_session_gap_band,
     get_click_session_gap,
     get_ga4_event_step_totals,
@@ -34,6 +36,8 @@ from src.dashboard.db import (
     get_quiz_cost_per_lead,
     get_quiz_funnel,
     get_segment_mini_funnels,
+    get_total_sessions_daily,
+    get_total_sessions_summary,
     not_set_share_band,
 )
 
@@ -85,6 +89,13 @@ CREATE TABLE shopify_orders (
     utm_content TEXT NOT NULL DEFAULT '', lp_slug TEXT NOT NULL DEFAULT '',
     landing_site TEXT NOT NULL DEFAULT '', referring_site TEXT NOT NULL DEFAULT '',
     fetched_at TEXT
+);
+CREATE TABLE ga4_landing_pages (
+    landing_page TEXT NOT NULL, date TEXT NOT NULL,
+    sessions INTEGER, total_users INTEGER, ga4_purchases_lastclick INTEGER,
+    screen_page_views INTEGER, avg_engagement_time REAL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (landing_page, date)
 );
 """
 
@@ -152,6 +163,18 @@ def seeded_db(tmp_path: Path) -> Path:
             ('o1', '2026-06-01', '2026-06-01', 49.0, 'paid', 'routine', '2026-06-02'),
             ('o2', '2026-06-02', '2026-06-02', 49.0, 'paid', 'big-feelings', '2026-06-03'),
             ('o3', '2026-06-02', '2026-06-02', 49.0, 'refunded', 'routine', '2026-06-03');
+
+        -- Total GA4 sessions (all campaigns incl. '(not set)') -- deliberately
+        -- larger than ga4_metrics' campaign-attributed sessions (300+350=650) but
+        -- smaller than Meta LPV (400+480=880), so clicks(1300) > lpv(880) >
+        -- all_sessions(700) > attributed(650) forms a clean monotonic funnel for
+        -- the capture-gap / attribution-gap decomposition tests.
+        INSERT INTO ga4_landing_pages
+            (landing_page, date, sessions, total_users, ga4_purchases_lastclick,
+             screen_page_views, avg_engagement_time, fetched_at)
+        VALUES
+            ('/routine/', '2026-06-01', 350, 300, 1, 500, 40.0, '2026-06-02'),
+            ('/big-feelings/', '2026-06-02', 350, 300, 1, 500, 42.0, '2026-06-03');
     """)
     con.commit()
     con.close()
@@ -440,6 +463,109 @@ def test_click_session_gap_none_when_unavailable(empty_db: Path) -> None:
 )
 def test_click_session_gap_band_thresholds(pct: float | None, expected: str) -> None:
     assert click_session_gap_band(pct) == expected
+
+
+# ---------------------------------------------------------------------------
+# D-11 fix: get_total_sessions_daily / get_total_sessions_summary +
+# capture_gap_pct / attribution_gap_pct decomposition on get_click_session_gap
+# ---------------------------------------------------------------------------
+
+def test_total_sessions_daily_sums_from_landing_pages(seeded_db: Path) -> None:
+    """Unlike ga4_metrics (campaign-attributed only), ga4_landing_pages has no
+    campaign filter -- this must return the true daily session totals."""
+    rows = get_total_sessions_daily(seeded_db, "2026-06-01", "2026-06-02")
+    by_date = {r["date"]: r["sessions"] for r in rows}
+    assert by_date["2026-06-01"] == 350
+    assert by_date["2026-06-02"] == 350
+
+
+def test_total_sessions_daily_empty_db_returns_empty(empty_db: Path) -> None:
+    assert get_total_sessions_daily(empty_db, "2026-06-01", "2026-06-02") == []
+
+
+def test_total_sessions_daily_missing_table_returns_empty(tmp_path: Path) -> None:
+    db = tmp_path / "missing.db"
+    con = sqlite3.connect(str(db))
+    con.execute("CREATE TABLE campaigns (id TEXT)")
+    con.commit()
+    con.close()
+    assert get_total_sessions_daily(db, "2026-06-01", "2026-06-02") == []
+
+
+def test_total_sessions_summary_computes_total_and_available(seeded_db: Path) -> None:
+    out = get_total_sessions_summary(seeded_db, "2026-06-01", "2026-06-02")
+    assert out == {"sessions": 700, "available": True}
+
+
+def test_total_sessions_summary_unavailable_when_never_ingested(empty_db: Path) -> None:
+    out = get_total_sessions_summary(empty_db, "2026-06-01", "2026-06-02")
+    assert out == {"sessions": 0, "available": False}
+
+
+def test_click_session_gap_decomposition_all_sessions_and_gaps(seeded_db: Path) -> None:
+    """Full funnel: clicks(1300) > lpv(880) > all_sessions(700) > attributed(650).
+    capture_gap = LPV vs all-sessions (consent/tracking loss); attribution_gap =
+    all-sessions vs campaign-attributed (utm tagging + consent-denied traffic)."""
+    out = get_click_session_gap(seeded_db, "2026-06-01", "2026-06-02")
+    lpv = 400 + 480
+    all_sessions = 350 + 350
+    attributed = 300 + 350
+
+    assert out["ga4_sessions_all"] == all_sessions
+    assert out["ga4_sessions_attributed"] == attributed
+    # Backward-compat alias must still equal the campaign-attributed value.
+    assert out["ga4_sessions"] == attributed
+
+    assert out["capture_gap_pct"] == pytest.approx(round((1 - all_sessions / lpv) * 100, 1))
+    assert out["attribution_gap_pct"] == pytest.approx(
+        round((1 - attributed / all_sessions) * 100, 1)
+    )
+    # Both gaps are independently meaningful and distinct numbers -- the whole
+    # point of the fix is that they must NOT collapse into a single blended gap.
+    assert out["capture_gap_pct"] != out["attribution_gap_pct"]
+
+
+def test_click_session_gap_decomposition_none_when_landing_pages_unavailable(tmp_path: Path) -> None:
+    """ga4_landing_pages never ingested (but ga4_metrics/ad_metrics have data) ->
+    ga4_sessions_all / capture_gap_pct / attribution_gap_pct must be None, not 0
+    or a misleading number -- the legacy fields must still compute normally."""
+    db = tmp_path / "metrics.db"
+    con = _make_db(db)
+    con.executescript("""
+        INSERT INTO campaigns VALUES ('c1','meta_ads','Brand','ACTIVE','2026-06-01');
+        INSERT INTO ad_metrics (campaign_id, date, ad_set_id, ad_id, spend, impressions,
+                                 clicks, landing_page_views, fetched_at)
+        VALUES ('c1','2026-06-01','','',10.0,1000,100,80,'2026-06-02');
+        INSERT INTO ga4_metrics VALUES ('Brand','2026-06-01',40,30,20,0.3,10.0,1,'2026-06-02');
+    """)
+    con.commit()
+    con.close()
+
+    out = get_click_session_gap(db, "2026-06-01", "2026-06-01")
+    assert out["ga4_sessions_all"] is None
+    assert out["capture_gap_pct"] is None
+    assert out["attribution_gap_pct"] is None
+    # Legacy fields unaffected.
+    assert out["ga4_sessions"] == 40
+    assert out["gap_clicks_pct"] == pytest.approx(round((1 - 40 / 100) * 100, 1))
+
+
+@pytest.mark.parametrize(
+    "pct,expected",
+    [(None, "gray"), (0.0, "green"), (30.0, "green"), (30.1, "amber"),
+     (50.0, "amber"), (50.1, "red"), (90.0, "red")],
+)
+def test_capture_gap_band_thresholds(pct: float | None, expected: str) -> None:
+    assert capture_gap_band(pct) == expected
+
+
+@pytest.mark.parametrize(
+    "pct,expected",
+    [(None, "gray"), (0.0, "green"), (40.0, "green"), (40.1, "amber"),
+     (70.0, "amber"), (70.1, "red"), (95.0, "red")],
+)
+def test_attribution_gap_band_thresholds(pct: float | None, expected: str) -> None:
+    assert attribution_gap_band(pct) == expected
 
 
 # ---------------------------------------------------------------------------
