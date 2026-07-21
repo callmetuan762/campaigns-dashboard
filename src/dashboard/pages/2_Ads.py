@@ -112,18 +112,18 @@ def _cached_concept_breakdown(
 # ---------------------------------------------------------------------------
 # Insight helpers
 # ---------------------------------------------------------------------------
-def _ad_insight(fsd: int, avg_ctr: float, avg_frequency: float) -> str:
-    """Rule-based insight tag for a top-ad row."""
-    fsd = int(fsd or 0)
+def _ad_insight(bc: int, avg_ctr: float, avg_frequency: float) -> str:
+    """Rule-based insight tag for a top-ad row (bc = Meta Begin Checkout, 7d-click)."""
+    bc = int(bc or 0)
     avg_ctr = float(avg_ctr or 0)
     avg_frequency = float(avg_frequency or 0)
-    if fsd >= 5 and avg_frequency > 2 and avg_ctr >= 1.0:
+    if bc >= 5 and avg_frequency > 2 and avg_ctr >= 1.0:
         return "Scale budget but monitor fatigue"
-    if fsd >= 5 and avg_ctr >= 1.0:
-        return "Scale — strong FSD + CTR"
-    if fsd >= 3 and avg_ctr < 0.5:
+    if bc >= 5 and avg_ctr >= 1.0:
+        return "Scale — strong BC + CTR"
+    if bc >= 3 and avg_ctr < 0.5:
         return "Test new hook — low CTR despite conversions"
-    if fsd >= 5 and avg_frequency > 2:
+    if bc >= 5 and avg_frequency > 2:
         return "Scale budget but monitor fatigue"
     return "Monitor"
 
@@ -173,27 +173,27 @@ def _make_format_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
 
 def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
-    """Horizontal bar chart: FSD by style with avg_ctr annotation."""
+    """Horizontal bar chart: Begin Checkout (Meta 7d-click) by style with avg_ctr annotation."""
     styles = [r["ad_style"] for r in rows]
-    fsds = [int(r["fsd"] or 0) for r in rows]
+    bcs = [int(r["bc"] or 0) for r in rows]
     ctrs = [float(r["avg_ctr"] or 0) for r in rows]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=fsds,
+        x=bcs,
         y=styles,
         orientation="h",
         marker_color=COLOR_DEPOSITS,
-        text=[f"{f} FSD  CTR {c:.2f}%" for f, c in zip(fsds, ctrs)],
+        text=[f"{b} BC  CTR {c:.2f}%" for b, c in zip(bcs, ctrs)],
         textposition="inside",
         insidetextanchor="start",
-        name="FSD",
+        name="BC",
     ))
     fig.update_layout(
         plot_bgcolor=COLOR_BG_PLOT,
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=12),
-        xaxis=dict(title="FSD (form submit deposit)", gridcolor=COLOR_GRID),
+        xaxis=dict(title="Begin Checkout (Meta 7d-click)", gridcolor=COLOR_GRID),
         yaxis=dict(title="", gridcolor=COLOR_GRID),
         margin=dict(l=20, r=20, t=20, b=30),
         height=max(220, len(styles) * 40),
@@ -203,51 +203,52 @@ def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
 
 def _make_concept_chart(rows: list[dict[str, Any]]) -> go.Figure:
-    """Horizontal bar: CPR (FSD) by concept, sorted best-first (ascending).
+    """Horizontal bar: cost-per-BC by concept, sorted best-first (ascending).
 
-    Bars with no FSD (CPR = None) are shown as a faint stub at 0.
-    Color: green if fsd >= 3 (high confidence), amber if 1-2, gray if 0.
+    BC = Meta Begin Checkout (7d-click), the live preorder funnel's primary
+    optimization signal. Bars with no BC (cost-per-BC = None) are shown as a
+    faint stub at 0. Color: green if bc >= 3 (confident), amber if 1-2, gray if 0.
     """
-    # Filter to rows that have CPR; put no-FSD at bottom
-    with_cpr = [r for r in rows if r.get("cpr_fsd") is not None]
-    no_cpr   = [r for r in rows if r.get("cpr_fsd") is None]
-    ordered  = with_cpr + no_cpr   # best first (already sorted by caller)
+    # Filter to rows that have a cost-per-BC; put no-BC rows at bottom
+    with_cpbc = [r for r in rows if r.get("cost_per_bc") is not None]
+    no_cpbc   = [r for r in rows if r.get("cost_per_bc") is None]
+    ordered   = with_cpbc + no_cpbc   # best first (already sorted by caller)
 
     concepts = [r["concept"] for r in ordered]
-    cprs     = [r.get("cpr_fsd") or 0 for r in ordered]
-    fsds     = [int(r.get("fsd") or 0) for r in ordered]
+    cpbcs    = [r.get("cost_per_bc") or 0 for r in ordered]
+    bcs      = [int(r.get("bc") or 0) for r in ordered]
 
-    def _bar_color(fsd: int, has_cpr: bool) -> str:
-        if not has_cpr:
+    def _bar_color(bc: int, has_cpbc: bool) -> str:
+        if not has_cpbc:
             return "#374151"   # dark gray — no conversions
-        if fsd >= 3:
+        if bc >= 3:
             return COLOR_DEPOSITS   # green — confident
-        if fsd >= 1:
+        if bc >= 1:
             return "#f59e0b"        # amber — low volume
         return "#374151"
 
-    colors = [_bar_color(f, r.get("cpr_fsd") is not None) for f, r in zip(fsds, ordered)]
+    colors = [_bar_color(b, r.get("cost_per_bc") is not None) for b, r in zip(bcs, ordered)]
     labels = [
-        f"${r['cpr_fsd']:.0f}  ({r['fsd']} FSD)" if r.get("cpr_fsd") else f"No FSD  (${r['spend']:.0f} spent)"
+        f"${r['cost_per_bc']:.0f}  ({r['bc']} BC)" if r.get("cost_per_bc") else f"No BC  (${r['spend']:.0f} spent)"
         for r in ordered
     ]
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=cprs,
+        x=cpbcs,
         y=concepts,
         orientation="h",
         marker_color=colors,
         text=labels,
         textposition="outside",
-        name="CPR (FSD)",
+        name="Cost per BC",
         cliponaxis=False,
     ))
     fig.update_layout(
         plot_bgcolor=COLOR_BG_PLOT,
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=11),
-        xaxis=dict(title="CPR (FSD) $", gridcolor=COLOR_GRID, tickprefix="$"),
+        xaxis=dict(title="Cost per BC $", gridcolor=COLOR_GRID, tickprefix="$"),
         yaxis=dict(title="", gridcolor=COLOR_GRID, autorange="reversed"),
         margin=dict(l=20, r=160, t=20, b=30),
         height=max(280, len(ordered) * 36),
@@ -282,7 +283,13 @@ def _adsmanager_url(ad_id: str) -> str:
     )
 
 st.title("Ad Creative Analysis")
-st.caption("Ad-level performance by format and style. Requires daily backfill with ad-level insights.")
+st.caption(
+    "Ad-level performance by format and style, ranked on the live preorder funnel: "
+    "landing_page_views → Begin Checkout (Meta 7d-click, primary optimization signal) → "
+    "Purchases (Meta 7d-click, secondary). form_submit_deposit is retired (deposit-era "
+    "funnel, 0 events). Requires daily backfill with ad-level insights — ad-level history "
+    "accumulates one day at a time, so early charts may reflect only a single day."
+)
 
 db_path = settings.db_path
 if not db_path.exists():
@@ -405,7 +412,7 @@ if _filtered_top:
     # Build display dataframe
     _top_display = []
     for r in _filtered_top:
-        fsd = int(r.get("fsd") or 0)
+        bc = int(r.get("bc") or 0)
         avg_ctr = float(r.get("avg_ctr") or 0)
         avg_freq = float(r.get("avg_frequency") or 0)
         ad_id = str(r.get("ad_id") or "")
@@ -413,7 +420,7 @@ if _filtered_top:
         # Check for CTR decline in fatigue data (early warning even for currently top ads)
         _fatigue_info = _fatigue_by_id.get(r.get("ad_id", ""), {})
         _ctr_delta = _fatigue_info.get("ctr_change_pct")
-        _base_insight = _ad_insight(fsd, avg_ctr, avg_freq)
+        _base_insight = _ad_insight(bc, avg_ctr, avg_freq)
         if _ctr_delta is not None and _ctr_delta <= -30:
             _insight = f"{_base_insight} · ⚠️ CTR ↓{abs(_ctr_delta):.0f}%"
         else:
@@ -425,8 +432,9 @@ if _filtered_top:
             "format": r.get("ad_format") or "unknown",
             "style": r.get("ad_style") or "unknown",
             "spend": float(r.get("spend") or 0),
-            "FSD": fsd,
-            "CPR (FSD)": r.get("cpr_fsd"),
+            "BC": bc,
+            "Cost per BC": r.get("cost_per_bc"),
+            "Purchases": int(r.get("purchases") or 0),
             "CTR %": avg_ctr,
             "frequency": avg_freq,
             "preview": preview_link,
@@ -440,9 +448,18 @@ if _filtered_top:
         "ad_name": st.column_config.TextColumn("Ad Name", width="large"),
         "campaign": st.column_config.TextColumn("Campaign"),
         "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-        "FSD": st.column_config.NumberColumn("FSD", format="%d"),
-        "CPR (FSD)": st.column_config.NumberColumn("CPR (FSD)", format="$%.2f",
-                                                     help="Cost per form-submit deposit. Lower = better. Click to sort."),
+        "BC": st.column_config.NumberColumn(
+            "BC", format="%d",
+            help="Begin Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
+        ),
+        "Cost per BC": st.column_config.NumberColumn(
+            "Cost per BC", format="$%.2f",
+            help="Spend ÷ Begin Checkout (Meta 7d-click). Lower = better. Click to sort."
+        ),
+        "Purchases": st.column_config.NumberColumn(
+            "Purchases", format="%d",
+            help="Meta purchases, 7-day click attribution. Secondary — never blended with GA4 counts."
+        ),
         "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
         "frequency": st.column_config.NumberColumn("Avg Freq", format="%.2f"),
         "preview": st.column_config.LinkColumn("Facebook", display_text="View"),
@@ -462,8 +479,9 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("Fatigue Watch")
 st.caption(
-    "Meta's 4-signal fatigue model: declining CTR trend (primary), rising cost-per-FSD, "
-    "high frequency, and diminishing FSD rate. Requires ≥4 days of data to compute trends."
+    "Meta's 4-signal fatigue model: declining CTR trend (primary), rising cost-per-BC "
+    "(Begin Checkout, Meta 7d-click), high frequency, and diminishing BC rate. "
+    "Requires ≥4 days of data to compute trends."
 )
 
 _fatigue_filtered = fatigue_ads
@@ -493,7 +511,7 @@ if _fatigue_filtered:
             return "—"
         return f"↓ {abs(v):.0f}%" if v < 0 else f"↑ {v:.0f}%"
 
-    def _fmt_cpd_delta(v: float | None) -> str:
+    def _fmt_cpbc_delta(v: float | None) -> str:
         if v is None:
             return "—"
         return f"↑ {v:.0f}%" if v > 0 else f"↓ {abs(v):.0f}%"
@@ -518,7 +536,7 @@ if _fatigue_filtered:
             "style":          r.get("ad_style") or "unknown",
             "signals":        ", ".join(signals),
             "CTR Δ":          _fmt_ctr_delta(r.get("ctr_change_pct")),
-            "CPD Δ":          _fmt_cpd_delta(r.get("cpd_change_pct")),
+            "Cost/BC Δ":      _fmt_cpbc_delta(r.get("cpbc_change_pct")),
             "frequency":      float(r.get("avg_frequency") or 0),
             "spend":          float(r.get("spend") or 0),
             "preview":        _adsmanager_url(fat_ad_id),  # plain URL — LinkColumn handles display_text
@@ -533,7 +551,7 @@ if _fatigue_filtered:
         "campaign":       st.column_config.TextColumn("Campaign"),
         "signals":        st.column_config.TextColumn("Triggered Signals", width="medium"),
         "CTR Δ":          st.column_config.TextColumn("CTR Δ"),
-        "CPD Δ":          st.column_config.TextColumn("CPR Δ"),
+        "Cost/BC Δ":      st.column_config.TextColumn("Cost/BC Δ"),
         "frequency":      st.column_config.NumberColumn("Avg Freq", format="%.2f"),
         "spend":          st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
         "preview":        st.column_config.LinkColumn("Facebook", display_text="View"),
@@ -559,7 +577,10 @@ else:
 # Section 3: Ad Format Breakdown
 # ---------------------------------------------------------------------------
 st.subheader("Ad Format Breakdown")
-st.caption("Spend, FSD, and CTR by ad format. Helps identify which creative type drives performance.")
+st.caption(
+    "Spend, Begin Checkout (Meta 7d-click), and CTR by ad format. "
+    "Helps identify which creative type drives the preorder funnel."
+)
 
 if format_rows:
     left_col, right_col = st.columns([3, 2])
@@ -568,13 +589,13 @@ if format_rows:
     with right_col:
         _fmt_display = []
         for r in format_rows:
-            fsd = int(r.get("fsd") or 0)
+            bc = int(r.get("bc") or 0)
             spend = float(r.get("spend") or 0)
             _fmt_display.append({
                 "format": r.get("ad_format") or "unknown",
                 "ads": int(r.get("ad_count") or 0),
                 "spend": spend,
-                "FSD": fsd,
+                "BC": bc,
                 "CTR %": float(r.get("avg_ctr") or 0),
                 "ROAS": float(r.get("weighted_roas") or 0),
             })
@@ -593,8 +614,8 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("Ad Style Breakdown")
 st.caption(
-    "FSD and CPR by creative style — sorted by CPR ascending (most efficient first). "
-    "Styles with no FSD appear at the bottom."
+    "Begin Checkout (Meta 7d-click) and cost-per-BC by creative style — sorted by "
+    "cost-per-BC ascending (most efficient first). Styles with no BC appear at the bottom."
 )
 
 if style_rows:
@@ -604,23 +625,23 @@ if style_rows:
     with right_col2:
         _sty_display = []
         for r in style_rows:
-            fsd = int(r.get("fsd") or 0)
+            bc = int(r.get("bc") or 0)
             spend = float(r.get("spend") or 0)
             _sty_display.append({
                 "style": r.get("ad_style") or "unknown",
                 "ads": int(r.get("ad_count") or 0),
                 "spend": spend,
-                "FSD": fsd,
-                "CPR (FSD)": r.get("cpr_fsd"),
+                "BC": bc,
+                "Cost per BC": r.get("cost_per_bc"),
                 "CTR %": float(r.get("avg_ctr") or 0),
                 "ROAS": float(r.get("weighted_roas") or 0),
             })
         df_sty = pd.DataFrame(_sty_display)
         sty_col_cfg: dict[str, Any] = {
             "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-            "CPR (FSD)": st.column_config.NumberColumn(
-                "CPR (FSD)", format="$%.2f",
-                help="Cost per form-submit deposit. Lower = better. Already sorted best first."
+            "Cost per BC": st.column_config.NumberColumn(
+                "Cost per BC", format="$%.2f",
+                help="Spend ÷ Begin Checkout (Meta 7d-click). Lower = better. Already sorted best first."
             ),
             "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
             "ROAS": st.column_config.NumberColumn("ROAS", format="%.2f"),
@@ -635,8 +656,12 @@ else:
 st.subheader("Creative Concept Leaderboard")
 st.caption(
     "All copies of the same concept — across campaigns and ad sets — merged into one row. "
-    "Ranked by CPR (FSD) ascending (best first). "
-    "🟢 ≥ 3 FSD (confident)  ·  🟡 1–2 FSD (low volume)  ·  ⚫ 0 FSD (no signal yet)."
+    "Ranked by cost-per-BC (Begin Checkout, Meta 7d-click) ascending (best first). "
+    "🟢 ≥ 3 BC (confident)  ·  🟡 1–2 BC (low volume)  ·  ⚫ 0 BC (no signal yet)."
+)
+st.caption(
+    "⚠️ Purchase-based conclusions need ~20+ conversions; with fewer, treat rankings "
+    "as directional."
 )
 
 if concept_rows:
@@ -653,17 +678,17 @@ if concept_rows:
             st.plotly_chart(_make_concept_chart(_concept_filtered), use_container_width=True)
 
         with table_col:
-            def _conf_badge(fsd: int, has_cpr: bool) -> str:
-                if not has_cpr:
+            def _conf_badge(bc: int, has_cpbc: bool) -> str:
+                if not has_cpbc:
                     return "⚫ No signal"
-                if fsd >= 3:
+                if bc >= 3:
                     return "🟢 Confident"
                 return "🟡 Low vol."
 
             _concept_display = []
             for r in _concept_filtered:
-                fsd = int(r.get("fsd") or 0)
-                has_cpr = r.get("cpr_fsd") is not None
+                bc = int(r.get("bc") or 0)
+                has_cpbc = r.get("cost_per_bc") is not None
                 _concept_display.append({
                     "thumbnail": r.get("thumbnail_url") or "",
                     "concept": r.get("concept") or "",
@@ -671,10 +696,11 @@ if concept_rows:
                     "style": r.get("ad_style") or "unknown",
                     "copies": int(r.get("ad_copies") or 1),
                     "spend": float(r.get("spend") or 0),
-                    "FSD": fsd,
-                    "CPR (FSD)": r.get("cpr_fsd"),
+                    "BC": bc,
+                    "Cost per BC": r.get("cost_per_bc"),
+                    "Purchases": int(r.get("purchases") or 0),
                     "CTR %": float(r.get("avg_ctr") or 0),
-                    "confidence": _conf_badge(fsd, has_cpr),
+                    "confidence": _conf_badge(bc, has_cpbc),
                 })
 
             df_concept = pd.DataFrame(_concept_display)
@@ -684,10 +710,17 @@ if concept_rows:
                 "copies": st.column_config.NumberColumn("Copies", format="%d",
                                                          help="Number of ad copies running this concept"),
                 "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-                "FSD": st.column_config.NumberColumn("FSD", format="%d"),
-                "CPR (FSD)": st.column_config.NumberColumn(
-                    "CPR (FSD)", format="$%.2f",
-                    help="Cost per form-submit deposit across all copies of this concept."
+                "BC": st.column_config.NumberColumn(
+                    "BC", format="%d",
+                    help="Begin Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
+                ),
+                "Cost per BC": st.column_config.NumberColumn(
+                    "Cost per BC", format="$%.2f",
+                    help="Spend ÷ Begin Checkout (Meta 7d-click) across all copies of this concept."
+                ),
+                "Purchases": st.column_config.NumberColumn(
+                    "Purchases", format="%d",
+                    help="Meta purchases, 7-day click attribution. Secondary — never blended with GA4 counts."
                 ),
                 "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
                 "confidence": st.column_config.TextColumn("Signal"),
@@ -698,12 +731,12 @@ if concept_rows:
                 hide_index=True,
                 column_config=concept_col_cfg,
             )
-        _n_confident = sum(1 for r in _concept_filtered if int(r.get("fsd") or 0) >= 3 and r.get("cpr_fsd"))
-        _n_no_signal = sum(1 for r in _concept_filtered if not r.get("cpr_fsd"))
+        _n_confident = sum(1 for r in _concept_filtered if int(r.get("bc") or 0) >= 3 and r.get("cost_per_bc"))
+        _n_no_signal = sum(1 for r in _concept_filtered if not r.get("cost_per_bc"))
         st.caption(
             f"{len(_concept_filtered)} concepts · "
-            f"{_n_confident} with confident signal (≥3 FSD) · "
-            f"{_n_no_signal} with no FSD yet"
+            f"{_n_confident} with confident signal (≥3 BC) · "
+            f"{_n_no_signal} with no BC yet"
         )
     else:
         st.info("No concept data matches the current filters.")

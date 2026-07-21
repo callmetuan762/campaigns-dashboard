@@ -869,7 +869,14 @@ def get_landing_page_health(
 def get_top_ads(
     db_path: Path, start_date: str, end_date: str, limit: int = 10
 ) -> list[dict[str, Any]]:
-    """Top performing ads by FSD count, enriched with creative metadata.
+    """Top performing ads by Meta Begin Checkout (meta_begin_checkout), enriched
+    with creative metadata.
+
+    meta_begin_checkout (Meta 7-day-click) is the primary optimization signal for
+    the live preorder funnel (landing_page_views -> meta_begin_checkout ->
+    meta_purchases_7dclick); form_submit_deposit is dead (deposit-era funnel, 0
+    events). meta_purchases_7dclick is surfaced as a secondary column — never
+    blended with GA4 conversion counts (CLAUDE.md).
 
     Joins ad_metrics (ad_id != '') with ad_creatives for name/format/style/URLs.
     Returns [] if no ad-level data exists yet.
@@ -880,7 +887,8 @@ def get_top_ads(
                c.name                                            AS campaign_name,
                ROUND(SUM(m.spend), 2)                           AS spend,
                SUM(m.impressions)                               AS impressions,
-               SUM(m.meta_form_submit_deposit)                  AS fsd,
+               SUM(m.meta_begin_checkout)                       AS bc,
+               SUM(m.meta_purchases_7dclick)                    AS purchases,
                SUM(m.clicks)                                    AS clicks,
                ROUND(AVG(m.ctr), 2)                             AS avg_ctr,
                ROUND(AVG(NULLIF(m.frequency, 0)), 2)            AS avg_frequency,
@@ -892,10 +900,10 @@ def get_top_ads(
                         ELSE NULL END, 2
                )                                                AS weighted_roas,
                ROUND(
-                   CASE WHEN SUM(m.meta_form_submit_deposit) > 0
-                        THEN SUM(m.spend) / SUM(m.meta_form_submit_deposit)
+                   CASE WHEN SUM(m.meta_begin_checkout) > 0
+                        THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
                         ELSE NULL END, 2
-               )                                                AS cpr_fsd,
+               )                                                AS cost_per_bc,
                cr.ad_format,
                cr.ad_style,
                cr.thumbnail_url,
@@ -909,7 +917,7 @@ def get_top_ads(
           AND m.date BETWEEN ? AND ?
         GROUP BY m.ad_id
         HAVING SUM(m.spend) > 0
-        ORDER BY fsd DESC, spend DESC
+        ORDER BY bc DESC, spend DESC
         LIMIT ?
     """
     try:
@@ -927,17 +935,21 @@ def get_fatigue_ads(
 
     Signals checked (any combination triggers inclusion):
       1. Declining CTR  — CTR in late half of period < CTR in early half by ≥30 %
-      2. Rising CPR     — Cost-per-FSD in late half > early half by ≥30 %
+      2. Rising cost-per-BC — cost per meta_begin_checkout in late half > early
+         half by ≥30 % (BC = Begin Checkout, Meta 7d-click — the live preorder
+         funnel's primary optimization signal; form_submit_deposit is dead)
       3. High frequency — avg frequency ≥ 2.5 (audience saturation)
-      4. Diminishing returns — FSD rate (FSD/impressions) fell >40 % between halves
+      4. Diminishing returns — BC rate (meta_begin_checkout/impressions) fell
+         >40 % between halves
 
-    The date range is split at its midpoint; CTR and CPD trends are computed
-    by comparing early-half vs late-half aggregates using conditional SQL.
+    The date range is split at its midpoint; CTR and cost-per-BC trends are
+    computed by comparing early-half vs late-half aggregates using conditional
+    SQL. Requires ≥4 days of data in range to split meaningfully.
 
     Returns each fatigued ad enriched with:
       fatigue_signals  – list of triggered signal descriptions
       ctr_change_pct   – % change in CTR (negative = decline)
-      cpd_change_pct   – % change in CPD (positive = more expensive)
+      cpbc_change_pct  – % change in cost-per-BC (positive = more expensive)
       severity         – 'critical' (≥3 signals) | 'warning' (2) | 'watch' (1)
       recommendation   – plain-English action
 
@@ -965,7 +977,7 @@ def get_fatigue_ads(
                c.name                                                                AS campaign_name,
                ROUND(SUM(m.spend), 2)                                               AS spend,
                SUM(m.impressions)                                                    AS impressions,
-               SUM(m.meta_form_submit_deposit)                                       AS fsd,
+               SUM(m.meta_begin_checkout)                                            AS bc,
                ROUND(AVG(NULLIF(m.frequency, 0)), 2)                                 AS avg_frequency,
                ROUND(AVG(m.ctr), 3)                                                  AS avg_ctr,
                -- CTR split: early half (start..mid) vs late half (mid+1..end)
@@ -977,20 +989,20 @@ def get_fatigue_ads(
                    SUM(CASE WHEN m.date > ? THEN m.clicks ELSE 0 END) * 100.0
                    / NULLIF(SUM(CASE WHEN m.date > ? THEN m.impressions ELSE 0 END), 0), 3
                )                                                                     AS ctr_late,
-               -- CPD split (cost per FSD)
+               -- Cost-per-BC split (cost per meta_begin_checkout)
                ROUND(
                    SUM(CASE WHEN m.date <= ? THEN m.spend ELSE 0 END)
-                   / NULLIF(SUM(CASE WHEN m.date <= ? THEN m.meta_form_submit_deposit ELSE 0 END), 0), 2
-               )                                                                     AS cpd_early,
+                   / NULLIF(SUM(CASE WHEN m.date <= ? THEN m.meta_begin_checkout ELSE 0 END), 0), 2
+               )                                                                     AS cpbc_early,
                ROUND(
                    SUM(CASE WHEN m.date > ? THEN m.spend ELSE 0 END)
-                   / NULLIF(SUM(CASE WHEN m.date > ? THEN m.meta_form_submit_deposit ELSE 0 END), 0), 2
-               )                                                                     AS cpd_late,
-               -- Impressions split (for FSD-rate / diminishing-returns check)
+                   / NULLIF(SUM(CASE WHEN m.date > ? THEN m.meta_begin_checkout ELSE 0 END), 0), 2
+               )                                                                     AS cpbc_late,
+               -- Impressions split (for BC-rate / diminishing-returns check)
                SUM(CASE WHEN m.date <= ? THEN m.impressions ELSE 0 END)              AS impr_early,
                SUM(CASE WHEN m.date > ? THEN m.impressions ELSE 0 END)               AS impr_late,
-               SUM(CASE WHEN m.date <= ? THEN m.meta_form_submit_deposit ELSE 0 END) AS fsd_early,
-               SUM(CASE WHEN m.date > ? THEN m.meta_form_submit_deposit ELSE 0 END)  AS fsd_late,
+               SUM(CASE WHEN m.date <= ? THEN m.meta_begin_checkout ELSE 0 END)      AS bc_early,
+               SUM(CASE WHEN m.date > ? THEN m.meta_begin_checkout ELSE 0 END)       AS bc_late,
                cr.ad_format,
                cr.ad_style,
                cr.thumbnail_url,
@@ -1020,13 +1032,13 @@ def get_fatigue_ads(
 
         ctr_early = float(d.get("ctr_early") or 0)
         ctr_late  = float(d.get("ctr_late")  or 0)
-        cpd_early = d.get("cpd_early")
-        cpd_late  = d.get("cpd_late")
+        cpbc_early = d.get("cpbc_early")
+        cpbc_late  = d.get("cpbc_late")
         freq      = float(d.get("avg_frequency") or 0)
         impr_early = int(d.get("impr_early") or 0)
         impr_late  = int(d.get("impr_late")  or 0)
-        fsd_early  = int(d.get("fsd_early")  or 0)
-        fsd_late   = int(d.get("fsd_late")   or 0)
+        bc_early   = int(d.get("bc_early")   or 0)
+        bc_late    = int(d.get("bc_late")    or 0)
 
         # --- Signal 1: Declining CTR ---
         ctr_change_pct: float | None = None
@@ -1035,30 +1047,30 @@ def get_fatigue_ads(
             if ctr_change_pct <= -30:
                 signals.append(f"CTR dropped {abs(ctr_change_pct):.0f}%")
 
-        # --- Signal 2: Rising CPD ---
-        cpd_change_pct: float | None = None
-        if cpd_early and cpd_late and float(cpd_early) > 0:
-            cpd_change_pct = round((float(cpd_late) - float(cpd_early)) / float(cpd_early) * 100, 1)
-            if cpd_change_pct >= 30:
-                signals.append(f"CPR rose {cpd_change_pct:.0f}%")
+        # --- Signal 2: Rising cost-per-BC ---
+        cpbc_change_pct: float | None = None
+        if cpbc_early and cpbc_late and float(cpbc_early) > 0:
+            cpbc_change_pct = round((float(cpbc_late) - float(cpbc_early)) / float(cpbc_early) * 100, 1)
+            if cpbc_change_pct >= 30:
+                signals.append(f"Cost/BC rose {cpbc_change_pct:.0f}%")
 
         # --- Signal 3: High frequency ---
         if freq >= 2.5:
             signals.append(f"Frequency {freq:.1f}×")
 
-        # --- Signal 4: Diminishing returns (FSD rate fell >40 %) ---
-        if impr_early >= 100 and impr_late >= 100 and fsd_early > 0:
-            rate_early = fsd_early / impr_early
-            rate_late  = fsd_late  / impr_late if impr_late else 0
+        # --- Signal 4: Diminishing returns (BC rate fell >40 %) ---
+        if impr_early >= 100 and impr_late >= 100 and bc_early > 0:
+            rate_early = bc_early / impr_early
+            rate_late  = bc_late  / impr_late if impr_late else 0
             if rate_early > 0 and rate_late < rate_early * 0.6:
-                signals.append("FSD rate fell >40%")
+                signals.append("BC rate fell >40%")
 
         if not signals:
             continue
 
         d["fatigue_signals"] = signals
         d["ctr_change_pct"]  = ctr_change_pct
-        d["cpd_change_pct"]  = cpd_change_pct
+        d["cpbc_change_pct"] = cpbc_change_pct
 
         # Severity
         n = len(signals)
@@ -1073,7 +1085,7 @@ def get_fatigue_ads(
             rec = "Refresh creative immediately — severe audience saturation"
         elif freq >= 3.0:
             rec = "Prepare new creative — approaching burnout"
-        elif cpd_change_pct is not None and cpd_change_pct >= 50:
+        elif cpbc_change_pct is not None and cpbc_change_pct >= 50:
             rec = "Narrow audience or pause — conversion efficiency collapsing"
         elif n >= 2:
             rec = "Reduce budget or refresh creative — multiple fatigue signals"
@@ -1091,7 +1103,8 @@ def get_fatigue_ads(
 def get_ad_format_breakdown(
     db_path: Path, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
-    """Spend, FSD, CTR by ad format (image, video, carousel).
+    """Spend, Begin Checkout (meta_begin_checkout), CTR by ad format (image,
+    video, carousel).
 
     Joins ad_metrics with ad_creatives for format labels.
     Returns [] if no ad-level or creative data.
@@ -1102,7 +1115,7 @@ def get_ad_format_breakdown(
                ROUND(SUM(m.spend), 2)                           AS spend,
                SUM(m.impressions)                               AS impressions,
                SUM(m.clicks)                                    AS clicks,
-               SUM(m.meta_form_submit_deposit)                  AS fsd,
+               SUM(m.meta_begin_checkout)                       AS bc,
                ROUND(AVG(m.ctr), 2)                             AS avg_ctr,
                ROUND(AVG(NULLIF(m.cpc, 0)), 2)                  AS avg_cpc,
                ROUND(
@@ -1129,7 +1142,8 @@ def get_ad_format_breakdown(
 def get_ad_style_breakdown(
     db_path: Path, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
-    """Spend, FSD, CTR by ad style (testimonial, product_hero, etc.).
+    """Spend, Begin Checkout (meta_begin_checkout), CTR by ad style
+    (testimonial, product_hero, etc.).
 
     Returns [] if no ad-level or creative data.
     """
@@ -1138,7 +1152,7 @@ def get_ad_style_breakdown(
                COUNT(DISTINCT m.ad_id)                          AS ad_count,
                ROUND(SUM(m.spend), 2)                           AS spend,
                SUM(m.impressions)                               AS impressions,
-               SUM(m.meta_form_submit_deposit)                  AS fsd,
+               SUM(m.meta_begin_checkout)                       AS bc,
                ROUND(AVG(m.ctr), 2)                             AS avg_ctr,
                ROUND(
                    CASE WHEN SUM(m.spend) > 0
@@ -1146,17 +1160,17 @@ def get_ad_style_breakdown(
                         ELSE NULL END, 2
                )                                                AS weighted_roas,
                ROUND(
-                   CASE WHEN SUM(m.meta_form_submit_deposit) > 0
-                        THEN SUM(m.spend) / SUM(m.meta_form_submit_deposit)
+                   CASE WHEN SUM(m.meta_begin_checkout) > 0
+                        THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
                         ELSE NULL END, 2
-               )                                                AS cpr_fsd
+               )                                                AS cost_per_bc
         FROM ad_metrics m
         LEFT JOIN ad_creatives cr ON cr.ad_id = m.ad_id
         WHERE m.ad_id != ''
           AND m.date BETWEEN ? AND ?
         GROUP BY COALESCE(cr.ad_style, 'unknown')
         HAVING SUM(m.spend) > 0
-        ORDER BY cpr_fsd ASC NULLS LAST, spend DESC
+        ORDER BY cost_per_bc ASC NULLS LAST, spend DESC
     """
     try:
         with _conn(db_path) as con:
@@ -1179,7 +1193,9 @@ def get_creative_concept_breakdown(
     campaign) are collapsed into a single row so you can judge the concept itself, not
     the distribution mechanic.
 
-    Returns sorted by CPR (FSD) ascending (best first), nulls last, then FSD descending.
+    Ranked by cost-per-BC (meta_begin_checkout) ascending (best first), nulls last,
+    then BC descending. meta_purchases_7dclick is aggregated as a secondary
+    `purchases` column — never blended with GA4 conversion counts (CLAUDE.md).
     Returns [] if no ad-level creative data is available.
     """
     import re as _re
@@ -1200,7 +1216,8 @@ def get_creative_concept_breakdown(
             ROUND(SUM(m.spend), 2)                              AS spend,
             SUM(m.impressions)                                  AS impressions,
             SUM(m.clicks)                                       AS clicks,
-            SUM(m.meta_form_submit_deposit)                     AS fsd,
+            SUM(m.meta_begin_checkout)                          AS bc,
+            SUM(m.meta_purchases_7dclick)                       AS purchases,
             ROUND(AVG(m.ctr), 2)                                AS avg_ctr,
             ROUND(AVG(NULLIF(m.frequency, 0)), 2)               AS avg_frequency
         FROM ad_metrics m
@@ -1230,7 +1247,8 @@ def get_creative_concept_breakdown(
                 "spend": 0.0,
                 "impressions": 0,
                 "clicks": 0,
-                "fsd": 0,
+                "bc": 0,
+                "purchases": 0,
                 "_impr_ctr_sum": 0.0,  # impressions-weighted CTR for avg
             }
         c = concepts[key]
@@ -1238,21 +1256,22 @@ def get_creative_concept_breakdown(
         c["spend"] = round(c["spend"] + float(row.get("spend") or 0), 2)
         c["impressions"] += int(row.get("impressions") or 0)
         c["clicks"] += int(row.get("clicks") or 0)
-        c["fsd"] += int(row.get("fsd") or 0)
+        c["bc"] += int(row.get("bc") or 0)
+        c["purchases"] += int(row.get("purchases") or 0)
         c["_impr_ctr_sum"] += float(row.get("avg_ctr") or 0) * int(row.get("impressions") or 0)
 
     results: list[dict[str, Any]] = []
     for c in concepts.values():
-        c["cpr_fsd"] = round(c["spend"] / c["fsd"], 2) if c["fsd"] > 0 else None
+        c["cost_per_bc"] = round(c["spend"] / c["bc"], 2) if c["bc"] > 0 else None
         c["avg_ctr"] = round(c["_impr_ctr_sum"] / c["impressions"], 2) if c["impressions"] > 0 else 0.0
         del c["_impr_ctr_sum"]
         results.append(c)
 
-    # Sort: CPR asc (None last), then FSD desc, then spend desc
+    # Sort: cost-per-BC asc (None last), then BC desc, then spend desc
     results.sort(key=lambda x: (
-        x["cpr_fsd"] is None,
-        x["cpr_fsd"] if x["cpr_fsd"] is not None else float("inf"),
-        -x["fsd"],
+        x["cost_per_bc"] is None,
+        x["cost_per_bc"] if x["cost_per_bc"] is not None else float("inf"),
+        -x["bc"],
         -x["spend"],
     ))
     return results
