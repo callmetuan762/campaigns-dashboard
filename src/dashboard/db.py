@@ -1437,7 +1437,7 @@ def get_ga4_event_step_totals(
     Returns {event_name: {"count": int, "available": bool}} for every name in
     `event_names`. Distinct GA4 events can be enabled/backfilled at different
     times, so availability is checked per event_name (not per-table) -- e.g.
-    'cta_click' having zero rows ever must not be masked by 'begin_checkout'
+    'cta_click_convert' having zero rows ever must not be masked by 'begin_checkout'
     already having data.
     """
     result: dict[str, dict[str, Any]] = {
@@ -1522,7 +1522,7 @@ def get_preorder_funnel_steps(
     meta = get_meta_funnel_summary(db_path, start_date, end_date)
     ga4_sessions = get_ga4_sessions_summary(db_path, start_date, end_date)
     events = get_ga4_event_step_totals(
-        db_path, start_date, end_date, ["cta_click", "add_to_cart", "begin_checkout"]
+        db_path, start_date, end_date, ["cta_click_convert", "add_to_cart", "begin_checkout"]
     )
     orders = get_orders_step(db_path, start_date, end_date)
 
@@ -1541,8 +1541,8 @@ def get_preorder_funnel_steps(
          "available": meta["lpv_available"], "note": None},
         {"label": "GA4 Sessions", "value": ga4_sessions["sessions"],
          "available": ga4_sessions["available"], "note": None},
-        {"label": "CTA Clicks", "value": events["cta_click"]["count"],
-         "available": events["cta_click"]["available"], "note": None},
+        {"label": "CTA Clicks (convert)", "value": events["cta_click_convert"]["count"],
+         "available": events["cta_click_convert"]["available"], "note": None},
         {"label": "Add to Cart", "value": events["add_to_cart"]["count"],
          "available": events["add_to_cart"]["available"], "note": None},
         {"label": "Begin Checkout", "value": events["begin_checkout"]["count"],

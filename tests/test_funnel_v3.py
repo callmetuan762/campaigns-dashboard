@@ -133,12 +133,12 @@ def seeded_db(tmp_path: Path) -> Path:
             ('Nowa | SALES | Preorder', '2026-06-01', 300, 280, 200, 0.3, 40.0, 2, '2026-06-02T00:00:00'),
             ('Nowa | SALES | Preorder', '2026-06-02', 350, 320, 220, 0.28, 42.0, 3, '2026-06-03T00:00:00');
 
-        -- GA4 events: cta_click, add_to_cart, begin_checkout, purchase (no lead_submit/quiz here)
+        -- GA4 events: cta_click_convert, add_to_cart, begin_checkout, purchase (no lead_submit/quiz here)
         INSERT INTO ga4_events
             (event_name, date, campaign_utm, lp_slug, event_count, fetched_at)
         VALUES
-            ('cta_click',      '2026-06-01', 'nowa_launch', 'routine',      150, '2026-06-02'),
-            ('cta_click',      '2026-06-02', 'nowa_launch', 'big-feelings', 180, '2026-06-03'),
+            ('cta_click_convert',      '2026-06-01', 'nowa_launch', 'routine',      150, '2026-06-02'),
+            ('cta_click_convert',      '2026-06-02', 'nowa_launch', 'big-feelings', 180, '2026-06-03'),
             ('add_to_cart',    '2026-06-01', 'nowa_launch', 'routine',       80, '2026-06-02'),
             ('add_to_cart',    '2026-06-02', 'nowa_launch', 'big-feelings',  95, '2026-06-03'),
             ('begin_checkout', '2026-06-01', 'nowa_launch', 'routine',       60, '2026-06-02'),
@@ -231,9 +231,9 @@ def test_ga4_sessions_summary_empty(empty_db: Path) -> None:
 def test_event_step_totals_counts_and_availability(seeded_db: Path) -> None:
     out = get_ga4_event_step_totals(
         seeded_db, "2026-06-01", "2026-06-02",
-        ["cta_click", "add_to_cart", "begin_checkout", "lead_submit"],
+        ["cta_click_convert", "add_to_cart", "begin_checkout", "lead_submit"],
     )
-    assert out["cta_click"] == {"count": 330, "available": True}
+    assert out["cta_click_convert"] == {"count": 330, "available": True}
     assert out["add_to_cart"] == {"count": 175, "available": True}
     assert out["begin_checkout"] == {"count": 130, "available": True}
     # lead_submit was never ingested anywhere -> unavailable, not a 0
@@ -241,8 +241,8 @@ def test_event_step_totals_counts_and_availability(seeded_db: Path) -> None:
 
 
 def test_event_step_totals_empty_table(empty_db: Path) -> None:
-    out = get_ga4_event_step_totals(empty_db, "2026-06-01", "2026-06-02", ["cta_click"])
-    assert out["cta_click"] == {"count": 0, "available": False}
+    out = get_ga4_event_step_totals(empty_db, "2026-06-01", "2026-06-02", ["cta_click_convert"])
+    assert out["cta_click_convert"] == {"count": 0, "available": False}
 
 
 def test_event_step_totals_missing_table(tmp_path: Path) -> None:
@@ -251,8 +251,8 @@ def test_event_step_totals_missing_table(tmp_path: Path) -> None:
     con.execute("CREATE TABLE campaigns (id TEXT)")
     con.commit()
     con.close()
-    out = get_ga4_event_step_totals(db, "2026-06-01", "2026-06-02", ["cta_click", "purchase"])
-    assert out["cta_click"]["available"] is False
+    out = get_ga4_event_step_totals(db, "2026-06-01", "2026-06-02", ["cta_click_convert", "purchase"])
+    assert out["cta_click_convert"]["available"] is False
     assert out["purchase"]["available"] is False
 
 
@@ -262,9 +262,9 @@ def test_event_step_totals_empty_event_list(seeded_db: Path) -> None:
 
 def test_event_step_totals_date_range_narrows_count(seeded_db: Path) -> None:
     """Restricting the range to just 06-01 only counts that day's event_count."""
-    out = get_ga4_event_step_totals(seeded_db, "2026-06-01", "2026-06-01", ["cta_click"])
-    assert out["cta_click"]["count"] == 150
-    assert out["cta_click"]["available"] is True
+    out = get_ga4_event_step_totals(seeded_db, "2026-06-01", "2026-06-01", ["cta_click_convert"])
+    assert out["cta_click_convert"]["count"] == 150
+    assert out["cta_click_convert"]["available"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ def test_preorder_funnel_steps_order_and_labels(seeded_db: Path) -> None:
     labels = [s["label"] for s in steps]
     assert labels == [
         "Impressions", "Clicks", "Landing-Page Views", "GA4 Sessions",
-        "CTA Clicks", "Add to Cart", "Begin Checkout", "Orders",
+        "CTA Clicks (convert)", "Add to Cart", "Begin Checkout", "Orders",
     ]
 
 

@@ -71,9 +71,14 @@ class Settings(BaseSettings):
     ga4_event_list: str | list[str] = Field(
         default_factory=lambda: [
             "page_view_lp",
-            "cta_click",
+            # cta_click is remapped on-site to cta_click_<cta_type> before it reaches
+            # GA4 (verified live: no plain "cta_click" event exists on the property).
+            # cta_click_convert = buy-intent CTA; cta_click_scroll = anchor scrolls.
+            "cta_click_convert",
+            "cta_click_scroll",
             "add_to_cart",
             "begin_checkout",
+            "add_payment_info",
             "purchase",
             "lead_submit",
             "quiz_complete",
