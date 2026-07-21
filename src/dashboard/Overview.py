@@ -30,6 +30,10 @@ st.set_page_config(
 
 from src.dashboard import chat as chat_mod  # noqa: E402  (after set_page_config)
 from src.dashboard import db                  # noqa: E402
+from src.dashboard.components import (         # noqa: E402
+    render_reconciliation_block,
+    render_scope_line,
+)
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -69,6 +73,12 @@ def _cached_kpi(db_path_str: str, start: str, end: str) -> dict[str, Any]:
 def _cached_ga4_kpi(db_path_str: str, start: str, end: str) -> dict[str, Any]:
     from pathlib import Path
     return db.get_ga4_kpi(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_meta_purchases_total(db_path_str: str, start: str, end: str) -> int:
+    from pathlib import Path
+    return db.get_meta_purchases_total(Path(db_path_str), start, end)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -534,6 +544,11 @@ with st.sidebar:
 start_iso = start_date.isoformat()
 end_iso = end_date.isoformat()
 
+# Scope line (Phase D trust/UX) — always-visible date/campaign/attribution
+# summary directly under the page title. No campaign selector on this page,
+# so the scope is always "All".
+render_scope_line(start_date, end_date, campaign_filter="All")
+
 # ---------------------------------------------------------------------------
 # KPI row (D-05) — 7 st.metric cards (6 ad metrics + Stripe paid rate)
 # ---------------------------------------------------------------------------
@@ -665,6 +680,21 @@ s2.metric("CPM", f"${float(kpi.get('avg_cpm') or 0):.2f}")
 s3.metric("CPC", f"${float(kpi.get('avg_cpc') or 0):.2f}")
 reach = int(kpi.get('total_reach') or 0)
 s4.metric("Reach", f"{reach:,}")
+
+# ---------------------------------------------------------------------------
+# Triangle reconciliation (Phase D trust/UX) — Meta vs GA4 vs actual paid.
+# Never blended (CLAUDE.md house rule): three independent counts side by
+# side, plus a gap chip and a plain-English "why don't these match" note.
+# ---------------------------------------------------------------------------
+st.subheader("Reconciliation: Meta vs GA4 vs Actual")
+_meta_purchases_total = _cached_meta_purchases_total(db_path_str, start_iso, end_iso)
+_ga4_purchases_total = int(ga4_kpi.get("total_purchases") or 0)
+_actual_paid_total = int(stripe_kpi.get("paid") or 0)
+render_reconciliation_block(
+    meta_purchases=_meta_purchases_total,
+    ga4_purchases=_ga4_purchases_total,
+    actual_paid=_actual_paid_total,
+)
 
 # ---------------------------------------------------------------------------
 # Charts row (D-06)

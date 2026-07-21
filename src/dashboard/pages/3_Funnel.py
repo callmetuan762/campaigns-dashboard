@@ -20,6 +20,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                          # noqa: E402
+from src.dashboard.components import render_scope_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -228,6 +229,8 @@ with st.sidebar:
 
 start_str = start_date.isoformat()
 end_str = end_date.isoformat()
+
+render_scope_line(start_date, end_date, campaign_filter="All")
 
 # ---------------------------------------------------------------------------
 # Load data
