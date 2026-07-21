@@ -297,6 +297,7 @@ def test_full_migration_chain_applies_cleanly_on_fresh_db():
         assert "ga4_events" in tables
         assert "shopify_orders" in tables
         assert "pixel_health" in tables
+        assert "ga4_daily_totals" in tables
         con.close()
     finally:
         try:
@@ -407,6 +408,77 @@ def test_migration_013_pixel_health_emq_and_dedup_nullable():
             os.unlink(db_path)
         except OSError:
             pass
+
+
+def test_migration_014_creates_ga4_daily_totals_table():
+    """Session multi-counting fix: MIGRATION_014_GA4_DAILY_TOTALS creates
+    ga4_daily_totals with the documented schema."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "014_ga4_daily_totals" in names, f"Migration 014 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("014_ga4_daily_totals")
+    try:
+        rows = con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='ga4_daily_totals'"
+        ).fetchall()
+        assert len(rows) == 1, "ga4_daily_totals table must exist after migration 014"
+
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(ga4_daily_totals)")}
+        required = {"date", "sessions", "fetched_at"}
+        missing = required - cols
+        assert not missing, f"Missing columns in ga4_daily_totals: {missing}"
+
+        pk_cols = {
+            r["name"]
+            for r in con.execute("PRAGMA table_info(ga4_daily_totals)")
+            if r["pk"] > 0
+        }
+        assert pk_cols == {"date"}, f"Expected PK on date only, got: {pk_cols}"
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+def test_migration_014_ga4_daily_totals_pk_dedupes_on_conflict():
+    """Single-column PK (date) dedupes on UPSERT, like the other funnel-v3 tables."""
+    import os
+
+    con, db_path = _apply_migration_to_fresh_db("014_ga4_daily_totals")
+    try:
+        con.execute(
+            "INSERT INTO ga4_daily_totals (date, sessions) VALUES ('2026-07-21', 1000)"
+        )
+        con.commit()
+        con.execute(
+            "INSERT INTO ga4_daily_totals (date, sessions) VALUES ('2026-07-21', 1803) "
+            "ON CONFLICT(date) DO UPDATE SET sessions=excluded.sessions"
+        )
+        con.commit()
+        rows = con.execute(
+            "SELECT sessions FROM ga4_daily_totals WHERE date='2026-07-21'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["sessions"] == 1803
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+async def test_run_migrations_applies_migration_014(db_client):
+    """run_migrations() (the real async migration runner) picks up 014 too."""
+    rows = await db_client.fetch_all("SELECT version FROM schema_version")
+    applied = {r["version"] for r in rows}
+    assert "014_ga4_daily_totals" in applied
 
 
 def test_migration_006_mmm_results_accepts_insert():

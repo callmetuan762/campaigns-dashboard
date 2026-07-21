@@ -97,6 +97,11 @@ CREATE TABLE ga4_landing_pages (
     fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (landing_page, date)
 );
+CREATE TABLE ga4_daily_totals (
+    date TEXT PRIMARY KEY,
+    sessions INTEGER,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -670,6 +675,76 @@ def test_total_sessions_summary_computes_total_and_available(seeded_db: Path) ->
 def test_total_sessions_summary_unavailable_when_never_ingested(empty_db: Path) -> None:
     out = get_total_sessions_summary(empty_db, "2026-06-01", "2026-06-02")
     assert out == {"sessions": 0, "available": False}
+
+
+# ---------------------------------------------------------------------------
+# Session multi-counting fix (2026-07-22): ga4_daily_totals is the exact
+# property-wide source, preferred over summing ga4_landing_pages (whose old
+# two-pass fetch used to multi-count sessions -- see src/ga4/client.py).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def seeded_db_with_daily_totals(seeded_db: Path) -> Path:
+    """seeded_db plus ga4_daily_totals rows with DIFFERENT numbers than the
+    ga4_landing_pages sum (350/350/700), so precedence is unambiguous to assert."""
+    con = sqlite3.connect(str(seeded_db))
+    con.executescript("""
+        INSERT INTO ga4_daily_totals (date, sessions) VALUES
+            ('2026-06-01', 500),
+            ('2026-06-02', 520);
+    """)
+    con.commit()
+    con.close()
+    return seeded_db
+
+
+def test_total_sessions_daily_prefers_ga4_daily_totals_over_landing_pages(
+    seeded_db_with_daily_totals: Path,
+) -> None:
+    rows = get_total_sessions_daily(seeded_db_with_daily_totals, "2026-06-01", "2026-06-02")
+    by_date = {r["date"]: r["sessions"] for r in rows}
+    assert by_date == {"2026-06-01": 500, "2026-06-02": 520}
+
+
+def test_total_sessions_summary_prefers_ga4_daily_totals_over_landing_pages(
+    seeded_db_with_daily_totals: Path,
+) -> None:
+    out = get_total_sessions_summary(seeded_db_with_daily_totals, "2026-06-01", "2026-06-02")
+    assert out == {"sessions": 1020, "available": True}
+
+
+def test_total_sessions_daily_falls_back_when_ga4_daily_totals_table_empty(
+    seeded_db: Path,
+) -> None:
+    """seeded_db's ga4_daily_totals table exists (per the real migration chain) but
+    has zero rows -- must fall back to the ga4_landing_pages sum, not just error."""
+    rows = get_total_sessions_daily(seeded_db, "2026-06-01", "2026-06-02")
+    by_date = {r["date"]: r["sessions"] for r in rows}
+    assert by_date == {"2026-06-01": 350, "2026-06-02": 350}
+
+
+def test_total_sessions_summary_falls_back_when_ga4_daily_totals_table_missing(
+    tmp_path: Path,
+) -> None:
+    """A DB predating migration 014 (no ga4_daily_totals table at all) must still
+    work via the ga4_landing_pages fallback."""
+    db = tmp_path / "no_totals_table.db"
+    con = sqlite3.connect(str(db))
+    con.executescript("""
+        CREATE TABLE ga4_landing_pages (
+            landing_page TEXT NOT NULL, date TEXT NOT NULL,
+            sessions INTEGER, total_users INTEGER, ga4_purchases_lastclick INTEGER,
+            screen_page_views INTEGER, avg_engagement_time REAL,
+            fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (landing_page, date)
+        );
+        INSERT INTO ga4_landing_pages (landing_page, date, sessions) VALUES
+            ('/routine/', '2026-06-01', 42);
+    """)
+    con.commit()
+    con.close()
+    out = get_total_sessions_summary(db, "2026-06-01", "2026-06-01")
+    assert out == {"sessions": 42, "available": True}
 
 
 def test_click_session_gap_decomposition_all_sessions_and_gaps(seeded_db: Path) -> None:

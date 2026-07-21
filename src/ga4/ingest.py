@@ -7,6 +7,11 @@ GA4-04: 6-hour cache check via ingestion_log. returnPropertyQuota=True (in clien
 GA4-05: Writes to ga4_metrics (campaign) + ga4_landing_pages (landing pages) via UPSERT.
 GA4-12: Funnel v3 — also fetches event-level counts (settings.ga4_event_list) into
         ga4_events via UPSERT, in the same run/ingestion_log entry as campaign + LP.
+D-11: Also fetches exact property-wide daily session totals (dimensions=[date]
+      only — no landing-page/pagePath grouping) into ga4_daily_totals via UPSERT,
+      guarded independently (best-effort, like the event fetch) — fixes the
+      session multi-counting bug in the old two-pass landing-page fetch
+      (see src/ga4/client.py fetch_daily_session_totals docstring).
 D-09: Circuit breaker after 3 consecutive failures — sends Telegram alert.
 D-13: Uses ingestion_log source='ga4'.
 
@@ -104,6 +109,7 @@ async def _run_ga4_ingest(
         from src.ga4.client import (
             _build_ga4_client,
             fetch_campaign_metrics,
+            fetch_daily_session_totals,
             fetch_event_metrics,
             fetch_landing_page_metrics,
         )
@@ -131,6 +137,20 @@ async def _run_ga4_ingest(
 
         # Step 8: Upsert landing page rows
         upserted_lp = await db.upsert_ga4_landing_pages(lp_rows)
+
+        # Step 8a: Exact property-wide daily session totals (session multi-counting
+        # fix — see src/ga4/client.py fetch_daily_session_totals docstring). Guarded
+        # independently, same pattern as Step 8b's event fetch below: a failure here
+        # must not fail campaign/landing-page ingestion which already succeeded.
+        upserted_totals = 0
+        try:
+            totals_rows = await fetch_daily_session_totals(
+                client, settings.ga4_property_id, date_iso, date_iso,
+            )
+            upserted_totals = await db.upsert_ga4_daily_totals(totals_rows)
+        except Exception as exc:  # noqa: BLE001
+            sentry_sdk.capture_exception(exc)
+            logger.error("ga4_daily_totals_fetch_failed", date=date_iso, error=str(exc))
 
         # Step 8b: Funnel v3 — event-level metrics (settings.ga4_event_list), best-effort.
         # Guarded independently so an event-report failure (e.g. GA4 API outage on this
@@ -165,7 +185,7 @@ async def _run_ga4_ingest(
                     )
 
         # Step 9: Finish log
-        total_upserted = upserted_c + upserted_lp + upserted_events
+        total_upserted = upserted_c + upserted_lp + upserted_totals + upserted_events
         await db.log_ingestion_finish(log_id, "success", rows_upserted=total_upserted)
         logger.info(
             "ingest_complete",
@@ -173,6 +193,7 @@ async def _run_ga4_ingest(
             date=date_iso,
             campaign_rows=upserted_c,
             landing_rows=upserted_lp,
+            daily_total_rows=upserted_totals,
             event_rows=upserted_events,
         )
 

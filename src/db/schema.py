@@ -356,6 +356,29 @@ CREATE INDEX IF NOT EXISTS idx_pixel_health_date ON pixel_health(date);
 """
 
 # ---------------------------------------------------------------------------
+# Migration 014 — Exact property-wide GA4 daily session totals
+#
+# Fixes the session multi-counting bug in the old two-pass
+# _fetch_landing_page_metrics_sync (src/ga4/client.py): any fetch grouped by a
+# landing-page/pagePath dimension is at risk of counting a session once per
+# distinct dimension value it touches. This table is fed by a dimensions=[date]
+# / metrics=[sessions] report with NO other grouping -- the literal GA4
+# property-wide "Sessions" total per day -- so it cannot exhibit that failure
+# mode. date is the sole PK (one row per day, no landing-page breakdown);
+# src/dashboard/db.py's get_total_sessions_daily / get_total_sessions_summary
+# prefer this table, falling back to summing ga4_landing_pages when this table
+# is empty/missing (e.g. an older DB that hasn't been re-backfilled yet).
+# ---------------------------------------------------------------------------
+
+MIGRATION_014_GA4_DAILY_TOTALS: str = """
+CREATE TABLE IF NOT EXISTS ga4_daily_totals (
+    date        TEXT PRIMARY KEY,
+    sessions    INTEGER,
+    fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -373,4 +396,5 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("011_meta_funnel_v3", MIGRATION_011_META_FUNNEL_V3),
     ("012_shopify_orders", MIGRATION_012_SHOPIFY_ORDERS),
     ("013_pixel_health", MIGRATION_013_PIXEL_HEALTH),
+    ("014_ga4_daily_totals", MIGRATION_014_GA4_DAILY_TOTALS),
 ]

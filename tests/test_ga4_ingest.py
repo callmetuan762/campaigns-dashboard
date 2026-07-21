@@ -107,6 +107,43 @@ async def test_upsert_ga4_landing_pages_returns_row_count(db_client):
     assert result == 2
 
 
+# ---- ga4_daily_totals: exact property-wide session totals (session multi-counting fix) ----
+
+async def test_upsert_ga4_daily_totals_idempotent(db_client):
+    """Re-upserting same date does not duplicate rows (PK on date)."""
+    row = {"date": "2026-07-21", "sessions": 1803}
+    await db_client.upsert_ga4_daily_totals([row])
+    await db_client.upsert_ga4_daily_totals([row])
+    rows = await db_client.fetch_all(
+        "SELECT * FROM ga4_daily_totals WHERE date = '2026-07-21'"
+    )
+    assert len(rows) == 1
+
+
+async def test_upsert_ga4_daily_totals_updates_on_conflict(db_client):
+    """Re-upserting same date with a new value updates sessions in place."""
+    await db_client.upsert_ga4_daily_totals([{"date": "2026-07-21", "sessions": 1000}])
+    await db_client.upsert_ga4_daily_totals([{"date": "2026-07-21", "sessions": 1803}])
+    result = await db_client.fetch_one(
+        "SELECT sessions FROM ga4_daily_totals WHERE date = '2026-07-21'"
+    )
+    assert result["sessions"] == 1803
+
+
+async def test_upsert_ga4_daily_totals_empty_list(db_client):
+    result = await db_client.upsert_ga4_daily_totals([])
+    assert result == 0
+
+
+async def test_upsert_ga4_daily_totals_returns_row_count(db_client):
+    rows = [
+        {"date": "2026-07-15", "sessions": 185},
+        {"date": "2026-07-16", "sessions": 311},
+    ]
+    result = await db_client.upsert_ga4_daily_totals(rows)
+    assert result == 2
+
+
 # ---- GA4-04: 6-hour cache ----
 
 async def test_6h_cache_check_returns_row_after_successful_ingest(db_client):
@@ -190,6 +227,10 @@ async def test_run_ga4_ingest_upserts_events_and_sums_rows(monkeypatch):
         client_module, "fetch_landing_page_metrics",
         AsyncMock(return_value=[{"landing_page": "/y", "date": "2026-05-17"}]),
     )
+    totals_rows = [{"date": "2026-05-17", "sessions": 42}]
+    monkeypatch.setattr(
+        client_module, "fetch_daily_session_totals", AsyncMock(return_value=totals_rows)
+    )
     event_rows = [
         {"event_name": "begin_checkout", "date": "2026-05-17", "campaign_utm": "x", "lp_slug": "", "event_count": 5},
         {"event_name": "purchase", "date": "2026-05-17", "campaign_utm": "x", "lp_slug": "", "event_count": 2},
@@ -200,12 +241,14 @@ async def test_run_ga4_ingest_upserts_events_and_sums_rows(monkeypatch):
     mock_db.log_ingestion_start.return_value = 99
     mock_db.upsert_ga4_metrics.return_value = 1
     mock_db.upsert_ga4_landing_pages.return_value = 1
+    mock_db.upsert_ga4_daily_totals.return_value = 1
     mock_db.upsert_ga4_events.return_value = 2
 
     await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
 
+    mock_db.upsert_ga4_daily_totals.assert_called_once_with(totals_rows)
     mock_db.upsert_ga4_events.assert_called_once_with(event_rows)
-    mock_db.log_ingestion_finish.assert_called_once_with(99, "success", rows_upserted=4)
+    mock_db.log_ingestion_finish.assert_called_once_with(99, "success", rows_upserted=5)
 
 
 @pytest.mark.asyncio
@@ -225,12 +268,14 @@ async def test_run_ga4_ingest_event_fetch_failure_does_not_fail_whole_run(monkey
     monkeypatch.setattr(client_module, "_build_ga4_client", lambda path: MagicMock())
     monkeypatch.setattr(client_module, "fetch_campaign_metrics", AsyncMock(return_value=[]))
     monkeypatch.setattr(client_module, "fetch_landing_page_metrics", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client_module, "fetch_daily_session_totals", AsyncMock(return_value=[]))
     monkeypatch.setattr(client_module, "fetch_event_metrics", AsyncMock(side_effect=Exception("ga4 events down")))
 
     mock_db = AsyncMock()
     mock_db.log_ingestion_start.return_value = 1
     mock_db.upsert_ga4_metrics.return_value = 0
     mock_db.upsert_ga4_landing_pages.return_value = 0
+    mock_db.upsert_ga4_daily_totals.return_value = 0
 
     with patch("sentry_sdk.capture_exception"):
         await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
@@ -255,6 +300,7 @@ async def test_run_ga4_ingest_skips_events_when_event_list_empty(monkeypatch):
     monkeypatch.setattr(client_module, "_build_ga4_client", lambda path: MagicMock())
     monkeypatch.setattr(client_module, "fetch_campaign_metrics", AsyncMock(return_value=[]))
     monkeypatch.setattr(client_module, "fetch_landing_page_metrics", AsyncMock(return_value=[]))
+    monkeypatch.setattr(client_module, "fetch_daily_session_totals", AsyncMock(return_value=[]))
     mock_fetch_events = AsyncMock()
     monkeypatch.setattr(client_module, "fetch_event_metrics", mock_fetch_events)
 
@@ -262,6 +308,7 @@ async def test_run_ga4_ingest_skips_events_when_event_list_empty(monkeypatch):
     mock_db.log_ingestion_start.return_value = 1
     mock_db.upsert_ga4_metrics.return_value = 0
     mock_db.upsert_ga4_landing_pages.return_value = 0
+    mock_db.upsert_ga4_daily_totals.return_value = 0
 
     await _run_ga4_ingest(bot=None, db=mock_db, settings=settings, date_override="2026-05-17", skip_cache=True)
 

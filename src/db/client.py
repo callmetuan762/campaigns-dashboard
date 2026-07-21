@@ -233,6 +233,30 @@ class DBClient:
         await self.conn.commit()
         return len(rows)
 
+    # ---- Exact property-wide GA4 daily session totals (session multi-counting fix) ----
+
+    _UPSERT_GA4_DAILY_TOTALS_SQL = """
+        INSERT INTO ga4_daily_totals (date, sessions)
+        VALUES (:date, :sessions)
+        ON CONFLICT(date) DO UPDATE SET
+            sessions   = excluded.sessions,
+            fetched_at = datetime('now');
+    """
+
+    async def upsert_ga4_daily_totals(self, rows: list[dict]) -> int:
+        """Upsert ga4_daily_totals rows. Idempotent via PK (date).
+
+        INFRA-03: idempotent at SQL layer via INSERT ... ON CONFLICT DO UPDATE,
+        mirroring upsert_ga4_landing_pages. Rows come from
+        src.ga4.client.fetch_daily_session_totals's dimensions=[date]-only
+        report -- one row per calendar day, no landing-page breakdown.
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_GA4_DAILY_TOTALS_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
     # ---- Funnel v3: GA4 event-level metrics ----
 
     _UPSERT_GA4_EVENTS_SQL = """

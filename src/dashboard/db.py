@@ -1854,7 +1854,8 @@ def get_segment_mini_funnels(
 
 
 def get_total_sessions_daily(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
-    """Daily TOTAL GA4 sessions from ga4_landing_pages -- NOT ga4_metrics.
+    """Daily TOTAL GA4 sessions -- prefers ga4_daily_totals, falls back to summing
+    ga4_landing_pages -- NOT ga4_metrics.
 
     D-11 fix: _fetch_campaign_metrics_sync's dimension_filter EXCLUDES
     campaign_utm = '(not set)' rows entirely (see that function's not_expression
@@ -1865,14 +1866,31 @@ def get_total_sessions_daily(db_path: Path, start_date: str, end_date: str) -> l
     traffic by however much sits in '(not set)' (verified live: ~650 attributed vs
     ~1,800 real sessions for 2026-07-15..21, with 939 sessions in '(not set)').
 
-    ga4_landing_pages' fetch (_fetch_landing_page_metrics_sync) has no such
-    campaign filter, so summing its `sessions` column per date recovers the true
-    GA4 session total -- this is the "all sessions" leg of the capture-gap /
-    attribution-gap decomposition (see get_click_session_gap).
+    Session multi-counting fix (2026-07-22): ga4_landing_pages used to be built by
+    a two-pass fetch whose second pass grouped sessions by pagePathPlusQueryString
+    and multi-counted them (once per page viewed per session) -- see
+    src/ga4/client.py _fetch_landing_page_metrics_sync's docstring. ga4_daily_totals
+    is fed by a dimensions=[date]-only report with no landing-page grouping at all,
+    so it cannot exhibit that failure mode and is the preferred source. Falls back
+    to summing ga4_landing_pages when ga4_daily_totals is empty or missing (older
+    DB not yet migrated / re-backfilled) so callers keep working during rollout.
 
     Returns [] on missing table / no data (graceful degradation, matching
     get_sessions_daily's convention).
     """
+    try:
+        with _conn(db_path) as con:
+            any_totals_row = con.execute("SELECT 1 FROM ga4_daily_totals LIMIT 1").fetchone()
+            if any_totals_row is not None:
+                rows = con.execute(
+                    "SELECT date, sessions FROM ga4_daily_totals "
+                    "WHERE date BETWEEN ? AND ? ORDER BY date",
+                    (start_date, end_date),
+                ).fetchall()
+                return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        pass  # ga4_daily_totals missing (pre-migration DB) -- fall through below
+
     sql = """
         SELECT date, COALESCE(SUM(sessions), 0) AS sessions
         FROM ga4_landing_pages
@@ -1893,10 +1911,26 @@ def get_total_sessions_summary(db_path: Path, start_date: str, end_date: str) ->
 
     Thin wrapper around get_total_sessions_daily for callers (get_click_session_gap,
     Tracking Health's click->session chip) that need one number + an "ever ingested"
-    flag rather than a daily series. `available` reflects whether ga4_landing_pages
+    flag rather than a daily series. Prefers ga4_daily_totals (see
+    get_total_sessions_daily's docstring for the session multi-counting fix this
+    resolves), falling back to summing ga4_landing_pages when ga4_daily_totals is
+    empty/missing. `available` reflects whether the source table actually used
     has ever had ANY row (independent of this specific date range), matching the
     convention used by get_ga4_sessions_summary / get_meta_funnel_summary.
     """
+    try:
+        with _conn(db_path) as con:
+            any_totals_row = con.execute("SELECT 1 FROM ga4_daily_totals LIMIT 1").fetchone()
+            if any_totals_row is not None:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(sessions), 0) AS sessions FROM ga4_daily_totals "
+                    "WHERE date BETWEEN ? AND ?",
+                    (start_date, end_date),
+                ).fetchone()
+                return {"sessions": int(row["sessions"]) if row else 0, "available": True}
+    except sqlite3.OperationalError:
+        pass  # ga4_daily_totals missing (pre-migration DB) -- fall through below
+
     try:
         with _conn(db_path) as con:
             row = con.execute(
