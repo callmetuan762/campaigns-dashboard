@@ -511,6 +511,97 @@ def test_segment_mini_funnels_sorted_by_sessions_desc(seeded_db: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# get_segment_mini_funnels — canonical_slugs bucketing (segment slug cleanup,
+# 2026-07-22): junk/legacy lp_slug values collapse into a single "(other)"
+# group rendered last, while canonical slugs still appear individually.
+# ---------------------------------------------------------------------------
+
+_CANONICAL = ["routine-break", "big-feelings-type", "screen-kid",  # QUIZ_LP_SLUGS
+              "home", "routine", "big-feelings", "screen-anxious", "preorder"]  # PREORDER_LP_SLUGS
+
+
+@pytest.fixture()
+def junk_slug_db(tmp_path: Path) -> Path:
+    """One canonical slug ('routine') + several junk/legacy slugs, including
+    '(not set)' and a legacy display-name-style slug."""
+    p = tmp_path / "metrics.db"
+    con = _make_db(p)
+    con.executescript("""
+        INSERT INTO ga4_events (event_name, date, campaign_utm, lp_slug, event_count) VALUES
+            ('page_view_lp', '2026-06-01', 'nowa_launch', 'routine',              100),
+            ('page_view_lp', '2026-06-01', 'nowa_launch', '(not set)',             40),
+            ('page_view_lp', '2026-06-01', 'nowa_launch', '6a-nostalgia-bridge',   10),
+            ('page_view_lp', '2026-06-01', 'nowa_launch', 'big-feelings',           5),
+            ('add_to_cart',  '2026-06-01', 'nowa_launch', '(not set)',              3),
+            ('begin_checkout','2026-06-01','nowa_launch', '6a-nostalgia-bridge',    1);
+        INSERT INTO shopify_orders
+            (order_id, created_at, order_date, total_price, financial_status, lp_slug, fetched_at)
+        VALUES
+            ('o1', '2026-06-01', '2026-06-01', 49.0, 'paid', '(not set)', '2026-06-02');
+    """)
+    con.commit()
+    con.close()
+    return p
+
+
+def test_segment_mini_funnels_canonical_slugs_bucket_other_last(junk_slug_db: Path) -> None:
+    rows = get_segment_mini_funnels(
+        junk_slug_db, "2026-06-01", "2026-06-02", canonical_slugs=_CANONICAL
+    )
+    slugs = [r["lp_slug"] for r in rows]
+    # Only canonical slugs appear individually, plus a single trailing "(other)"
+    assert set(slugs) == {"routine", "big-feelings", "(other)"}
+    assert slugs[-1] == "(other)"
+
+
+def test_segment_mini_funnels_canonical_slugs_other_aggregates_junk(junk_slug_db: Path) -> None:
+    rows = get_segment_mini_funnels(
+        junk_slug_db, "2026-06-01", "2026-06-02", canonical_slugs=_CANONICAL
+    )
+    other = next(r for r in rows if r["lp_slug"] == "(other)")
+    # '(not set)' (40 sessions, 3 atc, 1 order) + '6a-nostalgia-bridge' (10 sessions, 1 bc)
+    assert other["sessions"] == 40 + 10
+    assert other["add_to_cart"] == 3
+    assert other["begin_checkout"] == 1
+    assert other["orders"] == 1
+
+
+def test_segment_mini_funnels_canonical_slugs_ordering_preserved_among_canonical(
+    junk_slug_db: Path,
+) -> None:
+    rows = get_segment_mini_funnels(
+        junk_slug_db, "2026-06-01", "2026-06-02", canonical_slugs=_CANONICAL
+    )
+    canonical_rows = [r for r in rows if r["lp_slug"] != "(other)"]
+    sessions = [r["sessions"] for r in canonical_rows]
+    assert sessions == sorted(sessions, reverse=True)  # routine (100) before big-feelings (5)
+
+
+def test_segment_mini_funnels_canonical_slugs_none_is_backward_compatible(
+    junk_slug_db: Path,
+) -> None:
+    """Omitting canonical_slugs (default None) must behave exactly as before
+    this feature was added -- every lp_slug appears individually."""
+    rows = get_segment_mini_funnels(junk_slug_db, "2026-06-01", "2026-06-02")
+    slugs = {r["lp_slug"] for r in rows}
+    assert slugs == {"routine", "big-feelings", "(not set)", "6a-nostalgia-bridge"}
+    assert "(other)" not in slugs
+
+
+def test_segment_mini_funnels_canonical_slugs_no_bucket_when_all_canonical(
+    seeded_db: Path,
+) -> None:
+    """seeded_db only has 'routine' and 'big-feelings' -- both canonical --
+    so no "(other)" row should be synthesized."""
+    rows = get_segment_mini_funnels(
+        seeded_db, "2026-06-01", "2026-06-02", canonical_slugs=_CANONICAL
+    )
+    slugs = {r["lp_slug"] for r in rows}
+    assert slugs == {"routine", "big-feelings"}
+    assert "(other)" not in slugs
+
+
+# ---------------------------------------------------------------------------
 # get_click_session_gap + click_session_gap_band
 # ---------------------------------------------------------------------------
 

@@ -1706,7 +1706,11 @@ def get_preorder_funnel_steps(
 
 
 def get_segment_mini_funnels(
-    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
+    db_path: Path,
+    start_date: str,
+    end_date: str,
+    orders_valid_from: str = "",
+    canonical_slugs: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Per-lp_slug mini funnel: page views -> add-to-cart -> begin-checkout -> orders.
 
@@ -1720,6 +1724,19 @@ def get_segment_mini_funnels(
     `orders_valid_from` (D-06): when non-empty, excludes shopify_orders rows with
     order_date before this cutoff (internal test/pre-launch orders) from the
     per-segment "orders" count -- query-time filter only, no rows deleted.
+
+    `canonical_slugs` (segment slug cleanup, 2026-07-22): raw lp_slug values
+    include a long tail of junk from legacy traffic -- old display-name-style
+    slugs ('6A Nostalgia Bridge'), '(not set)', and near-duplicates of the
+    current slugs (plain 'big-feelings' predates canonical
+    'big-feelings-type'). When given (typically QUIZ_LP_SLUGS +
+    PREORDER_LP_SLUGS from src.config), any lp_slug NOT in this list is
+    aggregated into a single trailing "(other)" row instead of appearing
+    individually. Canonical rows are still sorted by sessions desc among
+    themselves; "(other)" is always last regardless of its own session count.
+    When `canonical_slugs` is None (default), behavior is unchanged from
+    before this bucketing was added -- every lp_slug appears individually,
+    sorted by sessions desc.
     """
     events_by_slug: dict[str, dict[str, int]] = {}
     try:
@@ -1783,6 +1800,23 @@ def get_segment_mini_funnels(
             "begin_checkout": e["begin_checkout"],
             "orders": orders_by_slug.get(slug, 0),
         })
+
+    if canonical_slugs is not None:
+        canonical_set = set(canonical_slugs)
+        canonical_rows = [r for r in results if r["lp_slug"] in canonical_set]
+        other_rows = [r for r in results if r["lp_slug"] not in canonical_set]
+        canonical_rows.sort(key=lambda r: r["sessions"], reverse=True)
+        if not other_rows:
+            return canonical_rows
+        other_bucket = {
+            "lp_slug": "(other)",
+            "sessions": sum(r["sessions"] for r in other_rows),
+            "add_to_cart": sum(r["add_to_cart"] for r in other_rows),
+            "begin_checkout": sum(r["begin_checkout"] for r in other_rows),
+            "orders": sum(r["orders"] for r in other_rows),
+        }
+        return canonical_rows + [other_bucket]
+
     results.sort(key=lambda r: r["sessions"], reverse=True)
     return results
 

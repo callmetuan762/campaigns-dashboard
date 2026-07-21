@@ -49,6 +49,13 @@ PAID_RATE_WARNING_PCT = 25.0            # horizontal warning threshold line
 # palette constants above, duplicated from app.py for the same reason).
 QUIZ_LP_SLUGS = ["routine-break", "big-feelings-type", "screen-kid"]
 
+# Canonical preorder-funnel landing pages — duplicated from src/config.py
+# PREORDER_LP_SLUGS per the same D-19 rule. Used with QUIZ_LP_SLUGS to bucket
+# junk/legacy lp_slug values (old display-name-style slugs, '(not set)',
+# near-duplicates) into a single "(other)" group in the segment comparison
+# below, instead of showing them as individual bars.
+PREORDER_LP_SLUGS = ["home", "routine", "big-feelings", "screen-anxious", "preorder"]
+
 _BAND_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴", "gray": "⚪"}
 
 settings = DashboardSettings()
@@ -148,7 +155,10 @@ def _cached_segment_funnels(
     db_path_str: str, start: str, end: str, orders_valid_from: str = ""
 ) -> list[dict[str, Any]]:
     from pathlib import Path
-    return db.get_segment_mini_funnels(Path(db_path_str), start, end, orders_valid_from)
+    return db.get_segment_mini_funnels(
+        Path(db_path_str), start, end, orders_valid_from,
+        canonical_slugs=QUIZ_LP_SLUGS + PREORDER_LP_SLUGS,
+    )
 
 
 @st.cache_data(ttl=300, show_spinner=False)

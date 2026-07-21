@@ -102,6 +102,26 @@ def test_quiz_lp_slugs_constant_declared() -> None:
     assert "screen-kid" in source
 
 
+def test_preorder_lp_slugs_constant_declared_and_matches_config() -> None:
+    """PREORDER_LP_SLUGS is duplicated in this page per the D-19 standalone
+    rule (mirrors QUIZ_LP_SLUGS above) -- must stay in sync with
+    src.config.PREORDER_LP_SLUGS so the two can't silently drift apart."""
+    from src.config import PREORDER_LP_SLUGS
+
+    source = PAGE_PATH.read_text(encoding="utf-8")
+    assert "PREORDER_LP_SLUGS = " in source
+    for slug in PREORDER_LP_SLUGS:
+        assert slug in source
+
+
+def test_segment_funnels_pass_canonical_slugs() -> None:
+    """The segment-comparison call must pass canonical_slugs so junk/legacy
+    lp_slug values bucket into a trailing "(other)" group instead of
+    appearing individually (segment slug cleanup, 2026-07-22)."""
+    source = PAGE_PATH.read_text(encoding="utf-8")
+    assert "canonical_slugs=QUIZ_LP_SLUGS + PREORDER_LP_SLUGS" in source
+
+
 def test_db_module_used_for_band_helpers() -> None:
     """The gap / not-set-share color bands must come from the tested db.py
     pure functions, not be re-implemented ad hoc in the page.

@@ -20,6 +20,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # "standalone" rationale).
 QUIZ_LP_SLUGS: list[str] = ["routine-break", "big-feelings-type", "screen-kid"]
 
+# Canonical preorder-funnel landing pages (Overview v2 / Funnel segment
+# cleanup, 2026-07-22). get_segment_mini_funnels sees a long tail of junk
+# lp_slug values from legacy traffic -- old display-name-style slugs
+# ('6A Nostalgia Bridge', '1A Screen Time'), '(not set)', and near-duplicates
+# of the current slugs (plain 'big-feelings' predates 'big-feelings-type').
+# Any lp_slug NOT in QUIZ_LP_SLUGS or PREORDER_LP_SLUGS is bucketed into a
+# single "(other)" group by get_segment_mini_funnels so the segment
+# comparison only ever shows the current, real landing pages individually.
+PREORDER_LP_SLUGS: list[str] = ["home", "routine", "big-feelings", "screen-anxious", "preorder"]
+
 
 class Settings(BaseSettings):
     # ---- Telegram (required) ----
