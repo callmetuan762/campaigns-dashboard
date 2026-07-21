@@ -265,6 +265,84 @@ def test_get_not_set_campaign_share(populated_db):
     assert share == pytest.approx(80.0)
 
 
+# ---------------------------------------------------------------------------
+# D-07 regression: get_not_set_campaign_share must match the literal string
+# '(not set)' (what GA4 actually stores), not just campaign_utm = ''. Before this
+# fix, a window where GA4 stored '(not set)' rather than '' would show 0% here
+# while get_ga4_not_set_share (which already matched both) showed the true share.
+# ---------------------------------------------------------------------------
+
+def test_get_not_set_campaign_share_matches_literal_not_set_string(tmp_path):
+    """The exact bug: campaign_utm = '(not set)' rows must count as not-set, not
+    be silently excluded (which would previously report an incorrectly low/0% share)."""
+    from src.dashboard.db import get_not_set_campaign_share
+
+    db = tmp_path / "metrics.db"
+    con = sqlite3.connect(str(db))
+    con.executescript(
+        """
+        CREATE TABLE ga4_events (
+            event_name TEXT NOT NULL, date TEXT NOT NULL,
+            campaign_utm TEXT NOT NULL DEFAULT '', lp_slug TEXT NOT NULL DEFAULT '',
+            event_count INTEGER, fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (event_name, date, campaign_utm, lp_slug)
+        );
+        INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
+        VALUES ('begin_checkout', '2026-07-15', '(not set)', '', 81);
+        INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
+        VALUES ('begin_checkout', '2026-07-15', 'nowa_launch', '', 19);
+        """
+    )
+    con.commit()
+    con.close()
+
+    share = get_not_set_campaign_share(db, "begin_checkout", "2026-07-15", "2026-07-15")
+    assert share == pytest.approx(81.0)
+
+
+def test_get_not_set_campaign_share_matches_both_blank_and_literal(tmp_path):
+    """Both '' and '(not set)' rows must be counted together, matching
+    get_ga4_not_set_share's IN ('(not set)', '') semantics exactly."""
+    from src.dashboard.db import get_not_set_campaign_share
+
+    db = tmp_path / "metrics.db"
+    con = sqlite3.connect(str(db))
+    con.executescript(
+        """
+        CREATE TABLE ga4_events (
+            event_name TEXT NOT NULL, date TEXT NOT NULL,
+            campaign_utm TEXT NOT NULL DEFAULT '', lp_slug TEXT NOT NULL DEFAULT '',
+            event_count INTEGER, fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (event_name, date, campaign_utm, lp_slug)
+        );
+        INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
+        VALUES ('purchase', '2026-07-15', '(not set)', '', 30);
+        INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
+        VALUES ('purchase', '2026-07-15', '', '', 20);
+        INSERT INTO ga4_events(event_name, date, campaign_utm, lp_slug, event_count)
+        VALUES ('purchase', '2026-07-15', 'nowa_launch', '', 50);
+        """
+    )
+    con.commit()
+    con.close()
+
+    share = get_not_set_campaign_share(db, "purchase", "2026-07-15", "2026-07-15")
+    assert share == pytest.approx(50.0)  # (30 + 20) / 100
+
+
+def test_not_set_campaign_values_constant_shared_by_both_functions():
+    """D-07: get_ga4_not_set_share and get_not_set_campaign_share must both bind
+    the same NOT_SET_CAMPAIGN_VALUES constant so their string-matching rule
+    can never drift apart again."""
+    import inspect
+
+    from src.dashboard import db
+
+    assert db.NOT_SET_CAMPAIGN_VALUES == ("(not set)", "")
+    assert "NOT_SET_CAMPAIGN_VALUES" in inspect.getsource(db.get_ga4_not_set_share)
+    assert "NOT_SET_CAMPAIGN_VALUES" in inspect.getsource(db.get_not_set_campaign_share)
+
+
 def test_get_pixel_health_returns_rows(populated_db):
     from src.dashboard.db import get_pixel_health
 

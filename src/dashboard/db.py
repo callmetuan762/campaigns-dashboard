@@ -1369,6 +1369,18 @@ def get_weekly_contributions(
 #     "no data yet" empty state instead of crashing the page.
 # ---------------------------------------------------------------------------
 
+# GA4 stores the literal string '(not set)' in campaign_utm for sessions/events it
+# could not tie back to a campaign; a blank '' also occurs (rows from sources/paths
+# that never populate the dimension at all). Both mean the same thing -- "no campaign
+# attribution" -- and every query that computes a "(not set) share" must match BOTH
+# values identically. A prior drift here (get_not_set_campaign_share matching only
+# campaign_utm = '' while get_ga4_not_set_share correctly matched IN ('(not set)', ''))
+# caused Tracking Health to report 0% "(not set)" share for the exact same underlying
+# data the Funnel page reported as ~81% -- two numbers for one fact. Any future
+# "(not set)" query MUST bind this tuple via `campaign_utm IN (?, ?)`, never hand-roll
+# the match, so the two can't drift apart again.
+NOT_SET_CAMPAIGN_VALUES: tuple[str, str] = ("(not set)", "")
+
 
 def get_meta_funnel_summary(db_path: Path, start_date: str, end_date: str) -> dict[str, Any]:
     """Impressions / clicks / landing_page_views from ad_metrics (Meta side).
@@ -1707,13 +1719,13 @@ def get_ga4_not_set_share(db_path: Path, start_date: str, end_date: str) -> dict
                 """
                 SELECT
                     COALESCE(SUM(event_count), 0) AS total,
-                    COALESCE(SUM(CASE WHEN campaign_utm IN ('(not set)', '')
+                    COALESCE(SUM(CASE WHEN campaign_utm IN (?, ?)
                                        THEN event_count ELSE 0 END), 0) AS not_set
                 FROM ga4_events
                 WHERE event_name IN (?, ?, ?)
                   AND date BETWEEN ? AND ?
                 """,
-                (*events, start_date, end_date),
+                (*NOT_SET_CAMPAIGN_VALUES, *events, start_date, end_date),
             ).fetchone()
     except sqlite3.OperationalError:
         return {"share_pct": None, "not_set_count": 0, "total_count": 0, "available": False}
@@ -1914,21 +1926,33 @@ def get_sessions_daily(db_path: Path, start_date: str, end_date: str) -> list[di
 def get_not_set_campaign_share(
     db_path: Path, event_name: str, start_date: str, end_date: str
 ) -> float | None:
-    """%% of `event_name` rows attributed to campaign_utm='' ("(not set)") in a window.
+    """%% of `event_name` rows with no campaign attribution in a window.
+
+    D-07 fix: GA4 stores the literal string '(not set)' in campaign_utm for
+    unattributed sessions/events -- matching only campaign_utm = '' (as this
+    function used to) missed nearly all of that traffic, so Tracking Health showed
+    0% "(not set)" share for the same data the Funnel page's get_ga4_not_set_share
+    (which already matched both values) correctly reported as ~81%. Uses the shared
+    NOT_SET_CAMPAIGN_VALUES constant so the two functions can't drift apart again --
+    this function still scopes to a single event_name (per-event chip), while
+    get_ga4_not_set_share aggregates 3 checkout events together; only the
+    "(not set)" string-matching rule is now guaranteed identical between them.
 
     Returns None when there's no data at all for the event in this window
     (share is undefined, not zero) or the table doesn't exist yet.
     """
     sql = """
         SELECT
-            COALESCE(SUM(CASE WHEN campaign_utm = '' THEN event_count ELSE 0 END), 0) AS not_set,
+            COALESCE(SUM(CASE WHEN campaign_utm IN (?, ?) THEN event_count ELSE 0 END), 0) AS not_set,
             COALESCE(SUM(event_count), 0) AS total
         FROM ga4_events
         WHERE event_name = ? AND date BETWEEN ? AND ?
     """
     try:
         with _conn(db_path) as con:
-            row = con.execute(sql, (event_name, start_date, end_date)).fetchone()
+            row = con.execute(
+                sql, (*NOT_SET_CAMPAIGN_VALUES, event_name, start_date, end_date)
+            ).fetchone()
     except sqlite3.OperationalError:
         return None
     if not row or (row["total"] or 0) <= 0:
