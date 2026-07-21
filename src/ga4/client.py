@@ -195,6 +195,18 @@ def _fetch_campaign_metrics_sync(
     return rows
 
 
+def _normalise_ga4_date(raw_date: str, fallback: str) -> str:
+    """Convert an 8-digit GA4 date string ("20260721") to ISO ("2026-07-21").
+
+    Falls back to `fallback` (the request's start_date) when raw_date is empty —
+    matches the pre-existing per-function inline helper this was promoted from.
+    """
+    d = raw_date or fallback
+    if len(d) == 8:
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return d
+
+
 def _fetch_landing_page_metrics_sync(
     client: BetaAnalyticsDataClient,
     property_id: str,
@@ -204,20 +216,33 @@ def _fetch_landing_page_metrics_sync(
 ) -> list[dict]:
     """Synchronous GA4 landing page metrics fetch — called via asyncio.to_thread().
 
-    Two-pass approach to capture ALL sessions including iOS/privacy-stripped ones:
+    Single-pass, grouped by landingPagePlusQueryString + date ONLY. The literal
+    "(not set)" landing_page value is INCLUDED (not filtered out) — see below.
 
-    Pass 1 — landingPagePlusQueryString: captures Meta-attributed sessions (UTM/fbclid params
-    intact). These are "Paid Other" sessions in GA4 with high engagement rates.
+    Why this used to be a two-pass fetch, and why pass 2 was removed (2026-07-22):
+    the previous version ran a second request grouped by pagePathPlusQueryString
+    (filtered to sessionDefaultChannelGroup='Unassigned') to recover iOS/privacy
+    sessions that show landingPagePlusQueryString = "(not set)", and merged those
+    rows onto pass 1's by summing sessions per (page, date). That merge silently
+    multi-counted: GA4's `sessions` metric, when grouped by a per-pageview
+    dimension like pagePathPlusQueryString, counts a session once for EVERY PAGE
+    the session touched (session × page combinations), not once per landing page.
+    A single 5-page session was returned as 5 rows and got summed in 5 times.
+    Verified live against property 534295825: ga4_landing_pages (two-pass) summed
+    to 2,177 sessions for 2026-07-15..20, while the property's true total for
+    15..21 (one MORE day) was only 1,803 — and a direct landingPagePlusQueryString
+    -only grouping for 15..21 summed to 1,871, confirming pass 1 alone tracks the
+    truth and pass 2 was the source of the overcount.
 
-    Pass 2 — pagePathPlusQueryString + sessionDefaultChannelGroup='Unassigned': captures iOS
-    sessions where ATT privacy strips UTM params. These show as "Unassigned" in GA4 with
-    landingPagePlusQueryString = "(not set)", making them invisible to Pass 1.
-
-    Results are merged by (landing_page_path, date), summing sessions and other metrics.
-    For a single-page funnel like Nowa's, pageView on /slug/ == landing on /slug/.
+    Unassigned/iOS sessions — the ones pass 2 was trying to recover — now surface
+    as a literal "(not set)" landing_page row (no longer filtered out, no longer
+    redistributed across pageview rows) instead of being invisible or multi-counted.
+    Callers that need an exact property-wide session total independent of any
+    dimension grouping (dashboard "total sessions" figures) should read
+    ga4_daily_totals (see fetch_daily_session_totals) rather than summing this
+    table — grouping by landing page can still diverge from the property total
+    for any date where a session's landing page value is ambiguous/changes.
     """
-    from collections import defaultdict
-
     scoped_metric = _scoped_conversion_metric(conversion_event)
 
     def _paginate(req: RunReportRequest) -> list[dict]:
@@ -237,115 +262,71 @@ def _fetch_landing_page_metrics_sync(
                 break
         return raw_rows
 
-    METRICS = [
-        Metric(name="sessions"),
-        Metric(name="totalUsers"),
-        Metric(name=scoped_metric),
-        Metric(name="screenPageViews"),
-        Metric(name="userEngagementDuration"),
-    ]
-    DATE_RANGE = [DateRange(start_date=start_date, end_date=end_date)]
-
-    # ── Pass 1: landingPagePlusQueryString (UTM-tagged, Paid Other sessions) ──────
-    req1 = RunReportRequest(
+    request = RunReportRequest(
         property=f"properties/{property_id}",
         dimensions=[Dimension(name=_LANDING_PAGE_DIMENSION), Dimension(name="date")],
-        metrics=METRICS,
-        date_ranges=DATE_RANGE,
-        dimension_filter=FilterExpression(
-            not_expression=FilterExpression(
-                filter=Filter(
-                    field_name=_LANDING_PAGE_DIMENSION,
-                    string_filter=Filter.StringFilter(value="(not set)"),
-                )
-            )
-        ),
-        return_property_quota=True,
-        keep_empty_rows=False,
-        limit=10000,
-    )
-    pass1_raw = _paginate(req1)
-
-    # ── Pass 2: pagePathPlusQueryString for Unassigned channel (iOS/privacy sessions) ─
-    req2 = RunReportRequest(
-        property=f"properties/{property_id}",
-        dimensions=[
-            Dimension(name="pagePathPlusQueryString"),
-            Dimension(name="sessionDefaultChannelGroup"),
-            Dimension(name="date"),
+        metrics=[
+            Metric(name="sessions"),
+            Metric(name="totalUsers"),
+            Metric(name=scoped_metric),
+            Metric(name="screenPageViews"),
+            Metric(name="userEngagementDuration"),
         ],
-        metrics=METRICS,
-        date_ranges=DATE_RANGE,
-        dimension_filter=FilterExpression(
-            filter=Filter(
-                field_name="sessionDefaultChannelGroup",
-                string_filter=Filter.StringFilter(value="Unassigned"),
-            )
-        ),
+        date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        # No dimension_filter: unlike the old pass 1, "(not set)" rows are kept —
+        # they are the iOS/privacy-stripped sessions the removed pass 2 used to
+        # (wrongly) try to recover via pagePath redistribution.
         return_property_quota=True,
         keep_empty_rows=False,
         limit=10000,
     )
-    pass2_raw = _paginate(req2)
+    raw_rows = _paginate(request)
 
-    # ── Merge: accumulate by (landing_page_key, date) ────────────────────────────
-    # key = (landing_page_string, date_iso)
-    merged: dict[tuple, dict] = {}
-
-    def _add(page_key: str, date_key: str, raw: dict) -> None:
-        """Upsert-accumulate metrics into merged dict."""
-        k = (page_key, date_key)
-        if k not in merged:
-            merged[k] = {
-                "landing_page": page_key,
-                "date": date_key,
-                "sessions": 0,
-                "total_users": 0,
-                "ga4_purchases_lastclick": 0,
-                "screen_page_views": 0,
-                "avg_engagement_time": 0.0,
-                "_eng_sum": 0.0,
-                "_eng_count": 0,
-            }
-        m = merged[k]
-        m["sessions"]               += int(raw.get("sessions") or 0)
-        m["total_users"]            += int(raw.get("totalUsers") or 0)
-        m["ga4_purchases_lastclick"] += int(raw.get(scoped_metric) or 0)
-        m["screen_page_views"]      += int(raw.get("screenPageViews") or 0)
-        eng = float(raw.get("userEngagementDuration") or 0.0)
-        if eng > 0:
-            m["_eng_sum"]   += eng
-            m["_eng_count"] += 1
-
-    def _normalise_date(raw_date: str, fallback: str) -> str:
-        d = raw_date or fallback
-        if len(d) == 8:
-            return f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        return d
-
-    # Pass 1
-    for raw in pass1_raw:
-        page = raw.get(_LANDING_PAGE_DIMENSION, "") or ""
-        if not page or page == "(not set)":
-            continue
-        _add(page, _normalise_date(raw.get("date", ""), start_date), raw)
-
-    # Pass 2 (Unassigned)
-    for raw in pass2_raw:
-        page = raw.get("pagePathPlusQueryString", "") or ""
-        if not page or page == "(not set)":
-            continue
-        _add(page, _normalise_date(raw.get("date", ""), start_date), raw)
-
-    # Finalise avg_engagement_time
     rows = []
-    for m in merged.values():
-        if m["_eng_count"] > 0:
-            m["avg_engagement_time"] = m["_eng_sum"] / m["_eng_count"]
-        del m["_eng_sum"]
-        del m["_eng_count"]
-        rows.append(m)
+    for raw in raw_rows:
+        page = raw.get(_LANDING_PAGE_DIMENSION, "") or ""
+        if not page:
+            continue
+        date_key = _normalise_ga4_date(raw.get("date", ""), start_date)
+        rows.append(_parse_landing_row(raw, date_key, scoped_metric))
+    return rows
 
+
+def _fetch_daily_totals_sync(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    """Synchronous exact property-wide daily session totals — asyncio.to_thread().
+
+    dimensions=[date] ONLY, metrics=[sessions] ONLY — no landing-page/pagePath
+    grouping whatsoever, so this is the literal GA4 "Sessions" total for the whole
+    property per day. This is the fix for the session multi-counting bug in the
+    old two-pass _fetch_landing_page_metrics_sync (see that function's docstring):
+    any dimension-grouped fetch is at risk of a session being counted once per
+    distinct dimension value it touches, but a bare date-only report has nothing
+    else to group by, so each session can only land in exactly one row.
+    """
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[Dimension(name="date")],
+        metrics=[Metric(name="sessions")],
+        date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        return_property_quota=True,
+        keep_empty_rows=False,
+        limit=10000,
+    )
+    response = client.run_report(request)
+    logger.info("ga4_quota", tokens_per_project_per_hour=str(response.property_quota))
+
+    rows = []
+    for row in response.rows:
+        dim_vals = {h.name: v.value for h, v in zip(response.dimension_headers, row.dimension_values)}
+        met_vals = {h.name: v.value for h, v in zip(response.metric_headers, row.metric_values)}
+        raw = {**dim_vals, **met_vals}
+        date_key = _normalise_ga4_date(raw.get("date", ""), start_date)
+        rows.append({"date": date_key, "sessions": int(raw.get("sessions") or 0)})
     return rows
 
 
@@ -391,6 +372,34 @@ async def fetch_landing_page_metrics(
         _fetch_landing_page_metrics_sync, client, property_id, start_date, end_date, conversion_event
     )
     logger.info("ga4_fetch_complete", type="landing_page", rows=len(rows))
+    return rows
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_daily_session_totals(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    """Async wrapper: fetch exact property-wide daily session totals for a date range.
+
+    Feeds ga4_daily_totals — the source of truth get_total_sessions_daily /
+    get_total_sessions_summary prefer over summing ga4_landing_pages (see
+    _fetch_daily_totals_sync's docstring for why grouped fetches can't guarantee
+    this).
+    """
+    logger.info("ga4_fetch_start", type="daily_totals", start=start_date, end=end_date)
+    rows = await asyncio.to_thread(
+        _fetch_daily_totals_sync, client, property_id, start_date, end_date
+    )
+    logger.info("ga4_fetch_complete", type="daily_totals", rows=len(rows))
     return rows
 
 

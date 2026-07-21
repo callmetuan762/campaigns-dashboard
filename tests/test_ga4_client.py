@@ -239,8 +239,8 @@ def test_fetch_campaign_metrics_sync_requests_scoped_metric_name():
 
 
 def test_fetch_landing_page_metrics_sync_requests_scoped_metric_name():
-    """D-08 regression: the landing-page fetch's Pass 1 / Pass 2 requests must both
-    use the event-scoped metric name for the configured conversion_event."""
+    """D-08 regression: the landing-page fetch's single request must use the
+    event-scoped metric name for the configured conversion_event."""
     from unittest.mock import MagicMock
 
     from src.ga4.client import _fetch_landing_page_metrics_sync
@@ -250,24 +250,16 @@ def test_fetch_landing_page_metrics_sync_requests_scoped_metric_name():
         assert "keyEvents:purchase" in metric_names
         assert "keyEvents" not in metric_names
         dim_names = [d.name for d in request.dimensions]
-        if "landingPagePlusQueryString" in dim_names:
-            return _mock_response(
-                dim_names=dim_names,
-                metric_names=[
-                    "sessions", "totalUsers", "keyEvents:purchase",
-                    "screenPageViews", "userEngagementDuration",
-                ],
-                dim_values=["/routine/", "20260721"],
-                metric_values=["50", "40", "5", "60", "30.0"],
-            )
-        # Pass 2 (Unassigned channel) — no matching rows this test.
-        response = MagicMock()
-        response.property_quota = "quota"
-        response.dimension_headers = []
-        response.metric_headers = []
-        response.rows = []
-        response.row_count = 0
-        return response
+        assert dim_names == ["landingPagePlusQueryString", "date"]
+        return _mock_response(
+            dim_names=dim_names,
+            metric_names=[
+                "sessions", "totalUsers", "keyEvents:purchase",
+                "screenPageViews", "userEngagementDuration",
+            ],
+            dim_values=["/routine/", "20260721"],
+            metric_values=["50", "40", "5", "60", "30.0"],
+        )
 
     mock_client = MagicMock()
     mock_client.run_report.side_effect = fake_run_report
@@ -278,6 +270,148 @@ def test_fetch_landing_page_metrics_sync_requests_scoped_metric_name():
 
     assert len(rows) == 1
     assert rows[0]["ga4_purchases_lastclick"] == 5
+
+
+# ---- Pass-2 removal regression (session multi-counting bug fix, 2026-07-22) ----
+
+def test_fetch_landing_page_metrics_sync_is_single_pass_no_pagepath_dimension():
+    """Regression: the removed pass 2 grouped by pagePathPlusQueryString +
+    sessionDefaultChannelGroup, which multi-counted sessions once per page viewed
+    in a session. The fetch must now issue exactly ONE request per pagination page,
+    dimensioned ONLY by landingPagePlusQueryString + date — no pagePath, no
+    sessionDefaultChannelGroup dimension or filter anywhere in the request."""
+    from unittest.mock import MagicMock
+
+    from src.ga4.client import _fetch_landing_page_metrics_sync
+
+    captured_requests = []
+
+    def fake_run_report(request):
+        captured_requests.append(request)
+        return _mock_response(
+            dim_names=["landingPagePlusQueryString", "date"],
+            metric_names=[
+                "sessions", "totalUsers", "keyEvents:purchase",
+                "screenPageViews", "userEngagementDuration",
+            ],
+            dim_values=["/routine/", "20260721"],
+            metric_values=["50", "40", "5", "60", "30.0"],
+        )
+
+    mock_client = MagicMock()
+    mock_client.run_report.side_effect = fake_run_report
+
+    _fetch_landing_page_metrics_sync(
+        mock_client, "534295825", "2026-07-21", "2026-07-21", "purchase"
+    )
+
+    # Exactly one distinct request shape was issued (pagination re-uses the same
+    # request object with a mutated offset — this asserts there is no second,
+    # differently-dimensioned pass 2 request anywhere).
+    assert len(captured_requests) == 1
+    dim_names = [d.name for d in captured_requests[0].dimensions]
+    assert dim_names == ["landingPagePlusQueryString", "date"]
+    assert "pagePathPlusQueryString" not in dim_names
+    assert "sessionDefaultChannelGroup" not in dim_names
+    # No dimension_filter set at all (unlike the old pass 1's "(not set)" exclusion
+    # filter or pass 2's Unassigned-channel filter) — the request's filter field is
+    # left at its default (empty) FilterExpression.
+    assert "filter" not in captured_requests[0].dimension_filter
+    assert "not_expression" not in captured_requests[0].dimension_filter
+
+
+def test_fetch_landing_page_metrics_sync_keeps_not_set_row():
+    """Regression: '(not set)' landing pages (iOS/privacy-stripped sessions) must
+    now surface as a literal row instead of being filtered out (old pass 1
+    behavior) or redistributed across pagePath rows (old pass 2 behavior)."""
+    from unittest.mock import MagicMock
+
+    from src.ga4.client import _fetch_landing_page_metrics_sync
+
+    def fake_run_report(request):
+        response = MagicMock()
+        response.property_quota = "quota"
+        response.dimension_headers = [MagicMock(), MagicMock()]
+        response.dimension_headers[0].name = "landingPagePlusQueryString"
+        response.dimension_headers[1].name = "date"
+        response.metric_headers = [MagicMock()]
+        response.metric_headers[0].name = "sessions"
+
+        row = MagicMock()
+        v1, v2 = MagicMock(), MagicMock()
+        v1.value = "(not set)"
+        v2.value = "20260721"
+        row.dimension_values = [v1, v2]
+        mv = MagicMock()
+        mv.value = "12"
+        row.metric_values = [mv]
+        response.rows = [row]
+        response.row_count = 1
+        return response
+
+    mock_client = MagicMock()
+    mock_client.run_report.side_effect = fake_run_report
+
+    rows = _fetch_landing_page_metrics_sync(
+        mock_client, "534295825", "2026-07-21", "2026-07-21", "purchase"
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["landing_page"] == "(not set)"
+    assert rows[0]["sessions"] == 12
+
+
+# ---- fetch_daily_session_totals: exact property-wide session totals ----
+
+def test_fetch_daily_totals_sync_requests_date_only_no_grouping():
+    """The daily-totals fetch must request ONLY [date] as a dimension and ONLY
+    [sessions] as a metric — no landing-page/pagePath grouping at all, since any
+    such grouping risks the multi-counting bug the two-pass fetch had."""
+    from unittest.mock import MagicMock
+
+    from src.ga4.client import _fetch_daily_totals_sync
+
+    def fake_run_report(request):
+        dim_names = [d.name for d in request.dimensions]
+        metric_names = [m.name for m in request.metrics]
+        assert dim_names == ["date"]
+        assert metric_names == ["sessions"]
+        return _mock_response(
+            dim_names=["date"],
+            metric_names=["sessions"],
+            dim_values=["20260721"],
+            metric_values=["1803"],
+        )
+
+    mock_client = MagicMock()
+    mock_client.run_report.side_effect = fake_run_report
+
+    rows = _fetch_daily_totals_sync(mock_client, "534295825", "2026-07-21", "2026-07-21")
+
+    assert rows == [{"date": "2026-07-21", "sessions": 1803}]
+
+
+def test_fetch_daily_totals_sync_normalises_8digit_date():
+    from unittest.mock import MagicMock
+
+    from src.ga4.client import _fetch_daily_totals_sync
+
+    mock_client = MagicMock()
+    mock_client.run_report.return_value = _mock_response(
+        dim_names=["date"],
+        metric_names=["sessions"],
+        dim_values=["20260715"],
+        metric_values=["185"],
+    )
+
+    rows = _fetch_daily_totals_sync(mock_client, "534295825", "2026-07-15", "2026-07-15")
+
+    assert rows == [{"date": "2026-07-15", "sessions": 185}]
+
+
+def test_fetch_daily_session_totals_is_coroutine():
+    from src.ga4.client import fetch_daily_session_totals
+    assert inspect.iscoroutinefunction(fetch_daily_session_totals)
 
 
 # ---- Async coroutine verification ----
