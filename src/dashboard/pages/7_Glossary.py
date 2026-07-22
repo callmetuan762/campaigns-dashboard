@@ -159,7 +159,7 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
     },
     {
         "Metric": "LPV → Checkout (Meta-attributed)",
-        "Definition": "Meta begin_checkout ÷ Meta landing_page_views, expressed as a %.",
+        "Definition": "Meta Initiate Checkout ÷ Meta landing_page_views, expressed as a %.",
         "Source": "Meta",
         "Attribution window": "7-day click / 1-day view",
         "Owner note": "Overview KPI row (v2, 2026-07-22). Platform-side only -- both the "

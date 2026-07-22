@@ -88,29 +88,35 @@ def test_no_leftover_fsd_language() -> None:
 
 
 def test_new_bc_language_present() -> None:
-    """The re-pointed page must reference the live funnel language throughout."""
+    """The re-pointed page must reference the live funnel language throughout.
+
+    Display label renamed from "Begin Checkout"/"BC" to "Initiate Checkout"/"IC"
+    (2026-07-22) -- Meta's own Ads Manager terminology for meta_begin_checkout,
+    rather than GA4's event-naming convention. Underlying identifiers
+    (cost_per_bc, meta_begin_checkout, etc.) are unchanged.
+    """
     source = PAGE_PATH.read_text(encoding="utf-8")
     required = [
-        "Begin Checkout",
+        "Initiate Checkout",
         "cost_per_bc",
-        "Cost per BC",
+        "Cost per IC",
         "purchases",
         "Purchases",
         # Sample-size guard caption (item 3 of the re-point spec)
         "~20+ conversions",
         "directional",
         # Confidence badge thresholds
-        "≥ 3 BC",
-        "1–2 BC",
-        "0 BC",
+        "≥ 3 IC",
+        "1–2 IC",
+        "0 IC",
     ]
     missing = [r for r in required if r not in source]
-    assert not missing, f"Missing required BC-funnel elements in 2_Ads.py: {missing}"
+    assert not missing, f"Missing required IC-funnel elements in 2_Ads.py: {missing}"
 
 
 def test_fatigue_signals_reference_bc_not_fsd() -> None:
     source = PAGE_PATH.read_text(encoding="utf-8")
-    assert "cost-per-BC" in source or "Cost/BC" in source
+    assert "cost-per-IC" in source or "Cost/IC" in source
     assert "diminishing FSD rate" not in source
     assert "rising cost-per-FSD" not in source
 
@@ -254,7 +260,7 @@ async def test_get_fatigue_ads_detects_rising_cost_per_bc_and_diminishing_bc_rat
     joined_signals = " ".join(row["fatigue_signals"])
     assert "FSD" not in joined_signals
     assert "CPR" not in joined_signals
-    assert any("BC rate" in s or "Cost/BC" in s for s in row["fatigue_signals"])
+    assert any("IC rate" in s or "Cost/IC" in s for s in row["fatigue_signals"])
 
 
 @pytest.mark.asyncio

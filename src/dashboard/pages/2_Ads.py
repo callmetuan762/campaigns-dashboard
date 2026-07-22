@@ -113,14 +113,14 @@ def _cached_concept_breakdown(
 # Insight helpers
 # ---------------------------------------------------------------------------
 def _ad_insight(bc: int, avg_ctr: float, avg_frequency: float) -> str:
-    """Rule-based insight tag for a top-ad row (bc = Meta Begin Checkout, 7d-click)."""
+    """Rule-based insight tag for a top-ad row (bc = Meta Initiate Checkout, 7d-click)."""
     bc = int(bc or 0)
     avg_ctr = float(avg_ctr or 0)
     avg_frequency = float(avg_frequency or 0)
     if bc >= 5 and avg_frequency > 2 and avg_ctr >= 1.0:
         return "Scale budget but monitor fatigue"
     if bc >= 5 and avg_ctr >= 1.0:
-        return "Scale — strong BC + CTR"
+        return "Scale — strong IC + CTR"
     if bc >= 3 and avg_ctr < 0.5:
         return "Test new hook — low CTR despite conversions"
     if bc >= 5 and avg_frequency > 2:
@@ -173,7 +173,7 @@ def _make_format_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
 
 def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
-    """Horizontal bar chart: Begin Checkout (Meta 7d-click) by style with avg_ctr annotation."""
+    """Horizontal bar chart: Initiate Checkout (Meta 7d-click) by style with avg_ctr annotation."""
     styles = [r["ad_style"] for r in rows]
     bcs = [int(r["bc"] or 0) for r in rows]
     ctrs = [float(r["avg_ctr"] or 0) for r in rows]
@@ -184,16 +184,16 @@ def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
         y=styles,
         orientation="h",
         marker_color=COLOR_DEPOSITS,
-        text=[f"{b} BC  CTR {c:.2f}%" for b, c in zip(bcs, ctrs)],
+        text=[f"{b} IC  CTR {c:.2f}%" for b, c in zip(bcs, ctrs)],
         textposition="inside",
         insidetextanchor="start",
-        name="BC",
+        name="IC",
     ))
     fig.update_layout(
         plot_bgcolor=COLOR_BG_PLOT,
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=12),
-        xaxis=dict(title="Begin Checkout (Meta 7d-click)", gridcolor=COLOR_GRID),
+        xaxis=dict(title="Initiate Checkout (Meta 7d-click)", gridcolor=COLOR_GRID),
         yaxis=dict(title="", gridcolor=COLOR_GRID),
         margin=dict(l=20, r=20, t=20, b=30),
         height=max(220, len(styles) * 40),
@@ -203,13 +203,13 @@ def _make_style_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
 
 def _make_concept_chart(rows: list[dict[str, Any]]) -> go.Figure:
-    """Horizontal bar: cost-per-BC by concept, sorted best-first (ascending).
+    """Horizontal bar: cost-per-IC by concept, sorted best-first (ascending).
 
-    BC = Meta Begin Checkout (7d-click), the live preorder funnel's primary
-    optimization signal. Bars with no BC (cost-per-BC = None) are shown as a
+    IC = Meta Initiate Checkout (7d-click), the live preorder funnel's primary
+    optimization signal. Bars with no IC (cost-per-IC = None) are shown as a
     faint stub at 0. Color: green if bc >= 3 (confident), amber if 1-2, gray if 0.
     """
-    # Filter to rows that have a cost-per-BC; put no-BC rows at bottom
+    # Filter to rows that have a cost-per-IC; put no-IC rows at bottom
     with_cpbc = [r for r in rows if r.get("cost_per_bc") is not None]
     no_cpbc   = [r for r in rows if r.get("cost_per_bc") is None]
     ordered   = with_cpbc + no_cpbc   # best first (already sorted by caller)
@@ -229,7 +229,7 @@ def _make_concept_chart(rows: list[dict[str, Any]]) -> go.Figure:
 
     colors = [_bar_color(b, r.get("cost_per_bc") is not None) for b, r in zip(bcs, ordered)]
     labels = [
-        f"${r['cost_per_bc']:.0f}  ({r['bc']} BC)" if r.get("cost_per_bc") else f"No BC  (${r['spend']:.0f} spent)"
+        f"${r['cost_per_bc']:.0f}  ({r['bc']} IC)" if r.get("cost_per_bc") else f"No IC  (${r['spend']:.0f} spent)"
         for r in ordered
     ]
 
@@ -241,14 +241,14 @@ def _make_concept_chart(rows: list[dict[str, Any]]) -> go.Figure:
         marker_color=colors,
         text=labels,
         textposition="outside",
-        name="Cost per BC",
+        name="Cost per IC",
         cliponaxis=False,
     ))
     fig.update_layout(
         plot_bgcolor=COLOR_BG_PLOT,
         paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=11),
-        xaxis=dict(title="Cost per BC $", gridcolor=COLOR_GRID, tickprefix="$"),
+        xaxis=dict(title="Cost per IC $", gridcolor=COLOR_GRID, tickprefix="$"),
         yaxis=dict(title="", gridcolor=COLOR_GRID, autorange="reversed"),
         margin=dict(l=20, r=160, t=20, b=30),
         height=max(280, len(ordered) * 36),
@@ -285,7 +285,7 @@ def _adsmanager_url(ad_id: str) -> str:
 st.title("Ad Creative Analysis")
 st.caption(
     "Ad-level performance by format and style, ranked on the live preorder funnel: "
-    "landing_page_views → Begin Checkout (Meta 7d-click, primary optimization signal) → "
+    "landing_page_views → Initiate Checkout (Meta 7d-click, primary optimization signal) → "
     "Purchases (Meta 7d-click, secondary). form_submit_deposit is retired (deposit-era "
     "funnel, 0 events). Requires daily backfill with ad-level insights — ad-level history "
     "accumulates one day at a time, so early charts may reflect only a single day."
@@ -432,8 +432,8 @@ if _filtered_top:
             "format": r.get("ad_format") or "unknown",
             "style": r.get("ad_style") or "unknown",
             "spend": float(r.get("spend") or 0),
-            "BC": bc,
-            "Cost per BC": r.get("cost_per_bc"),
+            "IC": bc,
+            "Cost per IC": r.get("cost_per_bc"),
             "Purchases": int(r.get("purchases") or 0),
             "CTR %": avg_ctr,
             "frequency": avg_freq,
@@ -448,13 +448,13 @@ if _filtered_top:
         "ad_name": st.column_config.TextColumn("Ad Name", width="large"),
         "campaign": st.column_config.TextColumn("Campaign"),
         "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-        "BC": st.column_config.NumberColumn(
-            "BC", format="%d",
-            help="Begin Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
+        "IC": st.column_config.NumberColumn(
+            "IC", format="%d",
+            help="Initiate Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
         ),
-        "Cost per BC": st.column_config.NumberColumn(
-            "Cost per BC", format="$%.2f",
-            help="Spend ÷ Begin Checkout (Meta 7d-click). Lower = better. Click to sort."
+        "Cost per IC": st.column_config.NumberColumn(
+            "Cost per IC", format="$%.2f",
+            help="Spend ÷ Initiate Checkout (Meta 7d-click). Lower = better. Click to sort."
         ),
         "Purchases": st.column_config.NumberColumn(
             "Purchases", format="%d",
@@ -479,8 +479,8 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("Fatigue Watch")
 st.caption(
-    "Meta's 4-signal fatigue model: declining CTR trend (primary), rising cost-per-BC "
-    "(Begin Checkout, Meta 7d-click), high frequency, and diminishing BC rate. "
+    "Meta's 4-signal fatigue model: declining CTR trend (primary), rising cost-per-IC "
+    "(Initiate Checkout, Meta 7d-click), high frequency, and diminishing IC rate. "
     "Requires ≥4 days of data to compute trends."
 )
 
@@ -536,7 +536,7 @@ if _fatigue_filtered:
             "style":          r.get("ad_style") or "unknown",
             "signals":        ", ".join(signals),
             "CTR Δ":          _fmt_ctr_delta(r.get("ctr_change_pct")),
-            "Cost/BC Δ":      _fmt_cpbc_delta(r.get("cpbc_change_pct")),
+            "Cost/IC Δ":      _fmt_cpbc_delta(r.get("cpbc_change_pct")),
             "frequency":      float(r.get("avg_frequency") or 0),
             "spend":          float(r.get("spend") or 0),
             "preview":        _adsmanager_url(fat_ad_id),  # plain URL — LinkColumn handles display_text
@@ -551,7 +551,7 @@ if _fatigue_filtered:
         "campaign":       st.column_config.TextColumn("Campaign"),
         "signals":        st.column_config.TextColumn("Triggered Signals", width="medium"),
         "CTR Δ":          st.column_config.TextColumn("CTR Δ"),
-        "Cost/BC Δ":      st.column_config.TextColumn("Cost/BC Δ"),
+        "Cost/IC Δ":      st.column_config.TextColumn("Cost/IC Δ"),
         "frequency":      st.column_config.NumberColumn("Avg Freq", format="%.2f"),
         "spend":          st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
         "preview":        st.column_config.LinkColumn("Facebook", display_text="View"),
@@ -578,7 +578,7 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("Ad Format Breakdown")
 st.caption(
-    "Spend, Begin Checkout (Meta 7d-click), and CTR by ad format. "
+    "Spend, Initiate Checkout (Meta 7d-click), and CTR by ad format. "
     "Helps identify which creative type drives the preorder funnel."
 )
 
@@ -595,7 +595,7 @@ if format_rows:
                 "format": r.get("ad_format") or "unknown",
                 "ads": int(r.get("ad_count") or 0),
                 "spend": spend,
-                "BC": bc,
+                "IC": bc,
                 "CTR %": float(r.get("avg_ctr") or 0),
                 "ROAS": float(r.get("weighted_roas") or 0),
             })
@@ -614,8 +614,8 @@ else:
 # ---------------------------------------------------------------------------
 st.subheader("Ad Style Breakdown")
 st.caption(
-    "Begin Checkout (Meta 7d-click) and cost-per-BC by creative style — sorted by "
-    "cost-per-BC ascending (most efficient first). Styles with no BC appear at the bottom."
+    "Initiate Checkout (Meta 7d-click) and cost-per-IC by creative style — sorted by "
+    "cost-per-IC ascending (most efficient first). Styles with no IC appear at the bottom."
 )
 
 if style_rows:
@@ -631,17 +631,17 @@ if style_rows:
                 "style": r.get("ad_style") or "unknown",
                 "ads": int(r.get("ad_count") or 0),
                 "spend": spend,
-                "BC": bc,
-                "Cost per BC": r.get("cost_per_bc"),
+                "IC": bc,
+                "Cost per IC": r.get("cost_per_bc"),
                 "CTR %": float(r.get("avg_ctr") or 0),
                 "ROAS": float(r.get("weighted_roas") or 0),
             })
         df_sty = pd.DataFrame(_sty_display)
         sty_col_cfg: dict[str, Any] = {
             "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-            "Cost per BC": st.column_config.NumberColumn(
-                "Cost per BC", format="$%.2f",
-                help="Spend ÷ Begin Checkout (Meta 7d-click). Lower = better. Already sorted best first."
+            "Cost per IC": st.column_config.NumberColumn(
+                "Cost per IC", format="$%.2f",
+                help="Spend ÷ Initiate Checkout (Meta 7d-click). Lower = better. Already sorted best first."
             ),
             "CTR %": st.column_config.NumberColumn("CTR %", format="%.2f%%"),
             "ROAS": st.column_config.NumberColumn("ROAS", format="%.2f"),
@@ -656,8 +656,8 @@ else:
 st.subheader("Creative Concept Leaderboard")
 st.caption(
     "All copies of the same concept — across campaigns and ad sets — merged into one row. "
-    "Ranked by cost-per-BC (Begin Checkout, Meta 7d-click) ascending (best first). "
-    "🟢 ≥ 3 BC (confident)  ·  🟡 1–2 BC (low volume)  ·  ⚫ 0 BC (no signal yet)."
+    "Ranked by cost-per-IC (Initiate Checkout, Meta 7d-click) ascending (best first). "
+    "🟢 ≥ 3 IC (confident)  ·  🟡 1–2 IC (low volume)  ·  ⚫ 0 IC (no signal yet)."
 )
 st.caption(
     "⚠️ Purchase-based conclusions need ~20+ conversions; with fewer, treat rankings "
@@ -696,8 +696,8 @@ if concept_rows:
                     "style": r.get("ad_style") or "unknown",
                     "copies": int(r.get("ad_copies") or 1),
                     "spend": float(r.get("spend") or 0),
-                    "BC": bc,
-                    "Cost per BC": r.get("cost_per_bc"),
+                    "IC": bc,
+                    "Cost per IC": r.get("cost_per_bc"),
                     "Purchases": int(r.get("purchases") or 0),
                     "CTR %": float(r.get("avg_ctr") or 0),
                     "confidence": _conf_badge(bc, has_cpbc),
@@ -710,13 +710,13 @@ if concept_rows:
                 "copies": st.column_config.NumberColumn("Copies", format="%d",
                                                          help="Number of ad copies running this concept"),
                 "spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-                "BC": st.column_config.NumberColumn(
-                    "BC", format="%d",
-                    help="Begin Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
+                "IC": st.column_config.NumberColumn(
+                    "IC", format="%d",
+                    help="Initiate Checkout (Meta 7d-click) — primary optimization signal for the preorder funnel."
                 ),
-                "Cost per BC": st.column_config.NumberColumn(
-                    "Cost per BC", format="$%.2f",
-                    help="Spend ÷ Begin Checkout (Meta 7d-click) across all copies of this concept."
+                "Cost per IC": st.column_config.NumberColumn(
+                    "Cost per IC", format="$%.2f",
+                    help="Spend ÷ Initiate Checkout (Meta 7d-click) across all copies of this concept."
                 ),
                 "Purchases": st.column_config.NumberColumn(
                     "Purchases", format="%d",
@@ -735,8 +735,8 @@ if concept_rows:
         _n_no_signal = sum(1 for r in _concept_filtered if not r.get("cost_per_bc"))
         st.caption(
             f"{len(_concept_filtered)} concepts · "
-            f"{_n_confident} with confident signal (≥3 BC) · "
-            f"{_n_no_signal} with no BC yet"
+            f"{_n_confident} with confident signal (≥3 IC) · "
+            f"{_n_no_signal} with no IC yet"
         )
     else:
         st.info("No concept data matches the current filters.")

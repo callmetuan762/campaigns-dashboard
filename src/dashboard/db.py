@@ -144,7 +144,7 @@ def get_shopify_paid_summary(
 def get_shopify_paid_daily(
     db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
 ) -> list[dict[str, Any]]:
-    """Daily Shopify paid order count -- used by the "Meta Begin Checkout vs
+    """Daily Shopify paid order count -- used by the "Meta Initiate Checkout vs
     Shopify Paid Orders" Overview chart (Overview v2, 2026-07-22).
 
     Returns [] on a missing table / no rows (graceful degradation).
@@ -170,7 +170,7 @@ def get_shopify_paid_daily(
 def get_meta_begin_checkout_total(db_path: Path, start_date: str, end_date: str) -> int:
     """Period total of Meta meta_begin_checkout (campaign-level ad_metrics rows).
 
-    Used by the Overview LPV->Checkout CVR KPI and the "Spend vs Begin Checkout"
+    Used by the Overview LPV->Checkout CVR KPI and the "Spend vs Initiate Checkout"
     chart (Overview v2, 2026-07-22) -- mirrors get_meta_purchases_total's shape.
     """
     sql = """
@@ -219,7 +219,7 @@ def get_campaign_daily_breakdown(
     (ad_set_id = '', ad_id = ''). Used by the Overview daily-trends-by-
     campaign charts. `fsd`/`cpr` are kept for backward compatibility
     (legacy deposit-era charts); `begin_checkout`/`cost_per_bc` power the
-    Overview v2 "Begin Checkout by campaign" / "Cost per Begin Checkout per
+    Overview v2 "Initiate Checkout by campaign" / "Cost per Initiate Checkout per
     campaign" charts.
     """
     sql = """
@@ -869,7 +869,7 @@ def get_landing_page_health(
 def get_top_ads(
     db_path: Path, start_date: str, end_date: str, limit: int = 10
 ) -> list[dict[str, Any]]:
-    """Top performing ads by Meta Begin Checkout (meta_begin_checkout), enriched
+    """Top performing ads by Meta Initiate Checkout (meta_begin_checkout), enriched
     with creative metadata.
 
     meta_begin_checkout (Meta 7-day-click) is the primary optimization signal for
@@ -935,21 +935,21 @@ def get_fatigue_ads(
 
     Signals checked (any combination triggers inclusion):
       1. Declining CTR  — CTR in late half of period < CTR in early half by ≥30 %
-      2. Rising cost-per-BC — cost per meta_begin_checkout in late half > early
-         half by ≥30 % (BC = Begin Checkout, Meta 7d-click — the live preorder
+      2. Rising cost-per-IC — cost per meta_begin_checkout in late half > early
+         half by ≥30 % (IC = Initiate Checkout, Meta 7d-click — the live preorder
          funnel's primary optimization signal; form_submit_deposit is dead)
       3. High frequency — avg frequency ≥ 2.5 (audience saturation)
-      4. Diminishing returns — BC rate (meta_begin_checkout/impressions) fell
+      4. Diminishing returns — IC rate (meta_begin_checkout/impressions) fell
          >40 % between halves
 
-    The date range is split at its midpoint; CTR and cost-per-BC trends are
+    The date range is split at its midpoint; CTR and cost-per-IC trends are
     computed by comparing early-half vs late-half aggregates using conditional
     SQL. Requires ≥4 days of data in range to split meaningfully.
 
     Returns each fatigued ad enriched with:
       fatigue_signals  – list of triggered signal descriptions
       ctr_change_pct   – % change in CTR (negative = decline)
-      cpbc_change_pct  – % change in cost-per-BC (positive = more expensive)
+      cpbc_change_pct  – % change in cost-per-IC (positive = more expensive)
       severity         – 'critical' (≥3 signals) | 'warning' (2) | 'watch' (1)
       recommendation   – plain-English action
 
@@ -989,7 +989,7 @@ def get_fatigue_ads(
                    SUM(CASE WHEN m.date > ? THEN m.clicks ELSE 0 END) * 100.0
                    / NULLIF(SUM(CASE WHEN m.date > ? THEN m.impressions ELSE 0 END), 0), 3
                )                                                                     AS ctr_late,
-               -- Cost-per-BC split (cost per meta_begin_checkout)
+               -- Cost-per-IC split (cost per meta_begin_checkout)
                ROUND(
                    SUM(CASE WHEN m.date <= ? THEN m.spend ELSE 0 END)
                    / NULLIF(SUM(CASE WHEN m.date <= ? THEN m.meta_begin_checkout ELSE 0 END), 0), 2
@@ -998,7 +998,7 @@ def get_fatigue_ads(
                    SUM(CASE WHEN m.date > ? THEN m.spend ELSE 0 END)
                    / NULLIF(SUM(CASE WHEN m.date > ? THEN m.meta_begin_checkout ELSE 0 END), 0), 2
                )                                                                     AS cpbc_late,
-               -- Impressions split (for BC-rate / diminishing-returns check)
+               -- Impressions split (for IC-rate / diminishing-returns check)
                SUM(CASE WHEN m.date <= ? THEN m.impressions ELSE 0 END)              AS impr_early,
                SUM(CASE WHEN m.date > ? THEN m.impressions ELSE 0 END)               AS impr_late,
                SUM(CASE WHEN m.date <= ? THEN m.meta_begin_checkout ELSE 0 END)      AS bc_early,
@@ -1047,23 +1047,23 @@ def get_fatigue_ads(
             if ctr_change_pct <= -30:
                 signals.append(f"CTR dropped {abs(ctr_change_pct):.0f}%")
 
-        # --- Signal 2: Rising cost-per-BC ---
+        # --- Signal 2: Rising cost-per-IC ---
         cpbc_change_pct: float | None = None
         if cpbc_early and cpbc_late and float(cpbc_early) > 0:
             cpbc_change_pct = round((float(cpbc_late) - float(cpbc_early)) / float(cpbc_early) * 100, 1)
             if cpbc_change_pct >= 30:
-                signals.append(f"Cost/BC rose {cpbc_change_pct:.0f}%")
+                signals.append(f"Cost/IC rose {cpbc_change_pct:.0f}%")
 
         # --- Signal 3: High frequency ---
         if freq >= 2.5:
             signals.append(f"Frequency {freq:.1f}×")
 
-        # --- Signal 4: Diminishing returns (BC rate fell >40 %) ---
+        # --- Signal 4: Diminishing returns (IC rate fell >40 %) ---
         if impr_early >= 100 and impr_late >= 100 and bc_early > 0:
             rate_early = bc_early / impr_early
             rate_late  = bc_late  / impr_late if impr_late else 0
             if rate_early > 0 and rate_late < rate_early * 0.6:
-                signals.append("BC rate fell >40%")
+                signals.append("IC rate fell >40%")
 
         if not signals:
             continue
@@ -1103,7 +1103,7 @@ def get_fatigue_ads(
 def get_ad_format_breakdown(
     db_path: Path, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
-    """Spend, Begin Checkout (meta_begin_checkout), CTR by ad format (image,
+    """Spend, Initiate Checkout (meta_begin_checkout), CTR by ad format (image,
     video, carousel).
 
     Joins ad_metrics with ad_creatives for format labels.
@@ -1142,7 +1142,7 @@ def get_ad_format_breakdown(
 def get_ad_style_breakdown(
     db_path: Path, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
-    """Spend, Begin Checkout (meta_begin_checkout), CTR by ad style
+    """Spend, Initiate Checkout (meta_begin_checkout), CTR by ad style
     (testimonial, product_hero, etc.).
 
     Returns [] if no ad-level or creative data.
@@ -1193,8 +1193,8 @@ def get_creative_concept_breakdown(
     campaign) are collapsed into a single row so you can judge the concept itself, not
     the distribution mechanic.
 
-    Ranked by cost-per-BC (meta_begin_checkout) ascending (best first), nulls last,
-    then BC descending. meta_purchases_7dclick is aggregated as a secondary
+    Ranked by cost-per-IC (meta_begin_checkout) ascending (best first), nulls last,
+    then IC descending. meta_purchases_7dclick is aggregated as a secondary
     `purchases` column — never blended with GA4 conversion counts (CLAUDE.md).
     Returns [] if no ad-level creative data is available.
     """
@@ -1267,7 +1267,7 @@ def get_creative_concept_breakdown(
         del c["_impr_ctr_sum"]
         results.append(c)
 
-    # Sort: cost-per-BC asc (None last), then BC desc, then spend desc
+    # Sort: cost-per-IC asc (None last), then IC desc, then spend desc
     results.sort(key=lambda x: (
         x["cost_per_bc"] is None,
         x["cost_per_bc"] if x["cost_per_bc"] is not None else float("inf"),
@@ -1699,6 +1699,14 @@ def get_preorder_funnel_steps(
 
     Order: Impressions -> Clicks -> Landing-Page Views -> GA4 Sessions ->
     CTA Clicks -> Add to Cart -> Begin Checkout -> Orders.
+
+    NOTE (Initiate Checkout rename, 2026-07-22): this "Begin Checkout" step is
+    the GA4-native `begin_checkout` event (ga4_events, via
+    get_ga4_event_step_totals) -- a genuinely different data source from the
+    Meta `meta_begin_checkout` field that was renamed to "Initiate Checkout"
+    display-wide. Deliberately NOT renamed here: GA4's own event is literally
+    named "begin_checkout", so labeling it "Initiate Checkout" (Meta's
+    terminology) would misattribute the data source.
 
     Each step: {"label", "value" (int, None when unavailable), "available",
     "conversion_pct" (value / previous *available* step's value * 100, or

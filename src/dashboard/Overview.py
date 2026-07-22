@@ -199,7 +199,7 @@ def _cached_shopify_paid_daily(
 #
 # Overview v2 (2026-07-22): the legacy "Spend vs FSD" and "Meta FSD vs Stripe
 # Paid" charts are replaced outright (not gated behind an expander) by
-# "Spend vs Begin Checkout (Meta)" and "Meta Begin Checkout vs Shopify Paid
+# "Spend vs Initiate Checkout (Meta)" and "Meta Initiate Checkout vs Shopify Paid
 # Orders" below -- the $1-deposit/Stripe funnel no longer exists in the live
 # product (preorders flow straight to Shopify checkout), so the old FSD/
 # Stripe chart builders would only ever render empty axes on current data.
@@ -220,7 +220,7 @@ def _make_spend_vs_begin_checkout_chart(rows: list[dict[str, Any]]) -> go.Figure
     fig.add_trace(go.Scatter(
         x=[r["date"] for r in rows],
         y=[r["begin_checkout"] for r in rows],
-        name="Begin Checkout (Meta)",
+        name="Initiate Checkout (Meta)",
         mode="lines+markers",
         line=dict(color=COLOR_DEPOSITS, width=2),
         marker=dict(size=8),
@@ -232,7 +232,7 @@ def _make_spend_vs_begin_checkout_chart(rows: list[dict[str, Any]]) -> go.Figure
         font=dict(color=COLOR_FONT),
         xaxis=dict(title="Date", gridcolor=COLOR_GRID),
         yaxis=dict(title="Spend ($)", gridcolor=COLOR_GRID, zeroline=False),
-        yaxis2=dict(title="Begin Checkout", overlaying="y", side="right",
+        yaxis2=dict(title="Initiate Checkout", overlaying="y", side="right",
                     gridcolor=COLOR_GRID, zeroline=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=40, r=40, t=40, b=40),
@@ -245,7 +245,7 @@ def _make_begin_checkout_vs_shopify_chart(
     trend_rows: list[dict[str, Any]],
     shopify_daily_rows: list[dict[str, Any]],
 ) -> go.Figure:
-    """Daily Meta Begin Checkout vs Shopify Paid Orders — side by side, never
+    """Daily Meta Initiate Checkout vs Shopify Paid Orders — side by side, never
     blended (both series labeled by source; Meta = platform-attributed,
     Shopify = ground truth)."""
     shopify_by_date: dict[str, int] = {
@@ -260,7 +260,7 @@ def _make_begin_checkout_vs_shopify_chart(
     fig.add_trace(go.Bar(
         x=dates,
         y=bc_vals,
-        name="Meta Begin Checkout",
+        name="Meta Initiate Checkout",
         marker_color=COLOR_META,
         opacity=0.75,
     ))
@@ -325,7 +325,7 @@ def _make_begin_checkout_by_campaign(rows: list[dict]) -> go.Figure:
         plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=11),
         xaxis=dict(gridcolor=COLOR_GRID),
-        yaxis=dict(title="Begin Checkout", gridcolor=COLOR_GRID, rangemode="tozero"),
+        yaxis=dict(title="Initiate Checkout", gridcolor=COLOR_GRID, rangemode="tozero"),
         legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
                     font=dict(size=10), tracegroupgap=2),
         margin=dict(l=40, r=20, t=20, b=110),
@@ -364,7 +364,7 @@ def _make_spend_by_campaign(rows: list[dict]) -> go.Figure:
 
 
 def _make_cost_per_bc_by_campaign(rows: list[dict]) -> go.Figure:
-    """Cost per Begin Checkout per campaign = spend / meta_begin_checkout,
+    """Cost per Initiate Checkout per campaign = spend / meta_begin_checkout,
     div0-guarded (rows.cost_per_bc is already None when begin_checkout == 0,
     computed in get_campaign_daily_breakdown's SQL)."""
     dates = sorted({r["date"] for r in rows})
@@ -387,7 +387,7 @@ def _make_cost_per_bc_by_campaign(rows: list[dict]) -> go.Figure:
         plot_bgcolor=COLOR_BG_PLOT, paper_bgcolor=COLOR_BG_PAPER,
         font=dict(color=COLOR_FONT, size=11),
         xaxis=dict(gridcolor=COLOR_GRID),
-        yaxis=dict(title="Cost per Begin Checkout $", gridcolor=COLOR_GRID, rangemode="tozero",
+        yaxis=dict(title="Cost per Initiate Checkout $", gridcolor=COLOR_GRID, rangemode="tozero",
                    tickprefix="$"),
         legend=dict(orientation="h", y=-0.38, x=0.5, xanchor="center",
                     font=dict(size=10), tracegroupgap=2),
@@ -749,7 +749,7 @@ c7.metric(
     f"{_lpv_cvr:.1f}%" if _lpv_cvr is not None else "—",
     delta=_delta_pct_text(_pct_change(_lpv_cvr, _prior_lpv_cvr)),
     delta_color="normal",
-    help="Meta begin_checkout ÷ Meta landing_page_views — platform-side only.",
+    help="Meta Initiate Checkout ÷ Meta landing_page_views — platform-side only.",
 )
 
 # --- Legacy deposit funnel (FSD/Stripe era) — only when there was legacy FSD
@@ -855,7 +855,7 @@ render_reconciliation_block(
 left, right = st.columns(2)
 
 with left:
-    st.subheader("Spend vs Begin Checkout (Meta)")
+    st.subheader("Spend vs Initiate Checkout (Meta)")
     trend_rows = _cached_trend(db_path_str, start_iso, end_iso)
     if trend_rows:
         st.plotly_chart(
@@ -866,7 +866,7 @@ with left:
         st.info("No Meta data in this date range.")
 
 with right:
-    st.subheader("Meta Begin Checkout vs Shopify Paid Orders")
+    st.subheader("Meta Initiate Checkout vs Shopify Paid Orders")
     shopify_daily_rows = _cached_shopify_paid_daily(
         db_path_str, start_iso, end_iso, settings.orders_valid_from
     )
@@ -878,7 +878,7 @@ with right:
     else:
         st.info("No data in this date range.")
     st.caption(
-        "Bars = Meta-attributed Begin Checkout (≈ reserve-click intent; inflated by the "
+        "Bars = Meta-attributed Initiate Checkout (≈ reserve-click intent; inflated by the "
         "cart-permalink auto-redirect) · Line = Shopify paid orders (ground truth) · "
         "Side-by-side, never blended — different attribution scopes."
     )
@@ -947,21 +947,21 @@ if roas_freq_rows:
         st.caption("Full analysis → Funnel page · Section 5")
 
 # ---------------------------------------------------------------------------
-# Daily trends by campaign (stacked Begin Checkout/Spend + Cost-per-BC/CTR)
+# Daily trends by campaign (stacked Initiate Checkout/Spend + Cost-per-IC/CTR)
 # ---------------------------------------------------------------------------
 camp_daily = _cached_camp_daily(db_path_str, start_iso, end_iso)
 if camp_daily:
     st.subheader("Daily trends by campaign")
     _dt_l, _dt_r = st.columns(2)
     with _dt_l:
-        st.caption("Begin Checkout by campaign")
+        st.caption("Initiate Checkout by campaign")
         st.plotly_chart(_make_begin_checkout_by_campaign(camp_daily), use_container_width=True)
     with _dt_r:
         st.caption("Spend by campaign ($)")
         st.plotly_chart(_make_spend_by_campaign(camp_daily), use_container_width=True)
     _dt_l2, _dt_r2 = st.columns(2)
     with _dt_l2:
-        st.caption("Cost per Begin Checkout per campaign — lower is better")
+        st.caption("Cost per Initiate Checkout per campaign — lower is better")
         st.plotly_chart(_make_cost_per_bc_by_campaign(camp_daily), use_container_width=True)
     with _dt_r2:
         st.caption("CTR % per campaign")
