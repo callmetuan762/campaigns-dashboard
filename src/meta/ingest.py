@@ -24,7 +24,12 @@ import structlog
 from aiogram.enums import ParseMode
 
 from src.alerts.engine import evaluate_alerts
-from src.meta.client import fetch_campaign_insights, fetch_adset_insights, init_meta_api
+from src.meta.client import (
+    fetch_adset_insights,
+    fetch_campaign_insights,
+    fetch_campaign_objectives,
+    init_meta_api,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +129,20 @@ async def _run_meta_ingest(
         )
         campaign_rows = _filter_by_brand_prefix(campaign_rows, settings.meta_campaign_name_prefix)
 
+        # Campaign objective (goal) — account-wide metadata, not date-scoped,
+        # so this is fetched once per ingest run (never per-adset/per-ad).
+        # Graceful degradation (CLAUDE.md): on failure, objectives stays {} so
+        # every row below gets objective=None; upsert_campaign's
+        # COALESCE(excluded.objective, campaigns.objective) then leaves any
+        # existing stored objective untouched rather than nulling it out.
+        try:
+            objectives = await fetch_campaign_objectives(
+                settings.meta_ad_account_id, settings.meta_campaign_name_prefix
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("meta_objectives_fetch_failed", error=str(exc))
+            objectives = {}
+
         # Build campaign dimension rows for campaigns table (META-05)
         campaign_dim_rows = [
             {
@@ -131,6 +150,7 @@ async def _run_meta_ingest(
                 "source": "meta_ads",
                 "name": r.get("campaign_name", r["campaign_id"]),
                 "status": "ACTIVE",
+                "objective": objectives.get(r["campaign_id"]),
             }
             for r in campaign_rows
             if r.get("campaign_id")

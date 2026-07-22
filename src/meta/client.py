@@ -520,6 +520,82 @@ async def fetch_ad_creatives(ad_account_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Campaign objective (goal) — account-wide metadata, not date-scoped.
+#
+# RESEARCH FINDING (2026-07-22, verified live against this account/SDK
+# version): adding "objective" to _CAMPAIGN_FIELDS and requesting it from
+# AdAccount.get_insights() (the Insights API) actually SUCCEEDS -- the field
+# comes back correctly matched per campaign, contrary to the usual assumption
+# that objective is Insights-unavailable. It is deliberately NOT added there,
+# though: objective is static campaign metadata that doesn't change per day/
+# adset/ad, so folding it into the date-scoped, 3x-per-ingest (campaign +
+# adset + ad level) Insights fetch would mean re-requesting unchanging data
+# on every call. Instead this uses AdAccount.get_campaigns() (confirmed
+# working via the same live probe) in a single account-wide call, mirroring
+# the shape of _fetch_ad_creatives_sync's account.get_ads() call above.
+#
+# Brand-prefix filtering: fetch_ad_creatives has no server-side filtering
+# either -- it fetches campaign{name} alongside every ad and lets the caller
+# (src.daily_backfill._filter_by_brand_prefix) drop non-matching rows after
+# the fact, because Meta's Graph API `filtering` operators don't offer a
+# clean "starts with" match on campaign.name. This follows the same
+# reuse-the-established-pattern approach: fetch every campaign's
+# id/name/objective, filter client-side by name prefix.
+# ---------------------------------------------------------------------------
+
+
+def _fetch_campaign_objectives_sync(ad_account_id: str, name_prefix: str) -> dict[str, str]:
+    """Synchronous AdAccount.get_campaigns() call for id/name/objective.
+
+    Called via asyncio.to_thread() from async context (same pattern as
+    _fetch_ad_creatives_sync / _fetch_insights_sync — the SDK's HTTP layer is
+    synchronous 'requests'). Manual pagination via load_next_page(), matching
+    _fetch_changelogs_sync's while-loop pattern.
+    """
+    account = AdAccount(f"act_{ad_account_id.removeprefix('act_')}")
+    params = {"limit": 500}
+    cursor = account.get_campaigns(fields=["id", "name", "objective"], params=params)
+
+    result: dict[str, str] = {}
+    while True:
+        for c in cursor:
+            d = dict(c)
+            name = d.get("name") or ""
+            if name_prefix and not name.startswith(name_prefix):
+                continue
+            campaign_id = str(d.get("id") or "")
+            objective = d.get("objective")
+            if campaign_id and objective:
+                result[campaign_id] = objective
+        if cursor.load_next_page() is False:
+            break
+    return result
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(FacebookRequestError),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_campaign_objectives(ad_account_id: str, name_prefix: str = "") -> dict[str, str]:
+    """Fetch {campaign_id: objective} for every campaign on the ad account.
+
+    Objective (e.g. OUTCOME_SALES, OUTCOME_LEADS) is account-wide campaign
+    metadata, not date-scoped — call this ONCE per ingest run, not per
+    adset/ad-level Insights fetch (see module comment above). `name_prefix`
+    mirrors META_CAMPAIGN_NAME_PREFIX / _filter_by_brand_prefix: when set,
+    only campaigns whose name starts with it are included in the returned
+    dict; empty prefix (default) returns every campaign's objective.
+    """
+    logger.info("meta_campaign_objectives_fetch_start")
+    result = await asyncio.to_thread(_fetch_campaign_objectives_sync, ad_account_id, name_prefix)
+    logger.info("meta_campaign_objectives_fetch_complete", count=len(result))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Phase C: Pixel health — per-event browser/server counts + best-effort EMQ.
 #
 # RESEARCH FINDING (documented here for the PR, per Phase C spec):

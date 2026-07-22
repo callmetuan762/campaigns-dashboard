@@ -77,3 +77,11 @@ def test_changelog_entry_present() -> None:
 def test_changelog_preserves_prior_entry() -> None:
     source = PAGE_PATH.read_text(encoding="utf-8")
     assert "2026-07-21" in source
+
+
+def test_campaign_objective_glossary_row_present() -> None:
+    """Item 2 (2026-07-22): campaigns.objective must have a glossary row."""
+    source = PAGE_PATH.read_text(encoding="utf-8")
+    assert "Campaign Objective / Goal" in source
+    assert "OUTCOME_SALES" in source
+    assert "campaigns.objective" in source

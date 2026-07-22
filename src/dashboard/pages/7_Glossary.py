@@ -57,6 +57,26 @@ _GLOSSARY_ROWS: list[dict[str, str]] = [
         "Owner note": "ad_metrics.spend, campaign-level rows only (ad_set_id='' AND ad_id='').",
     },
     {
+        "Metric": "Campaign Objective / Goal",
+        "Definition": "The goal a campaign is optimized for in Meta Ads Manager (e.g. Sales, "
+                      "Leads, Traffic) -- set once at the campaign level and shared by every "
+                      "ad set/ad underneath it.",
+        "Source": "Meta",
+        "Attribution window": "N/A (campaign metadata, not a conversion)",
+        "Owner note": "campaigns.objective (migration 015_campaign_objective, added "
+                       "2026-07-22). Raw values are Meta's OUTCOME_* enum (OUTCOME_SALES, "
+                       "OUTCOME_LEADS, OUTCOME_ENGAGEMENT, OUTCOME_AWARENESS, "
+                       "OUTCOME_TRAFFIC, OUTCOME_APP_PROMOTION); "
+                       "db.objective_display_label() maps these to short human labels "
+                       "('Sales', 'Leads', ...) shown next to the campaign name on the "
+                       "Overview drill-down selectbox, the campaign performance table's "
+                       "'Goal' column, and the Campaign Detail page badge. Account-wide "
+                       "metadata, not date-scoped -- fetched once per ingest run via "
+                       "src.meta.client.fetch_campaign_objectives, not per adset/ad. NULL "
+                       "until the next ingest run backfills it for campaigns created before "
+                       "this migration.",
+    },
+    {
         "Metric": "Impressions",
         "Definition": "Number of times an ad was shown on screen.",
         "Source": "Meta",
@@ -346,6 +366,10 @@ st.divider()
 # ---------------------------------------------------------------------------
 st.subheader("Changelog")
 st.markdown(
+    "- **2026-07-22** -- Campaign Objective/Goal added (Meta's OUTCOME_* objective, shown "
+    "on the Overview drill-down selectbox, campaign table 'Goal' column, and Campaign "
+    "Detail badge); \"Begin Checkout\"/\"BC\" display labels renamed to \"Initiate "
+    "Checkout\"/\"IC\" (Meta's own Ads Manager terminology for meta_begin_checkout).\n"
     "- **2026-07-22** -- Overview v2 — MER/CAC/preorder KPI row, Shopify-anchored "
     "reconciliation, gap decomposition; deposit-era tiles moved behind legacy expander.\n"
     "- **2026-07-21** -- Scope line + triangle reconciliation added; attribution windows "

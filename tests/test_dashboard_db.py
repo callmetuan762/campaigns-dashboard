@@ -13,7 +13,7 @@ import pytest
 from src.dashboard.db import (
     get_kpi_summary, get_ga4_kpi, get_daily_trend, get_campaign_table,
     get_attribution_comparison, get_data_freshness, get_campaign_names,
-    get_campaign_daily,
+    get_campaign_daily, get_campaign_objectives, objective_display_label,
 )
 
 
@@ -235,6 +235,60 @@ def test_campaign_names_alphabetical(db: Path) -> None:
     assert names == sorted(names)
     assert "Brand" in names
     assert "Convert" in names
+
+
+# --- get_campaign_objectives / objective_display_label (item 2, 2026-07-22) -
+
+def test_get_campaign_objectives_missing_column_returns_empty(db: Path) -> None:
+    """Pre-migration DB (no `objective` column yet) degrades gracefully to {}."""
+    assert get_campaign_objectives(db) == {}
+
+
+def test_get_campaign_objectives_missing_table_returns_empty(tmp_path: Path) -> None:
+    empty_db = tmp_path / "empty.db"
+    sqlite3.connect(str(empty_db)).close()
+    assert get_campaign_objectives(empty_db) == {}
+
+
+def test_get_campaign_objectives_returns_name_to_objective_map(tmp_path: Path) -> None:
+    obj_db = tmp_path / "metrics.db"
+    con = sqlite3.connect(str(obj_db))
+    con.executescript("""
+        CREATE TABLE campaigns (id TEXT PRIMARY KEY, source TEXT, name TEXT,
+                                status TEXT, created_at TEXT, objective TEXT);
+        INSERT INTO campaigns VALUES
+            ('c1','meta_ads','Nowa | SALES | preorder-image | 20260715','ACTIVE','2026-07-15','OUTCOME_SALES'),
+            ('c2','meta_ads','Nowa | LEADS | quiz | 20260715','ACTIVE','2026-07-15','OUTCOME_LEADS'),
+            ('c3','meta_ads','No Objective Yet','ACTIVE','2026-07-15',NULL);
+    """)
+    con.commit()
+    con.close()
+
+    result = get_campaign_objectives(obj_db)
+    assert result == {
+        "Nowa | SALES | preorder-image | 20260715": "OUTCOME_SALES",
+        "Nowa | LEADS | quiz | 20260715": "OUTCOME_LEADS",
+    }
+    assert "No Objective Yet" not in result
+
+
+def test_objective_display_label_known_values() -> None:
+    assert objective_display_label("OUTCOME_SALES") == "Sales"
+    assert objective_display_label("OUTCOME_LEADS") == "Leads"
+    assert objective_display_label("OUTCOME_ENGAGEMENT") == "Engagement"
+    assert objective_display_label("OUTCOME_AWARENESS") == "Awareness"
+    assert objective_display_label("OUTCOME_TRAFFIC") == "Traffic"
+    assert objective_display_label("OUTCOME_APP_PROMOTION") == "App Promotion"
+
+
+def test_objective_display_label_unknown_falls_back_to_title_case() -> None:
+    """An objective not in the lookup table still renders sensibly."""
+    assert objective_display_label("OUTCOME_SOMETHING_NEW") == "Something New"
+
+
+def test_objective_display_label_none_or_empty_returns_blank() -> None:
+    assert objective_display_label(None) == ""
+    assert objective_display_label("") == ""
 
 
 # --- get_campaign_daily (DASH-07) ------------------------------------------

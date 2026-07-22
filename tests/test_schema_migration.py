@@ -481,6 +481,57 @@ async def test_run_migrations_applies_migration_014(db_client):
     assert "014_ga4_daily_totals" in applied
 
 
+def test_migration_015_adds_objective_column_to_campaigns():
+    """Meta campaign objective: MIGRATION_015_CAMPAIGN_OBJECTIVE adds a nullable
+    `objective` TEXT column to campaigns."""
+    import os
+
+    from src.db.schema import ALL_MIGRATIONS
+
+    names = [m[0] for m in ALL_MIGRATIONS]
+    assert "015_campaign_objective" in names, f"Migration 015 not in ALL_MIGRATIONS: {names}"
+
+    con, db_path = _apply_migration_to_fresh_db("015_campaign_objective")
+    try:
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(campaigns)")}
+        assert "objective" in cols, "campaigns.objective column must exist after migration 015"
+
+        # Nullable, no default required.
+        con.execute(
+            "INSERT INTO campaigns (id, source, name, status) VALUES (?, ?, ?, ?)",
+            ("c_pre_migration", "meta_ads", "Pre-existing Campaign", "ACTIVE"),
+        )
+        con.commit()
+        row = con.execute(
+            "SELECT objective FROM campaigns WHERE id = 'c_pre_migration'"
+        ).fetchone()
+        assert row["objective"] is None
+
+        # A row with an objective set works too.
+        con.execute(
+            "INSERT INTO campaigns (id, source, name, status, objective) VALUES (?, ?, ?, ?, ?)",
+            ("c_with_objective", "meta_ads", "Sales Campaign", "ACTIVE", "OUTCOME_SALES"),
+        )
+        con.commit()
+        row2 = con.execute(
+            "SELECT objective FROM campaigns WHERE id = 'c_with_objective'"
+        ).fetchone()
+        assert row2["objective"] == "OUTCOME_SALES"
+    finally:
+        con.close()
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+async def test_run_migrations_applies_migration_015(db_client):
+    """run_migrations() (the real async migration runner) picks up 015 too."""
+    rows = await db_client.fetch_all("SELECT version FROM schema_version")
+    applied = {r["version"] for r in rows}
+    assert "015_campaign_objective" in applied
+
+
 def test_migration_006_mmm_results_accepts_insert():
     """Migration 006: schema accepts a realistic INSERT (column types correct)."""
     import os

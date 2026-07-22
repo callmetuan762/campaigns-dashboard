@@ -379,6 +379,20 @@ CREATE TABLE IF NOT EXISTS ga4_daily_totals (
 """
 
 # ---------------------------------------------------------------------------
+# Migration 015 — Meta campaign objective (goal)
+#
+# Meta's Campaign object exposes an `objective` field (OUTCOME_SALES,
+# OUTCOME_LEADS, etc.) that was never fetched or stored. Nullable, no default:
+# existing rows get NULL until the next ingest run backfills it via
+# src.meta.client.fetch_campaign_objectives (called once per ingest, account-
+# wide metadata, not date-scoped).
+# ---------------------------------------------------------------------------
+
+MIGRATION_015_CAMPAIGN_OBJECTIVE: str = """
+ALTER TABLE campaigns ADD COLUMN objective TEXT;
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -397,4 +411,5 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("012_shopify_orders", MIGRATION_012_SHOPIFY_ORDERS),
     ("013_pixel_health", MIGRATION_013_PIXEL_HEALTH),
     ("014_ga4_daily_totals", MIGRATION_014_GA4_DAILY_TOTALS),
+    ("015_campaign_objective", MIGRATION_015_CAMPAIGN_OBJECTIVE),
 ]

@@ -281,18 +281,31 @@ class DBClient:
     # ---- Phase 2 helpers ----
 
     _UPSERT_CAMPAIGN_SQL = """
-        INSERT INTO campaigns (id, source, name, status)
-        VALUES (:id, :source, :name, :status)
+        INSERT INTO campaigns (id, source, name, status, objective)
+        VALUES (:id, :source, :name, :status, :objective)
         ON CONFLICT(id) DO UPDATE SET
-            name   = excluded.name,
-            status = excluded.status;
+            name      = excluded.name,
+            status    = excluded.status,
+            objective = COALESCE(excluded.objective, campaigns.objective);
     """
 
     async def upsert_campaign(self, rows: list[dict]) -> int:
-        """Upsert campaign dimension rows. Returns count of rows processed."""
+        """Upsert campaign dimension rows. Returns count of rows processed.
+
+        `objective` (Meta campaign objective, e.g. OUTCOME_SALES -- migration
+        015) is optional per row: callers built before the column existed
+        (and tests) can omit it entirely, defaulted to None here. On conflict,
+        COALESCE(excluded.objective, campaigns.objective) means a missing/None
+        objective NEVER overwrites an existing value -- only a genuinely
+        fetched objective (including a changed value) does. This lets the
+        caller pass None when src.meta.client.fetch_campaign_objectives
+        legitimately failed for this ingest run without nulling out a
+        previously-stored objective.
+        """
         if not rows:
             return 0
-        await self.conn.executemany(self._UPSERT_CAMPAIGN_SQL, rows)
+        normalized = [{**r, "objective": r.get("objective")} for r in rows]
+        await self.conn.executemany(self._UPSERT_CAMPAIGN_SQL, normalized)
         await self.conn.commit()
         return len(rows)
 

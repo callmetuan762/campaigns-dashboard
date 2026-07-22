@@ -353,3 +353,127 @@ def test_fetch_ad_insights_is_coroutine():
     import inspect
     from src.meta.client import fetch_ad_insights
     assert inspect.iscoroutinefunction(fetch_ad_insights)
+
+
+def test_fetch_campaign_objectives_is_coroutine():
+    import inspect
+    from src.meta.client import fetch_campaign_objectives
+    assert inspect.iscoroutinefunction(fetch_campaign_objectives)
+
+
+# ---------------------------------------------------------------------------
+# _fetch_campaign_objectives_sync / fetch_campaign_objectives
+# ---------------------------------------------------------------------------
+
+def test_fetch_campaign_objectives_sync_returns_id_to_objective_map():
+    from unittest.mock import MagicMock, patch
+
+    from src.meta.client import _fetch_campaign_objectives_sync
+
+    campaigns = iter([
+        {"id": "c1", "name": "Nowa | SALES | preorder-image | 20260715", "objective": "OUTCOME_SALES"},
+        {"id": "c2", "name": "Nowa | LEADS | quiz | 20260715", "objective": "OUTCOME_LEADS"},
+    ])
+    cursor = MagicMock()
+    cursor.__iter__.return_value = campaigns
+    cursor.load_next_page.return_value = False
+
+    mock_account = MagicMock()
+    mock_account.get_campaigns.return_value = cursor
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        result = _fetch_campaign_objectives_sync("act_123", "")
+
+    assert result == {"c1": "OUTCOME_SALES", "c2": "OUTCOME_LEADS"}
+
+
+def test_fetch_campaign_objectives_sync_respects_brand_prefix():
+    """Only campaigns whose name starts with name_prefix are included."""
+    from unittest.mock import MagicMock, patch
+
+    from src.meta.client import _fetch_campaign_objectives_sync
+
+    campaigns = iter([
+        {"id": "c1", "name": "Nowa | SALES | preorder-image | 20260715", "objective": "OUTCOME_SALES"},
+        {"id": "c2", "name": "Pawcast | SALES | 1usd-Reserve | 20260629", "objective": "OUTCOME_SALES"},
+    ])
+    cursor = MagicMock()
+    cursor.__iter__.return_value = campaigns
+    cursor.load_next_page.return_value = False
+
+    mock_account = MagicMock()
+    mock_account.get_campaigns.return_value = cursor
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        result = _fetch_campaign_objectives_sync("act_123", "Nowa")
+
+    assert result == {"c1": "OUTCOME_SALES"}
+    assert "c2" not in result
+
+
+def test_fetch_campaign_objectives_sync_empty_prefix_returns_all():
+    from unittest.mock import MagicMock, patch
+
+    from src.meta.client import _fetch_campaign_objectives_sync
+
+    campaigns = iter([
+        {"id": "c1", "name": "Nowa | SALES | preorder-image | 20260715", "objective": "OUTCOME_SALES"},
+        {"id": "c2", "name": "Pawcast | SALES | 1usd-Reserve | 20260629", "objective": "OUTCOME_SALES"},
+    ])
+    cursor = MagicMock()
+    cursor.__iter__.return_value = campaigns
+    cursor.load_next_page.return_value = False
+
+    mock_account = MagicMock()
+    mock_account.get_campaigns.return_value = cursor
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        result = _fetch_campaign_objectives_sync("act_123", "")
+
+    assert set(result) == {"c1", "c2"}
+
+
+def test_fetch_campaign_objectives_sync_skips_missing_objective():
+    """A campaign with no objective (None/empty) is omitted from the result."""
+    from unittest.mock import MagicMock, patch
+
+    from src.meta.client import _fetch_campaign_objectives_sync
+
+    campaigns = iter([
+        {"id": "c1", "name": "Nowa | SALES | preorder-image | 20260715", "objective": None},
+        {"id": "c2", "name": "Nowa | LEADS | quiz | 20260715", "objective": "OUTCOME_LEADS"},
+    ])
+    cursor = MagicMock()
+    cursor.__iter__.return_value = campaigns
+    cursor.load_next_page.return_value = False
+
+    mock_account = MagicMock()
+    mock_account.get_campaigns.return_value = cursor
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        result = _fetch_campaign_objectives_sync("act_123", "")
+
+    assert result == {"c2": "OUTCOME_LEADS"}
+    assert "c1" not in result
+
+
+def test_fetch_campaign_objectives_sync_paginates():
+    """Manual pagination via load_next_page() collects rows across pages."""
+    from unittest.mock import MagicMock, patch
+
+    from src.meta.client import _fetch_campaign_objectives_sync
+
+    page1 = iter([{"id": "c1", "name": "Nowa | A", "objective": "OUTCOME_SALES"}])
+    page2 = iter([{"id": "c2", "name": "Nowa | B", "objective": "OUTCOME_LEADS"}])
+
+    cursor = MagicMock()
+    cursor.__iter__.side_effect = [page1, page2]
+    cursor.load_next_page.side_effect = [True, False]
+
+    mock_account = MagicMock()
+    mock_account.get_campaigns.return_value = cursor
+
+    with patch("src.meta.client.AdAccount", return_value=mock_account):
+        result = _fetch_campaign_objectives_sync("act_123", "")
+
+    assert result == {"c1": "OUTCOME_SALES", "c2": "OUTCOME_LEADS"}

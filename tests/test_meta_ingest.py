@@ -28,6 +28,54 @@ async def test_upsert_campaign_updates_name(db_client):
     assert row["name"] == "New Name"
 
 
+async def test_upsert_campaign_without_objective_key_defaults_to_null(db_client):
+    """Back-compat: rows without an 'objective' key (pre-migration callers/tests)
+    must not raise -- upsert_campaign normalizes the missing key to None."""
+    row = {"id": "c_no_objective", "source": "meta_ads", "name": "No Objective Campaign", "status": "ACTIVE"}
+    await db_client.upsert_campaign([row])
+    result = await db_client.fetch_one("SELECT objective FROM campaigns WHERE id = 'c_no_objective'")
+    assert result["objective"] is None
+
+
+async def test_upsert_campaign_stores_objective(db_client):
+    """A fetched objective is stored on first insert."""
+    row = {
+        "id": "c_obj", "source": "meta_ads", "name": "Sales Campaign",
+        "status": "ACTIVE", "objective": "OUTCOME_SALES",
+    }
+    await db_client.upsert_campaign([row])
+    result = await db_client.fetch_one("SELECT objective FROM campaigns WHERE id = 'c_obj'")
+    assert result["objective"] == "OUTCOME_SALES"
+
+
+async def test_upsert_campaign_objective_updates_to_new_value(db_client):
+    """Re-upserting with a genuinely different fetched objective overwrites it."""
+    await db_client.upsert_campaign([
+        {"id": "c_obj_change", "source": "meta_ads", "name": "Campaign",
+         "status": "ACTIVE", "objective": "OUTCOME_TRAFFIC"}
+    ])
+    await db_client.upsert_campaign([
+        {"id": "c_obj_change", "source": "meta_ads", "name": "Campaign",
+         "status": "ACTIVE", "objective": "OUTCOME_SALES"}
+    ])
+    result = await db_client.fetch_one("SELECT objective FROM campaigns WHERE id = 'c_obj_change'")
+    assert result["objective"] == "OUTCOME_SALES"
+
+
+async def test_upsert_campaign_missing_objective_does_not_overwrite_existing(db_client):
+    """A subsequent upsert with objective=None (e.g. objectives fetch failed that
+    run) must NOT null out a previously-stored objective."""
+    await db_client.upsert_campaign([
+        {"id": "c_keep_obj", "source": "meta_ads", "name": "Campaign",
+         "status": "ACTIVE", "objective": "OUTCOME_LEADS"}
+    ])
+    await db_client.upsert_campaign([
+        {"id": "c_keep_obj", "source": "meta_ads", "name": "Campaign", "status": "ACTIVE"}
+    ])
+    result = await db_client.fetch_one("SELECT objective FROM campaigns WHERE id = 'c_keep_obj'")
+    assert result["objective"] == "OUTCOME_LEADS"
+
+
 async def test_circuit_breaker_not_triggered_under_threshold(db_client):
     """D-08: Circuit breaker must NOT trigger with < 3 consecutive failures."""
     log_id = await db_client.log_ingestion_start("meta_ads")

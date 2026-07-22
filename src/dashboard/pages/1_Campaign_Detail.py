@@ -114,10 +114,20 @@ def _cached_learning_status(db_path_str: str, end: str) -> dict[str, bool]:
     return db.get_adset_learning_status(Path(db_path_str), end)
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_campaign_objectives(db_path_str: str) -> dict[str, str]:
+    """Campaign name -> Meta objective (e.g. OUTCOME_SALES). Account-wide
+    metadata, not date-scoped (item 2, 2026-07-22)."""
+    from pathlib import Path
+    return db.get_campaign_objectives(Path(db_path_str))
+
+
 settings = DashboardSettings()  # type: ignore[call-arg]
 
 if not _check_auth(settings.dashboard_password):
     st.stop()
+
+db_path_str = str(settings.db_path)
 
 campaign = st.query_params.get("campaign")
 if isinstance(campaign, list):
@@ -131,6 +141,13 @@ if not campaign:
     st.stop()
 
 st.header(campaign)
+# Objective/goal badge (item 2, 2026-07-22) -- Meta's Campaign.objective,
+# shown right under the header alongside the campaign name.
+_campaign_goal = db.objective_display_label(
+    _cached_campaign_objectives(db_path_str).get(campaign)
+)
+if _campaign_goal:
+    st.caption(f"🎯 Goal: **{_campaign_goal}**")
 st.caption(
     "Daily Meta + GA4 detail. "
     "Meta uses 7-day click attribution · GA4 uses last-click · Never blend these numbers."
@@ -170,7 +187,6 @@ with st.sidebar:
 
 render_scope_line(start_date, end_date, campaign_filter=campaign)
 
-db_path_str = str(settings.db_path)
 rows = _cached_daily(db_path_str, campaign, start_date.isoformat(), end_date.isoformat())
 
 if not rows:

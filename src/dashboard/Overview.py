@@ -94,6 +94,14 @@ def _cached_campaigns(db_path_str: str, start: str, end: str) -> list[dict[str, 
 
 
 @st.cache_data(ttl=300, show_spinner=False)
+def _cached_campaign_objectives(db_path_str: str) -> dict[str, str]:
+    """Campaign name -> Meta objective (e.g. OUTCOME_SALES). Account-wide
+    metadata, not date-scoped -- no start/end params (item 2, 2026-07-22)."""
+    from pathlib import Path
+    return db.get_campaign_objectives(Path(db_path_str))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def _cached_attribution(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
     from pathlib import Path
     return db.get_attribution_comparison(Path(db_path_str), start, end)
@@ -465,8 +473,13 @@ def _roas_indicator(v: float | None) -> str:
 def _format_campaign_df(
     rows: list[dict[str, Any]],
     cpd_target: float = 0.0,
+    objectives: dict[str, str] | None = None,
 ) -> pd.DataFrame:
-    base_cols = ["Campaign", "Spend", "ROAS", "Impressions",
+    """objectives (item 2, 2026-07-22): {campaign_name: raw Meta objective},
+    e.g. from _cached_campaign_objectives. Rendered as a "Goal" column via
+    db.objective_display_label; "—" when no objective is known yet for that
+    campaign (not yet backfilled, or pre-migration DB)."""
+    base_cols = ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
                  "FSD", "CPR (FSD)", "GA4 Sessions"]
     if not rows:
         cols = base_cols + (["TIER"] if cpd_target > 0.0 else [])
@@ -481,6 +494,10 @@ def _format_campaign_df(
         "cpd": "CPR (FSD)",
         "ga4_sessions": "GA4 Sessions",
     })
+    _objectives = objectives or {}
+    df["Goal"] = df["Campaign"].apply(
+        lambda name: db.objective_display_label(_objectives.get(name)) or "—"
+    )
     if cpd_target > 0.0:
         df["TIER"] = df.apply(
             lambda r: _tier_tag(
@@ -500,6 +517,9 @@ _CAMPAIGN_COLUMN_CONFIG = {
     "Impressions": st.column_config.NumberColumn(format="%d"),
     "FSD": st.column_config.NumberColumn("FSD", format="%d"),
     "GA4 Sessions": st.column_config.NumberColumn(format="%d"),
+    "Goal": st.column_config.TextColumn(
+        "Goal", help="Meta campaign objective (e.g. Sales, Leads) — set at the campaign level in Ads Manager."
+    ),
 }
 
 
@@ -972,9 +992,10 @@ if camp_daily:
 # ---------------------------------------------------------------------------
 st.subheader("Campaign performance")
 campaign_rows = _cached_campaigns(db_path_str, start_iso, end_iso)
+campaign_objectives = _cached_campaign_objectives(db_path_str)
 if campaign_rows:
     st.dataframe(
-        _format_campaign_df(campaign_rows, settings.cpd_target),
+        _format_campaign_df(campaign_rows, settings.cpd_target, campaign_objectives),
         hide_index=True,
         use_container_width=True,
         column_config=_CAMPAIGN_COLUMN_CONFIG,
@@ -1011,11 +1032,23 @@ with st.expander("AI Daily Briefing", expanded=True):
 # ---------------------------------------------------------------------------
 if campaign_rows:
     names = [r["campaign_name"] for r in campaign_rows]
+
+    def _drill_option_label(name: str) -> str:
+        """Append the campaign's Meta objective as a short "(Goal: X)" suffix,
+        e.g. "Nowa | SALES | preorder-image | 20260715  (Goal: Sales)" (item 2,
+        2026-07-22). format_func only affects the displayed text -- the
+        selectbox's return value (used for st.switch_page's query param and
+        the exact campaign-name match on the Detail page) stays the raw name.
+        """
+        goal = db.objective_display_label(campaign_objectives.get(name))
+        return f"{name}  (Goal: {goal})" if goal else name
+
     col_sel, col_btn = st.columns([4, 1])
     with col_sel:
         selected_campaign = st.selectbox(
             "Drill into a campaign",
             options=names,
+            format_func=_drill_option_label,
             key="drill_select",
             label_visibility="visible",
         )

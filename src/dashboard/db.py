@@ -335,6 +335,29 @@ def get_campaign_names(db_path: Path) -> list[str]:
     return [r["name"] for r in rows]
 
 
+def get_campaign_objectives(db_path: Path) -> dict[str, str]:
+    """Map campaign name -> raw Meta objective (e.g. 'OUTCOME_SALES').
+
+    Backs the Overview drill-down selectbox and the Campaign Detail objective
+    badge (item 2, 2026-07-22) -- both look up a campaign by name, not id, so
+    this returns {name: objective} rather than {id: objective}. Use
+    objective_display_label() to render the raw value human-readably.
+
+    Returns {} on a missing table/column (pre-migration DB, before migration
+    015_campaign_objective has run) -- graceful degradation, matching every
+    other query in this module. Campaigns with a NULL objective (not yet
+    backfilled by an ingest run) are simply omitted from the dict.
+    """
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(
+                "SELECT name, objective FROM campaigns WHERE objective IS NOT NULL"
+            ).fetchall()
+        return {r["name"]: r["objective"] for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+
+
 def get_campaign_daily(
     db_path: Path,
     campaign_name: str,
@@ -1340,6 +1363,40 @@ def segment_display_name(slug: str | None) -> str:
     if not slug:
         return "(unknown)"
     return _SEGMENT_DISPLAY_NAMES.get(str(slug).strip(), slug)
+
+
+# ---------------------------------------------------------------------------
+# Campaign objective (goal) display label — item 2, 2026-07-22
+# ---------------------------------------------------------------------------
+
+_OBJECTIVE_DISPLAY_NAMES: dict[str, str] = {
+    "OUTCOME_SALES": "Sales",
+    "OUTCOME_LEADS": "Leads",
+    "OUTCOME_ENGAGEMENT": "Engagement",
+    "OUTCOME_AWARENESS": "Awareness",
+    "OUTCOME_TRAFFIC": "Traffic",
+    "OUTCOME_APP_PROMOTION": "App Promotion",
+}
+
+
+def objective_display_label(objective: str | None) -> str:
+    """Map a raw Meta campaign objective (e.g. 'OUTCOME_SALES') to a short
+    human label ('Sales') for display next to a campaign name.
+
+    Falls back to a title-cased, 'OUTCOME_'-prefix-stripped version of the
+    raw value for objectives not in the lookup table (e.g. a newer Meta
+    objective this dashboard hasn't been updated for), so new/unknown
+    objectives still render sensibly instead of crashing or showing raw
+    'OUTCOME_WHATEVER'. Returns "" for None/empty (no objective known yet —
+    caller should omit the badge/suffix in that case).
+    """
+    if not objective:
+        return ""
+    known = _OBJECTIVE_DISPLAY_NAMES.get(objective)
+    if known is not None:
+        return known
+    fallback = str(objective).removeprefix("OUTCOME_").replace("_", " ").strip()
+    return fallback.title() if fallback else str(objective)
 
 
 def get_tracking_gap_days(
