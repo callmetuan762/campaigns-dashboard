@@ -21,7 +21,8 @@ def db_with_data(tmp_path: Path) -> Path:
         CREATE TABLE ad_metrics (
             campaign_id INTEGER, date TEXT, ad_set_id TEXT DEFAULT '', ad_id TEXT DEFAULT '',
             spend REAL, roas REAL, impressions INTEGER, clicks INTEGER, ctr REAL,
-            meta_purchases_7dclick INTEGER, meta_form_submit_deposit INTEGER, fetched_at TEXT
+            meta_purchases_7dclick INTEGER, meta_form_submit_deposit INTEGER,
+            meta_begin_checkout INTEGER, fetched_at TEXT
         );
         CREATE TABLE ga4_metrics (
             date TEXT, campaign_utm TEXT, sessions INTEGER, users INTEGER,
@@ -32,17 +33,17 @@ def db_with_data(tmp_path: Path) -> Path:
 
         -- Campaign-level rows for Demo (3 dates)
         INSERT INTO ad_metrics VALUES
-            (1, '2025-05-01', '', '', 100.0, 2.0, 1000, 50, 5.0, 3, 2, '2025-05-02T00:00:00'),
-            (1, '2025-05-02', '', '', 200.0, 1.5, 2000, 80, 4.0, 5, 3, '2025-05-03T00:00:00'),
-            (1, '2025-05-03', '', '', 150.0, 2.5, 1500, 60, 4.0, 4, 2, '2025-05-04T00:00:00');
+            (1, '2025-05-01', '', '', 100.0, 2.0, 1000, 50, 5.0, 3, 2, 7, '2025-05-02T00:00:00'),
+            (1, '2025-05-02', '', '', 200.0, 1.5, 2000, 80, 4.0, 5, 3, 9, '2025-05-03T00:00:00'),
+            (1, '2025-05-03', '', '', 150.0, 2.5, 1500, 60, 4.0, 4, 2, 8, '2025-05-04T00:00:00');
 
         -- Ad-set-level row (must be EXCLUDED by ad_set_id = '' filter)
         INSERT INTO ad_metrics VALUES
-            (1, '2025-05-01', 'AS1', '', 999.0, 0.1, 100, 1, 1.0, 0, 0, '2025-05-02T00:00:00');
+            (1, '2025-05-01', 'AS1', '', 999.0, 0.1, 100, 1, 1.0, 0, 0, 0, '2025-05-02T00:00:00');
 
         -- Other campaign row (must NOT appear in Demo results)
         INSERT INTO ad_metrics VALUES
-            (2, '2025-05-01', '', '', 500.0, 5.0, 9999, 100, 1.0, 0, 0, '2025-05-02T00:00:00');
+            (2, '2025-05-01', '', '', 500.0, 5.0, 9999, 100, 1.0, 0, 0, 0, '2025-05-02T00:00:00');
 
         -- GA4 rows matched by campaign_utm + date
         INSERT INTO ga4_metrics VALUES
@@ -68,7 +69,7 @@ class TestGetCampaignDaily:
             CREATE TABLE ad_metrics (
                 campaign_id INTEGER, date TEXT, ad_set_id TEXT, ad_id TEXT,
                 spend REAL, roas REAL, meta_purchases_7dclick INTEGER,
-                meta_form_submit_deposit INTEGER
+                meta_form_submit_deposit INTEGER, meta_begin_checkout INTEGER
             );
             CREATE TABLE ga4_metrics (
                 date TEXT, campaign_utm TEXT, sessions INTEGER, ga4_purchases_lastclick INTEGER

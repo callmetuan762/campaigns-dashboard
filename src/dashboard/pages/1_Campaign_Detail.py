@@ -32,10 +32,10 @@ COLOR_BG_PLOT = "#1a1d27"
 COLOR_FONT = "#e4e7ef"
 COLOR_GRID = "#2a2e3a"
 COLOR_SPEND = "rgba(99, 125, 255, 0.6)"
-COLOR_DEPOSITS = "#34d399"
+COLOR_DEPOSITS = "#34d399"  # name kept for continuity w/ Overview/Ads -- now colors Initiate Checkout
 COLOR_META = "#60a5fa"
 COLOR_GA4 = "#a78bfa"
-COLOR_CPD = "#f59e0b"
+COLOR_CPD = "#f59e0b"  # name kept for continuity w/ Overview/Ads -- now colors Cost per Initiate Checkout
 
 # UTM <-> campaign-name mapping -- duplicated from src/config.py
 # utm_campaign_map per the D-19 standalone-page rule (pages never import
@@ -109,7 +109,9 @@ def _cached_adset_breakdown(db_path_str: str, campaign: str, start: str, end: st
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _cached_learning_status(db_path_str: str, end: str) -> dict[str, bool]:
-    """Return {ad_set_id: True} for ad sets in Meta learning phase (<50 FSDs/week)."""
+    """Return {ad_set_id: True} for ad sets in Meta learning phase
+    (<50 Initiate Checkout events/week -- threshold not re-validated for IC,
+    see db.get_adset_learning_status docstring)."""
     from pathlib import Path
     return db.get_adset_learning_status(Path(db_path_str), end)
 
@@ -179,11 +181,11 @@ with st.sidebar:
     st.divider()
     conv_metric = st.radio(
         "Conversion metric",
-        options=["FSD (form_submit)", "Purchases (7d-click)"],
+        options=["Initiate Checkout", "Purchases (7d-click)"],
         index=0,
         key="detail_conv_metric",
     )
-    use_form_submit: bool = conv_metric == "FSD (form_submit)"
+    use_form_submit: bool = conv_metric == "Initiate Checkout"
 
 render_scope_line(start_date, end_date, campaign_filter=campaign)
 
@@ -193,26 +195,69 @@ if not rows:
     st.info(f"No data for `{campaign}` in {start_date.isoformat()}..{end_date.isoformat()}.")
     st.stop()
 
+# --- GA4 utm-mapping fallback (sessions + purchases) -----------------------
+# get_campaign_daily's exact-name join (g.campaign_utm = c.name) never matches
+# for this campaign generation (GA4 utm_campaign = 'nowa_preorder'/'nowa_quiz'
+# vs Meta names like 'Nowa | SALES | ...'). That ONE broken join backs both
+# the `sessions` and `ga4_purchases` columns get_campaign_daily returns -- so
+# when it comes back empty, GA4 Sessions reads 0 here too, not just purchases
+# (root cause of "GA4 Sessions" reading 0 on this page, 2026-07-22 investigation).
+# Overview's GA4 session numbers are unaffected by this bug because Overview
+# never joins ga4_metrics to a campaign at all -- it sums the table directly.
+# Fall back to a reverse utm-substring match for BOTH columns instead of
+# silently showing a flat zero GA4 series.
+_ga4_join_empty = (
+    all(r["sessions"] == 0 for r in rows) and all(r["ga4_purchases"] == 0 for r in rows)
+)
+sessions_y = [r["sessions"] for r in rows]
+ga4_purchases_y = [r["ga4_purchases"] for r in rows]
+_utm_caption: str | None = None
+
+if _ga4_join_empty:
+    _utm_match = _reverse_utm_match(campaign)
+    if _utm_match is not None:
+        _utm_rows = _cached_ga4_by_utm(
+            db_path_str, _utm_match, start_date.isoformat(), end_date.isoformat()
+        )
+        _sessions_by_date = {r["date"]: int(r["sessions"] or 0) for r in _utm_rows}
+        _purchases_by_date = {r["date"]: int(r["ga4_purchases"] or 0) for r in _utm_rows}
+        sessions_y = [_sessions_by_date.get(r["date"], 0) for r in rows]
+        ga4_purchases_y = [_purchases_by_date.get(r["date"], 0) for r in rows]
+
+        _substring = UTM_CAMPAIGN_MAP[_utm_match]
+        _all_names = _cached_campaign_names(db_path_str)
+        _n_sharing = sum(1 for n in _all_names if _substring in n)
+        _utm_caption = (
+            f"GA4 matched via utm mapping '{_utm_match}' -- {_n_sharing} Meta campaigns "
+            "share this utm, so GA4 figures (sessions + purchases) cover the whole utm, "
+            "not this campaign alone."
+        )
+    else:
+        _utm_caption = (
+            "GA4 side is empty for this campaign -- no utm_campaign_map entry matches "
+            f"this campaign name, and GA4's exact-name join found no `{campaign}` rows."
+        )
+
 # --- KPI summary strip ------------------------------------------------------
 total_spend = sum(r["spend"] for r in rows)
-total_deposits = sum(r["deposits"] for r in rows)
-cpd = total_spend / total_deposits if total_deposits > 0 else None
+total_ic = sum(r["begin_checkout"] for r in rows)
+cost_per_ic = total_spend / total_ic if total_ic > 0 else None
 weighted_roas_num = sum(r["spend"] * r["roas"] for r in rows)
 avg_roas = weighted_roas_num / total_spend if total_spend > 0 else 0.0
-total_sessions = sum(r["sessions"] for r in rows)
+total_sessions = sum(sessions_y)
 total_meta_purchases = sum(r["meta_purchases"] for r in rows)
 total_ga4_purchases = sum(r["ga4_purchases"] for r in rows)
 
 k1, k2, k3, k4, k5 = st.columns(5)
 k1.metric("Total Spend", f"${total_spend:,.2f}")
-k2.metric("FSD (form_submit)", f"{total_deposits:,}")
-k3.metric("CPR (FSD)", f"${cpd:.2f}" if cpd else "--")
+k2.metric("Initiate Checkout", f"{total_ic:,}")
+k3.metric("CPR (Initiate Checkout)", f"${cost_per_ic:.2f}" if cost_per_ic else "--")
 k4.metric("Avg ROAS", f"{avg_roas:.2f}")
 k5.metric("GA4 Sessions", f"{total_sessions:,}")
 
 st.divider()
 
-# --- Chart 1: daily spend / deposits / sessions ----------------------------
+# --- Chart 1: daily spend / Initiate Checkout / sessions -------------------
 fig_trend = go.Figure()
 fig_trend.add_trace(go.Bar(
     x=[r["date"] for r in rows],
@@ -223,8 +268,8 @@ fig_trend.add_trace(go.Bar(
 ))
 fig_trend.add_trace(go.Scatter(
     x=[r["date"] for r in rows],
-    y=[r["deposits"] for r in rows],
-    name="FSD (form_submit)",
+    y=[r["begin_checkout"] for r in rows],
+    name="Initiate Checkout",
     mode="lines+markers",
     line=dict(color=COLOR_DEPOSITS, width=2),
     marker=dict(size=8),
@@ -232,7 +277,7 @@ fig_trend.add_trace(go.Scatter(
 ))
 fig_trend.add_trace(go.Scatter(
     x=[r["date"] for r in rows],
-    y=[r["sessions"] for r in rows],
+    y=sessions_y,
     name="GA4 Sessions",
     mode="lines",
     line=dict(color=COLOR_GA4, width=2, dash="dot"),
@@ -244,23 +289,19 @@ fig_trend.update_layout(
     font=dict(color=COLOR_FONT),
     xaxis=dict(title="Date", gridcolor=COLOR_GRID),
     yaxis=dict(title="Spend ($)", gridcolor=COLOR_GRID, zeroline=False),
-    yaxis2=dict(title="FSD / Sessions", overlaying="y", side="right",
+    yaxis2=dict(title="Initiate Checkout / Sessions", overlaying="y", side="right",
                 gridcolor=COLOR_GRID, zeroline=False),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     margin=dict(l=40, r=40, t=40, b=40),
     height=380,
 )
 
-# --- Chart 2: CPD over time ------------------------------------------------
-cpd_vals = [
-    r["spend"] / r["deposits"] if r["deposits"] > 0 else None
-    for r in rows
-]
+# --- Chart 2: Cost per Initiate Checkout over time --------------------------
 fig_cpd = go.Figure()
 fig_cpd.add_trace(go.Scatter(
     x=[r["date"] for r in rows],
-    y=cpd_vals,
-    name="CPR (FSD)",
+    y=[r["cost_per_bc"] for r in rows],
+    name="Cost per Initiate Checkout",
     mode="lines+markers",
     line=dict(color=COLOR_CPD, width=2),
     marker=dict(size=7, symbol="circle"),
@@ -271,7 +312,7 @@ fig_cpd.update_layout(
     paper_bgcolor=COLOR_BG_PAPER,
     font=dict(color=COLOR_FONT),
     xaxis=dict(title="Date", gridcolor=COLOR_GRID),
-    yaxis=dict(title="CPR (FSD) ($)", gridcolor=COLOR_GRID, zeroline=False),
+    yaxis=dict(title="Cost per Initiate Checkout ($)", gridcolor=COLOR_GRID, zeroline=False),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     margin=dict(l=40, r=40, t=40, b=40),
     height=300,
@@ -282,52 +323,22 @@ with col_left:
     st.subheader("Daily trend")
     st.plotly_chart(fig_trend, use_container_width=True)
 with col_right:
-    st.subheader("CPR (FSD) over time")
+    st.subheader("Cost per Initiate Checkout over time")
     st.plotly_chart(fig_cpd, use_container_width=True)
-    st.caption("CPR (FSD) = spend / form_submit_deposit. Gaps = zero-FSD days.")
+    st.caption("Cost per Initiate Checkout = spend / meta_begin_checkout. Gaps = zero-IC days.")
 
 st.divider()
 
 # --- Chart 3: Meta vs GA4 attribution (per date) ---------------------------
+# ga4_purchases_y / _utm_caption were already computed above (GA4 utm-mapping
+# fallback block, right after `rows` was fetched) so the KPI strip and Chart 1
+# could use the corrected sessions/purchases too -- reused here as-is.
 if use_form_submit:
-    meta_conv_y = [r["deposits"] for r in rows]
-    meta_conv_label = "Meta FSD (form_submit)"
+    meta_conv_y = [r["begin_checkout"] for r in rows]
+    meta_conv_label = "Meta Initiate Checkout"
 else:
     meta_conv_y = [r["meta_purchases"] for r in rows]
     meta_conv_label = "Meta purchases (7d-click)"
-
-# get_campaign_daily's exact-name join (g.campaign_utm = c.name) never
-# matches for this campaign generation (GA4 utm_campaign = 'nowa_preorder'/
-# 'nowa_quiz' vs Meta names like 'Nowa | SALES | ...') -- when that join
-# comes back empty, fall back to a reverse utm-substring match instead of
-# silently showing a flat zero GA4 series (utm mapping fix, 2026-07-22).
-_ga4_join_empty = (
-    all(r["sessions"] == 0 for r in rows) and all(r["ga4_purchases"] == 0 for r in rows)
-)
-ga4_purchases_y = [r["ga4_purchases"] for r in rows]
-_utm_caption: str | None = None
-
-if _ga4_join_empty:
-    _utm_match = _reverse_utm_match(campaign)
-    if _utm_match is not None:
-        _utm_rows = _cached_ga4_by_utm(
-            db_path_str, _utm_match, start_date.isoformat(), end_date.isoformat()
-        )
-        _utm_by_date = {r["date"]: int(r["ga4_purchases"] or 0) for r in _utm_rows}
-        ga4_purchases_y = [_utm_by_date.get(r["date"], 0) for r in rows]
-
-        _substring = UTM_CAMPAIGN_MAP[_utm_match]
-        _all_names = _cached_campaign_names(db_path_str)
-        _n_sharing = sum(1 for n in _all_names if _substring in n)
-        _utm_caption = (
-            f"GA4 matched via utm mapping '{_utm_match}' -- {_n_sharing} Meta campaigns "
-            "share this utm, so GA4 figures cover the whole utm, not this campaign alone."
-        )
-    else:
-        _utm_caption = (
-            "GA4 side is empty for this campaign -- no utm_campaign_map entry matches "
-            f"this campaign name, and GA4's exact-name join found no `{campaign}` rows."
-        )
 
 fig_attr = go.Figure()
 fig_attr.add_trace(go.Bar(
@@ -405,7 +416,7 @@ adset_rows = _cached_adset_breakdown(
 )
 
 if adset_rows:
-    # Learning phase: <50 FSDs in last 7 days from end_date
+    # Learning phase: <50 Initiate Checkout events in last 7 days from end_date
     learning_status = _cached_learning_status(db_path_str, end_date.isoformat())
 
     df_adset = pd.DataFrame(adset_rows)
@@ -421,8 +432,8 @@ if adset_rows:
     df_adset = df_adset.rename(columns={
         "ad_set_id": "Ad Set ID",
         "spend": "Spend",
-        "deposits": "FSD",
-        "cpd": "CPR (FSD)",
+        "begin_checkout": "Initiate Checkout",
+        "cost_per_bc": "CPR (Initiate Checkout)",
         "roas": "ROAS",
         "impressions": "Impressions",
         "clicks": "Clicks",
@@ -431,22 +442,27 @@ if adset_rows:
         "phase": "Phase",
     })
     df_adset["Spend"] = df_adset["Spend"].apply(lambda x: f"${x:,.2f}")
-    df_adset["CPR (FSD)"] = df_adset["CPR (FSD)"].apply(lambda x: f"${x:.2f}" if x else "--")
+    df_adset["CPR (Initiate Checkout)"] = df_adset["CPR (Initiate Checkout)"].apply(
+        lambda x: f"${x:.2f}" if x else "--"
+    )
     df_adset["ROAS"] = df_adset["ROAS"].apply(lambda x: f"{x:.2f}")
     df_adset["CTR %"] = df_adset["CTR %"].apply(lambda x: f"{x:.2f}%")
     df_adset["Avg Freq"] = df_adset["Avg Freq"].apply(lambda x: f"{x:.1f}")
 
     # Reorder: Phase first so it's visible without scrolling
-    col_order = ["Ad Set ID", "Phase", "Spend", "FSD", "CPR (FSD)",
+    col_order = ["Ad Set ID", "Phase", "Spend", "Initiate Checkout", "CPR (Initiate Checkout)",
                  "ROAS", "Impressions", "Clicks", "CTR %", "Avg Freq"]
     df_adset = df_adset[[c for c in col_order if c in df_adset.columns]]
 
     st.dataframe(df_adset, hide_index=True, use_container_width=True)
 
     _n_learning = sum(1 for row in adset_rows if learning_status.get(row["ad_set_id"], False))
-    _caption = f"{len(adset_rows)} ad sets · sorted by CPR (FSD) ascending (best first)"
+    _caption = f"{len(adset_rows)} ad sets · sorted by CPR (Initiate Checkout) ascending (best first)"
     if _n_learning:
-        _caption += f" · 🎓 {_n_learning} in learning phase (<50 FSDs/week — don't optimise CPR yet)"
+        _caption += (
+            f" · 🎓 {_n_learning} in learning phase "
+            "(<50 Initiate Checkout/week — don't optimise CPR yet)"
+        )
     st.caption(_caption)
 else:
     st.info(

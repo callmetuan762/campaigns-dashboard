@@ -478,9 +478,21 @@ def _format_campaign_df(
     """objectives (item 2, 2026-07-22): {campaign_name: raw Meta objective},
     e.g. from _cached_campaign_objectives. Rendered as a "Goal" column via
     db.objective_display_label; "—" when no objective is known yet for that
-    campaign (not yet backfilled, or pre-migration DB)."""
+    campaign (not yet backfilled, or pre-migration DB).
+
+    "Initiate Checkout"/"CPR (Initiate Checkout)" columns source
+    meta_begin_checkout-based begin_checkout/cost_per_bc fields (FSD ->
+    Initiate Checkout re-point, 2026-07-22) -- meta_form_submit_deposit (FSD)
+    is dead on current data. NOTE: `cpd_target` (TIER column threshold, from
+    settings.cpd_target) was calibrated against cost-per-FSD dollars and is
+    now compared against cost-per-Initiate-Checkout dollars instead -- these
+    are typically very different price points (IC fires earlier/cheaper than
+    a deposit did), so the threshold itself has NOT been re-calibrated here.
+    It defaults to 0.0 (TIER hidden) in this environment, so this is currently
+    inert, but revisit the threshold before enabling TIER with a nonzero
+    CPD_TARGET."""
     base_cols = ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
-                 "FSD", "CPR (FSD)", "GA4 Sessions"]
+                 "Initiate Checkout", "CPR (Initiate Checkout)", "GA4 Sessions"]
     if not rows:
         cols = base_cols + (["TIER"] if cpd_target > 0.0 else [])
         return pd.DataFrame(columns=cols)
@@ -490,8 +502,8 @@ def _format_campaign_df(
         "campaign_name": "Campaign",
         "spend": "Spend",
         "impressions": "Impressions",
-        "deposits": "FSD",
-        "cpd": "CPR (FSD)",
+        "begin_checkout": "Initiate Checkout",
+        "cost_per_bc": "CPR (Initiate Checkout)",
         "ga4_sessions": "GA4 Sessions",
     })
     _objectives = objectives or {}
@@ -501,8 +513,8 @@ def _format_campaign_df(
     if cpd_target > 0.0:
         df["TIER"] = df.apply(
             lambda r: _tier_tag(
-                r["CPR (FSD)"] if pd.notna(r["CPR (FSD)"]) else None,
-                int(r["FSD"] or 0),
+                r["CPR (Initiate Checkout)"] if pd.notna(r["CPR (Initiate Checkout)"]) else None,
+                int(r["Initiate Checkout"] or 0),
                 cpd_target,
             ),
             axis=1,
@@ -513,9 +525,9 @@ def _format_campaign_df(
 
 _CAMPAIGN_COLUMN_CONFIG = {
     "Spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
-    "CPR (FSD)": st.column_config.NumberColumn("CPR (FSD)", format="$%.2f"),
+    "CPR (Initiate Checkout)": st.column_config.NumberColumn("CPR (Initiate Checkout)", format="$%.2f"),
     "Impressions": st.column_config.NumberColumn(format="%d"),
-    "FSD": st.column_config.NumberColumn("FSD", format="%d"),
+    "Initiate Checkout": st.column_config.NumberColumn("Initiate Checkout", format="%d"),
     "GA4 Sessions": st.column_config.NumberColumn(format="%d"),
     "Goal": st.column_config.TextColumn(
         "Goal", help="Meta campaign objective (e.g. Sales, Leads) — set at the campaign level in Ads Manager."

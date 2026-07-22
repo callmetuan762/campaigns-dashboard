@@ -248,6 +248,18 @@ def get_campaign_daily_breakdown(
 
 
 def get_campaign_table(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """Per-campaign summary for the Overview "Campaign performance" table.
+
+    `deposits`/`cpd` (meta_form_submit_deposit-based, FSD) are kept for
+    backward compatibility but are dead on current data -- no current
+    campaign fires this event. `begin_checkout`/`cost_per_bc`
+    (meta_begin_checkout-based, Initiate Checkout) are the live metric and
+    back the table's "Initiate Checkout"/"CPR (Initiate Checkout)" columns
+    (FSD -> Initiate Checkout re-point, 2026-07-22). Sort order intentionally
+    left as `deposits DESC` (pinned by test_campaign_table_sorted_by_deposits_desc,
+    and the on-screen dataframe is user-sortable by clicking any column header
+    anyway).
+    """
     sql = """
         SELECT
             c.name                                                        AS campaign_name,
@@ -260,6 +272,10 @@ def get_campaign_table(db_path: Path, start_date: str, end_date: str) -> list[di
             CASE WHEN SUM(m.meta_form_submit_deposit) > 0
                  THEN SUM(m.spend) / SUM(m.meta_form_submit_deposit)
                  ELSE NULL END                                           AS cpd,
+            COALESCE(SUM(m.meta_begin_checkout), 0)                      AS begin_checkout,
+            CASE WHEN SUM(m.meta_begin_checkout) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
+                 ELSE NULL END                                           AS cost_per_bc,
             COALESCE(SUM(g.sessions), 0)                                 AS ga4_sessions
         FROM ad_metrics m
         JOIN campaigns c ON m.campaign_id = c.id
@@ -371,12 +387,22 @@ def get_campaign_daily(
     - Never blends Meta vs GA4 conversion counts (CLAUDE.md data model rule):
       meta_purchases and ga4_purchases are returned as separate keys.
     - Campaign name is bound via positional ? param — never interpolated into SQL.
+
+    `deposits` (meta_form_submit_deposit-based, FSD) is kept for backward
+    compatibility but is dead on current data. `begin_checkout`/`cost_per_bc`
+    (meta_begin_checkout-based, Initiate Checkout) are the live metric and
+    back Campaign Detail's KPI strip + charts (FSD -> Initiate Checkout
+    re-point, 2026-07-22).
     """
     sql = '''
         SELECT
             m.date                                           AS date,
             COALESCE(SUM(m.spend), 0)                        AS spend,
             COALESCE(SUM(m.meta_form_submit_deposit), 0)     AS deposits,
+            COALESCE(SUM(m.meta_begin_checkout), 0)          AS begin_checkout,
+            CASE WHEN SUM(m.meta_begin_checkout) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
+                 ELSE NULL END                                AS cost_per_bc,
             COALESCE(SUM(g.sessions), 0)                     AS sessions,
             CASE WHEN SUM(m.spend) > 0
                  THEN SUM(m.spend * m.roas) / SUM(m.spend)
@@ -469,6 +495,14 @@ def get_campaign_adset_breakdown(
 
     Only rows where ad_set_id != '' and ad_id = '' (ad-set level granularity).
     Returns empty list when only campaign-level rows exist (ad_set_id = '').
+
+    `deposits`/`cpd` (meta_form_submit_deposit-based, FSD) are kept for
+    backward compatibility but are dead on current data. `begin_checkout`/
+    `cost_per_bc` (meta_begin_checkout-based, Initiate Checkout) are the live
+    metric and back the Campaign Detail ad-set table's "Initiate Checkout"/
+    "CPR (Initiate Checkout)" columns (FSD -> Initiate Checkout re-point,
+    2026-07-22) -- sort order below now follows cost_per_bc ascending to
+    match the page's "sorted by CPR (Initiate Checkout) ascending" caption.
     """
     sql = """
         SELECT
@@ -478,6 +512,10 @@ def get_campaign_adset_breakdown(
             CASE WHEN SUM(m.meta_form_submit_deposit) > 0
                  THEN SUM(m.spend) / SUM(m.meta_form_submit_deposit)
                  ELSE NULL END                                           AS cpd,
+            COALESCE(SUM(m.meta_begin_checkout), 0)                      AS begin_checkout,
+            CASE WHEN SUM(m.meta_begin_checkout) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
+                 ELSE NULL END                                           AS cost_per_bc,
             CASE WHEN SUM(m.spend) > 0
                  THEN SUM(m.spend * m.roas) / SUM(m.spend)
                  ELSE 0 END                                              AS roas,
@@ -494,7 +532,7 @@ def get_campaign_adset_breakdown(
           AND m.ad_id = ''
           AND m.date BETWEEN ? AND ?
         GROUP BY m.ad_set_id
-        ORDER BY cpd ASC NULLS LAST, spend DESC
+        ORDER BY cost_per_bc ASC NULLS LAST, spend DESC
     """
     with _conn(db_path) as con:
         rows = con.execute(sql, (campaign_name, start_date, end_date)).fetchall()
@@ -1305,12 +1343,20 @@ def get_adset_learning_status(
 ) -> dict[str, bool]:
     """Return {ad_set_id: True} for ad sets currently in Meta's learning phase.
 
-    Learning phase = fewer than 50 FSDs in the most recent `window_days` days.
-    Only ad-set level rows (ad_set_id != '', ad_id = '') are considered.
-    Returns an empty dict if no ad-set level data exists.
+    Learning phase = fewer than 50 Initiate Checkout events (meta_begin_checkout)
+    in the most recent `window_days` days. Only ad-set level rows (ad_set_id != '',
+    ad_id = '') are considered. Returns an empty dict if no ad-set level data exists.
 
     Rule of thumb: Meta exits learning after ~50 conversions/week per ad set.
     Ad sets below this threshold should not be judged on CPR alone.
+
+    NOTE (FSD -> Initiate Checkout re-point, 2026-07-22): this function used to
+    key off meta_form_submit_deposit (FSD), which is dead on current data. It now
+    keys off meta_begin_checkout (Initiate Checkout) instead, but the 50/week
+    threshold itself was carried over unchanged and has NOT been independently
+    re-validated against Initiate Checkout's typical firing rate -- IC fires much
+    earlier/more often in the funnel than a deposit did, so 50/week may be too
+    low a bar in practice. Revisit if ad sets exit "Learning" suspiciously fast.
     """
     from datetime import date as _date, timedelta as _td
     try:
@@ -1321,7 +1367,7 @@ def get_adset_learning_status(
 
     sql = """
         SELECT ad_set_id,
-               COALESCE(SUM(meta_form_submit_deposit), 0) AS fsd_window
+               COALESCE(SUM(meta_begin_checkout), 0) AS ic_window
         FROM ad_metrics
         WHERE ad_set_id != ''
           AND ad_id = ''
@@ -1331,7 +1377,7 @@ def get_adset_learning_status(
     try:
         with _conn(db_path) as con:
             rows = con.execute(sql, (start, end_date)).fetchall()
-        return {r["ad_set_id"]: int(r["fsd_window"]) < 50 for r in rows}
+        return {r["ad_set_id"]: int(r["ic_window"]) < 50 for r in rows}
     except sqlite3.OperationalError:
         return {}
 

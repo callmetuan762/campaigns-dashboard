@@ -157,7 +157,8 @@ def test_campaign_table_keeps_campaigns_with_zero_ga4(tmp_path: Path) -> None:
             clicks INTEGER, ctr REAL, cpc REAL, cpm REAL, roas REAL,
             meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
             reach INTEGER, frequency REAL,
-            meta_form_submit_deposit INTEGER DEFAULT 0, fetched_at TEXT
+            meta_form_submit_deposit INTEGER DEFAULT 0,
+            meta_begin_checkout INTEGER, fetched_at TEXT
         );
         CREATE TABLE ga4_metrics (
             campaign_utm TEXT, date TEXT, sessions INTEGER, users INTEGER,
@@ -308,6 +309,7 @@ def test_campaign_daily_empty_db_returns_empty(tmp_path: Path) -> None:
             meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
             reach INTEGER, frequency REAL,
             meta_form_submit_deposit INTEGER NOT NULL DEFAULT 0,
+            meta_begin_checkout INTEGER,
             fetched_at TEXT,
             PRIMARY KEY (campaign_id, date, ad_set_id, ad_id)
         );
