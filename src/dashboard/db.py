@@ -464,8 +464,23 @@ def get_campaign_ga4_engagement(
     """GA4 engagement metrics for one campaign UTM over [start_date, end_date].
 
     Returns avg_bounce_rate, avg_engagement_time_sec, total_users, total_new_users.
-    All values default to 0 / None when no rows exist.
-    Join key: campaign_utm = campaign name (exact UTM match, CLAUDE.md rule).
+    Filter key: campaign_utm = campaign_name (exact match, CLAUDE.md rule) --
+    despite the parameter name, this is a plain WHERE campaign_utm = ? filter
+    with no join, so it works equally well if the caller passes GA4's raw
+    utm_campaign slug ('nowa_preorder'/'nowa_quiz') instead of a full Meta
+    campaign name.
+
+    Campaign Detail's exact-name calls always come back empty for the
+    current campaign generation, same root cause as get_campaign_daily's
+    broken sessions/purchases join: GA4's campaign_utm is a short slug, not
+    the full Meta campaign name (utm mapping fix, 2026-07-22). Because this
+    function has no join to work around (unlike get_campaign_daily), the
+    page-level fallback (1_Campaign_Detail.py) simply re-calls this same
+    function with the reverse-matched utm slug instead of using a separate
+    by-utm helper.
+
+    When no rows match, AVG()/SUM() return NULL for every column (not 0) --
+    the caller's "is this empty" check must test for None, not falsy/0.
     """
     sql = """
         SELECT

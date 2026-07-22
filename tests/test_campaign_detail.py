@@ -255,3 +255,14 @@ class TestPageModule:
         assert "_reverse_utm_match" in src
         assert "get_ga4_daily_by_utm" in src
         assert "GA4 matched via utm mapping" in src
+
+    def test_ga4_engagement_uses_reverse_utm_fallback(self):
+        """GA4 Engagement zero-read fix (2026-07-22): get_campaign_ga4_engagement
+        has the same exact-name-vs-utm-slug mismatch as get_campaign_daily's
+        sessions/purchases join, so the page must re-run the same reverse
+        utm-substring fallback for the engagement section too, reusing
+        _reverse_utm_match rather than inventing a second lookup."""
+        path = Path("src/dashboard/pages/1_Campaign_Detail.py")
+        src = path.read_text(encoding="utf-8")
+        assert src.count("_reverse_utm_match(campaign)") >= 2
+        assert src.count("_cached_ga4_engagement(") >= 2

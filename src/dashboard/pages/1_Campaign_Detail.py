@@ -378,6 +378,32 @@ ga4_eng = _cached_ga4_engagement(
     db_path_str, campaign, start_date.isoformat(), end_date.isoformat()
 )
 
+# Same exact-name join bug as the sessions/purchases fallback above --
+# get_campaign_ga4_engagement's `campaign_utm = ?` filter is bound to the
+# full Meta campaign name here, which never exact-matches GA4's
+# utm_campaign slug ('nowa_preorder'/'nowa_quiz') for this campaign
+# generation, so the aggregate query matches zero rows and AVG/SUM all come
+# back NULL (utm mapping fix, 2026-07-22). Unlike get_campaign_daily this
+# query is already keyed purely on campaign_utm, so no new db.py helper is
+# needed -- re-run the identical cached call with the reverse-matched utm
+# slug instead of the campaign name.
+_eng_empty = (
+    ga4_eng.get("avg_bounce_rate") is None
+    and ga4_eng.get("avg_engagement_time_sec") is None
+    and not ga4_eng.get("total_users")
+)
+_eng_utm_caption: str | None = None
+if _eng_empty:
+    _eng_utm_match = _reverse_utm_match(campaign)
+    if _eng_utm_match is not None:
+        ga4_eng = _cached_ga4_engagement(
+            db_path_str, _eng_utm_match, start_date.isoformat(), end_date.isoformat()
+        )
+        _eng_utm_caption = (
+            f"GA4 matched via utm mapping '{_eng_utm_match}' -- these figures cover "
+            "the whole utm-tagged campaign generation, not this campaign alone."
+        )
+
 st.subheader("GA4 Engagement")
 bounce = ga4_eng.get("avg_bounce_rate")
 eng_time = ga4_eng.get("avg_engagement_time_sec")
@@ -403,7 +429,9 @@ e4.metric(
     help="Share of sessions from first-time visitors.",
 )
 
-if not any([bounce, eng_time, total_users]):
+if _eng_utm_caption:
+    st.caption(_eng_utm_caption)
+elif not any([bounce, eng_time, total_users]):
     st.caption("No GA4 engagement data for this campaign in the selected range. "
                "Check that UTM tagging is applied and GA4 has been ingested.")
 

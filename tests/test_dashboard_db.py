@@ -14,6 +14,7 @@ from src.dashboard.db import (
     get_kpi_summary, get_ga4_kpi, get_daily_trend, get_campaign_table,
     get_attribution_comparison, get_data_freshness, get_campaign_names,
     get_campaign_daily, get_campaign_objectives, objective_display_label,
+    get_campaign_ga4_engagement,
 )
 
 
@@ -404,3 +405,31 @@ def test_campaign_daily_no_cross_campaign_leakage(db: Path) -> None:
     for r in convert_rows:
         # Convert only has 1 campaign-level row (2026-05-01), spend=200.0
         assert r["spend"] == pytest.approx(200.0)
+
+
+# --- get_campaign_ga4_engagement (GA4 Engagement zero-read fix, 2026-07-22) -
+#
+# The fixture's ga4_metrics.campaign_utm happens to equal the campaigns.name
+# ('Brand'/'Convert') exactly, so this exercises the exact-match filter
+# itself, not the utm-slug-vs-full-campaign-name mismatch that zeroes this
+# out for real campaigns (that mismatch is a Campaign Detail page-level
+# concern, covered in tests/test_campaign_detail.py).
+
+def test_ga4_engagement_returns_metrics_for_matching_utm(db: Path) -> None:
+    result = get_campaign_ga4_engagement(db, "Brand", "2026-05-01", "2026-05-02")
+    assert result["avg_bounce_rate"] == pytest.approx((0.30 + 0.28) / 2)
+    assert result["avg_engagement_time_sec"] == pytest.approx((45.0 + 50.0) / 2)
+    assert result["total_users"] == 400 + 500
+    assert result["total_new_users"] == 300 + 400
+
+
+def test_ga4_engagement_unmatched_campaign_returns_none_not_zero(db: Path) -> None:
+    """No matching campaign_utm rows -> AVG/SUM all come back NULL (None),
+    not 0 -- callers must check for None, not falsiness, to detect "no
+    data" (this is what the Campaign Detail page's utm-fallback trigger
+    relies on)."""
+    result = get_campaign_ga4_engagement(db, "NonexistentCampaign", "2026-05-01", "2026-05-02")
+    assert result["avg_bounce_rate"] is None
+    assert result["avg_engagement_time_sec"] is None
+    assert result["total_users"] is None
+    assert result["total_new_users"] is None
