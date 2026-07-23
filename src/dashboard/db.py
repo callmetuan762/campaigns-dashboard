@@ -469,6 +469,53 @@ def get_campaign_daily(
     return [dict(r) for r in rows]
 
 
+def match_campaign_to_utm(
+    campaign_name: str, utm_campaign_map: dict[str, str]
+) -> str | None:
+    """Resolve the ga4_metrics/ga4_events `campaign_utm` value to filter or
+    join on for a given Meta campaign name (utm mapping fix, 2026-07-22).
+
+    Extracted from src/dashboard/pages/1_Campaign_Detail.py's
+    `_reverse_utm_match`, which was duplicated across three independently
+    discovered instances of the same bug: GA4 sessions and GA4 purchases in
+    `get_campaign_daily` (one exact-name join backs both columns) and GA4
+    engagement in `get_campaign_ga4_engagement`. All three fail the same way:
+    they join/filter `ga4_metrics.campaign_utm` against the full Meta
+    campaign name (e.g. 'Nowa | SALES | preorder-image | 20260715') using an
+    exact match, but GA4 actually stores a short slug there (`nowa_preorder`,
+    `nowa_quiz` -- see `src.config.utm_campaign_map`), so the exact match
+    silently returns zero/NULL rows forever.
+
+    Resolution, in order:
+      1. Exact match: `campaign_name` is itself a valid utm slug (already a
+         key in `utm_campaign_map`) -- return it unchanged. Cheap, and
+         correct for any case where the caller already has the right value
+         (e.g. a future campaign generation whose Meta names and GA4
+         campaign_utm slugs happen to align, or a caller that already
+         resolved the utm and calls this again defensively).
+      2. Reverse substring match: `campaign_name` contains the Meta
+         campaign-name substring mapped to a utm slug in `utm_campaign_map`
+         (current campaign generation: 'SALES' -> 'nowa_preorder', 'LEADS'
+         -> 'nowa_quiz').
+      3. Neither matches -> None. Callers must treat this as "no GA4 data
+         resolvable for this campaign" and say so, never guess/blend.
+
+    `utm_campaign_map` is passed in explicitly (not imported from
+    src.config) because dashboard modules stay decoupled from the
+    TELEGRAM_BOT_TOKEN-requiring Settings import chain (see
+    DashboardSettings' "standalone" docstring) -- callers pass their own
+    local copy of the map (e.g. pages/1_Campaign_Detail.py's
+    UTM_CAMPAIGN_MAP, duplicated from src.config.utm_campaign_map per the
+    D-19 standalone-page rule).
+    """
+    if campaign_name in utm_campaign_map:
+        return campaign_name
+    for utm, substring in utm_campaign_map.items():
+        if substring in campaign_name:
+            return utm
+    return None
+
+
 def get_ga4_daily_by_utm(
     db_path: Path, utm_campaign: str, start_date: str, end_date: str
 ) -> list[dict[str, Any]]:
@@ -478,10 +525,11 @@ def get_ga4_daily_by_utm(
     current campaign generation ('nowa_preorder' / 'nowa_quiz') never
     exact-match a Meta campaign *name* ('Nowa | SALES | ... '), so
     get_campaign_daily's join always returns zero GA4 rows for these
-    campaigns. This function fetches GA4 data straight by utm value (via
-    src.config.utm_campaign_map's reverse substring lookup) so the page can
-    show real GA4 numbers with a caption explaining the utm covers the whole
-    campaign generation, not just the one campaign drilled into.
+    campaigns. This function fetches GA4 data straight by utm value -- the
+    caller resolves that utm value via `match_campaign_to_utm` first -- so
+    the page can show real GA4 numbers with a caption explaining the utm
+    covers the whole campaign generation, not just the one campaign drilled
+    into.
 
     Returns [] on a missing table / no rows (graceful degradation).
     """
@@ -522,8 +570,8 @@ def get_campaign_ga4_engagement(
     the full Meta campaign name (utm mapping fix, 2026-07-22). Because this
     function has no join to work around (unlike get_campaign_daily), the
     page-level fallback (1_Campaign_Detail.py) simply re-calls this same
-    function with the reverse-matched utm slug instead of using a separate
-    by-utm helper.
+    function with the utm slug resolved by `match_campaign_to_utm` instead
+    of using a separate by-utm helper.
 
     When no rows match, AVG()/SUM() return NULL for every column (not 0) --
     the caller's "is this empty" check must test for None, not falsy/0.

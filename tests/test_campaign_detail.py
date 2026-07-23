@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.dashboard.db import get_campaign_daily, get_ga4_daily_by_utm
+from src.dashboard.db import get_campaign_daily, get_ga4_daily_by_utm, match_campaign_to_utm
 
 
 # --- Fixture ---------------------------------------------------------------
@@ -195,6 +195,53 @@ class TestGetGa4DailyByUtm:
         assert get_ga4_daily_by_utm(db, "nowa_preorder", "2025-05-01", "2025-05-31") == []
 
 
+# --- match_campaign_to_utm (utm mapping fix, 2026-07-22 refactor) ----------
+#
+# Shared resolver extracted from the page-local `_reverse_utm_match`, which
+# was duplicated across the GA4 sessions/purchases fallback and the GA4
+# engagement fallback. This is the piece that's been silently broken (three
+# independent bug instances, one root cause) so it gets its own direct unit
+# tests rather than relying only on the page-source scraping tests below.
+
+_TEST_UTM_MAP = {"nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
+
+
+class TestMatchCampaignToUtm:
+    def test_exact_match_hit(self):
+        """campaign_name is already a valid utm slug -- returned unchanged,
+        without going anywhere near the substring fallback."""
+        assert match_campaign_to_utm("nowa_preorder", _TEST_UTM_MAP) == "nowa_preorder"
+        assert match_campaign_to_utm("nowa_quiz", _TEST_UTM_MAP) == "nowa_quiz"
+
+    def test_substring_fallback_hit(self):
+        """Full Meta campaign name -> reverse-matched via the substring the
+        utm slug maps to."""
+        assert (
+            match_campaign_to_utm("Nowa | SALES | preorder-image | 20260715", _TEST_UTM_MAP)
+            == "nowa_preorder"
+        )
+        assert (
+            match_campaign_to_utm("Nowa | LEADS | quiz | 20260715", _TEST_UTM_MAP)
+            == "nowa_quiz"
+        )
+
+    def test_no_match_returns_none(self):
+        """Neither an exact utm-slug match nor a substring match -- must
+        return None, not guess."""
+        assert match_campaign_to_utm("Nowa | AWARENESS | video | 20260715", _TEST_UTM_MAP) is None
+        assert match_campaign_to_utm("Completely Unrelated Campaign", _TEST_UTM_MAP) is None
+
+    def test_empty_map_returns_none(self):
+        assert match_campaign_to_utm("Nowa | SALES | broad | 20260715", {}) is None
+
+    def test_exact_match_takes_priority_over_substring(self):
+        """If campaign_name happens to equal a utm slug key AND some other
+        entry's substring also happens to appear in it, exact match wins
+        (tier 1 short-circuits before the substring loop runs)."""
+        tricky_map = {"nowa_preorder": "SALES", "sales": "OTHER"}
+        assert match_campaign_to_utm("sales", tricky_map) == "sales"
+
+
 # --- Page module importability --------------------------------------------
 
 class TestPageModule:
@@ -249,20 +296,24 @@ class TestPageModule:
             assert utm in src
             assert substring in src
 
-    def test_uses_reverse_utm_fallback_and_ga4_daily_by_utm(self):
+    def test_uses_utm_fallback_and_ga4_daily_by_utm(self):
         path = Path("src/dashboard/pages/1_Campaign_Detail.py")
         src = path.read_text(encoding="utf-8")
-        assert "_reverse_utm_match" in src
+        assert "db.match_campaign_to_utm" in src
         assert "get_ga4_daily_by_utm" in src
         assert "GA4 matched via utm mapping" in src
 
-    def test_ga4_engagement_uses_reverse_utm_fallback(self):
+    def test_ga4_engagement_uses_shared_utm_fallback(self):
         """GA4 Engagement zero-read fix (2026-07-22): get_campaign_ga4_engagement
         has the same exact-name-vs-utm-slug mismatch as get_campaign_daily's
-        sessions/purchases join, so the page must re-run the same reverse
-        utm-substring fallback for the engagement section too, reusing
-        _reverse_utm_match rather than inventing a second lookup."""
+        sessions/purchases join, so the page must re-run the same
+        utm-resolution fallback for the engagement section too, reusing the
+        shared db.match_campaign_to_utm helper rather than inventing a
+        second lookup (previously a page-local `_reverse_utm_match`, now
+        extracted to src/dashboard/db.py so it's testable and shared across
+        all three call sites)."""
         path = Path("src/dashboard/pages/1_Campaign_Detail.py")
         src = path.read_text(encoding="utf-8")
-        assert src.count("_reverse_utm_match(campaign)") >= 2
+        assert src.count("db.match_campaign_to_utm(campaign, UTM_CAMPAIGN_MAP)") >= 2
         assert src.count("_cached_ga4_engagement(") >= 2
+        assert "_reverse_utm_match" not in src

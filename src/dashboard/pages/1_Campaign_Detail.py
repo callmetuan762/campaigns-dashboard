@@ -44,18 +44,11 @@ COLOR_CPD = "#f59e0b"  # name kept for continuity w/ Overview/Ads -- now colors 
 # ('nowa_preorder' / 'nowa_quiz') never exact-match a Meta campaign *name*
 # ('Nowa | SALES | ...' / 'Nowa | LEADS | ...'), so the "Meta vs GA4
 # attribution (daily)" chart's exact-name join below comes back empty for
-# these campaigns. Used as a reverse lookup: campaign name contains
-# substring -> utm value.
+# these campaigns. Resolution (exact match, then reverse substring match)
+# is shared, tested logic in db.match_campaign_to_utm -- see that
+# function's docstring for the full rationale; this page just supplies its
+# own copy of the map (per D-19) and calls the shared resolver.
 UTM_CAMPAIGN_MAP = {"nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
-
-
-def _reverse_utm_match(campaign_name: str) -> str | None:
-    """Return the utm_campaign value whose Meta campaign-name substring
-    appears in `campaign_name`, or None if no mapping matches."""
-    for utm, substring in UTM_CAMPAIGN_MAP.items():
-        if substring in campaign_name:
-            return utm
-    return None
 
 
 def _check_auth(password_required: str) -> bool:
@@ -214,7 +207,7 @@ ga4_purchases_y = [r["ga4_purchases"] for r in rows]
 _utm_caption: str | None = None
 
 if _ga4_join_empty:
-    _utm_match = _reverse_utm_match(campaign)
+    _utm_match = db.match_campaign_to_utm(campaign, UTM_CAMPAIGN_MAP)
     if _utm_match is not None:
         _utm_rows = _cached_ga4_by_utm(
             db_path_str, _utm_match, start_date.isoformat(), end_date.isoformat()
@@ -384,9 +377,10 @@ ga4_eng = _cached_ga4_engagement(
 # utm_campaign slug ('nowa_preorder'/'nowa_quiz') for this campaign
 # generation, so the aggregate query matches zero rows and AVG/SUM all come
 # back NULL (utm mapping fix, 2026-07-22). Unlike get_campaign_daily this
-# query is already keyed purely on campaign_utm, so no new db.py helper is
-# needed -- re-run the identical cached call with the reverse-matched utm
-# slug instead of the campaign name.
+# query is already keyed purely on campaign_utm, so no separate by-utm
+# fetch function is needed -- just re-run the identical cached call with
+# the utm slug db.match_campaign_to_utm resolves, instead of the campaign
+# name.
 _eng_empty = (
     ga4_eng.get("avg_bounce_rate") is None
     and ga4_eng.get("avg_engagement_time_sec") is None
@@ -394,7 +388,7 @@ _eng_empty = (
 )
 _eng_utm_caption: str | None = None
 if _eng_empty:
-    _eng_utm_match = _reverse_utm_match(campaign)
+    _eng_utm_match = db.match_campaign_to_utm(campaign, UTM_CAMPAIGN_MAP)
     if _eng_utm_match is not None:
         ga4_eng = _cached_ga4_engagement(
             db_path_str, _eng_utm_match, start_date.isoformat(), end_date.isoformat()
