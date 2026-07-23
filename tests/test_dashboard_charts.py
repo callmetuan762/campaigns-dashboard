@@ -1,7 +1,12 @@
-"""Unit tests for Plotly figure builders in src/dashboard/app.py (DASH-02).
+"""Unit tests for pure dashboard helpers in src/dashboard/Overview.py (DASH-02, DASH-06).
 
-Tests chart trace counts, locked D-10 color palette, dual-axis layout,
-ROAS indicator thresholds, and campaign DataFrame column order.
+Covers ROAS indicator thresholds, TIER tag classification, and the
+_format_campaign_df conditional column set (Goal, Initiate Checkout/Lead
+metric swap, TIER).
+
+Note: the old _make_spend_vs_deposits_chart / _make_attribution_chart figure
+builders this file used to test were removed from the dashboard entirely
+(no longer present anywhere in src/) -- there is nothing left to test.
 """
 from __future__ import annotations
 
@@ -9,62 +14,19 @@ import os
 
 import pytest
 
-# Streamlit's set_page_config raises if called twice; importing app.py at module
-# load triggers it. Use a flag to skip / share the import side-effect across tests.
+# Streamlit's set_page_config raises if called twice; importing Overview.py at
+# module load triggers it. Use a flag to skip / share the import side-effect
+# across tests.
 os.environ.setdefault("DASHBOARD_PASSWORD", "")
 
 
 def _import_app():
-    """Import src.dashboard.app exactly once (set_page_config has run)."""
+    """Import src.dashboard.Overview exactly once (set_page_config has run)."""
     import importlib
     import sys
-    if "src.dashboard.app" in sys.modules:
-        return sys.modules["src.dashboard.app"]
-    return importlib.import_module("src.dashboard.app")
-
-
-def test_spend_vs_deposits_chart_traces() -> None:
-    app = _import_app()
-    rows = [
-        {"date": "2026-05-01", "spend": 100.0, "deposits": 5, "sessions": 500},
-        {"date": "2026-05-02", "spend": 150.0, "deposits": 4, "sessions": 600},
-    ]
-    fig = app._make_spend_vs_deposits_chart(rows)
-    assert len(fig.data) == 2
-    # First trace: Bar (spend) with the locked rgba color
-    bar = fig.data[0]
-    assert bar.type == "bar"
-    assert bar.marker.color == "rgba(99, 125, 255, 0.6)"
-    # Second trace: Scatter (deposits) with the locked green color and yaxis2
-    scatter = fig.data[1]
-    assert scatter.type == "scatter"
-    assert scatter.line.color == "#34d399"
-    assert scatter.yaxis == "y2"
-
-
-def test_spend_vs_deposits_layout_dark_theme() -> None:
-    app = _import_app()
-    fig = app._make_spend_vs_deposits_chart([])
-    layout = fig.layout
-    assert layout.plot_bgcolor == "#1a1d27"
-    assert layout.paper_bgcolor == "#0f1117"
-    assert layout.yaxis2.overlaying == "y"
-    assert layout.yaxis2.side == "right"
-
-
-def test_attribution_chart_grouped_bars_with_locked_colors() -> None:
-    app = _import_app()
-    rows = [
-        {"campaign_name": "Brand",   "meta_deposits": 5, "ga4_purchases": 3, "meta_purchases": 7},
-        {"campaign_name": "Convert", "meta_deposits": 2, "ga4_purchases": 2, "meta_purchases": 3},
-    ]
-    fig = app._make_attribution_chart(rows)
-    assert len(fig.data) == 2
-    assert fig.data[0].type == "bar"
-    assert fig.data[1].type == "bar"
-    assert fig.data[0].marker.color == "#60a5fa"  # Meta
-    assert fig.data[1].marker.color == "#a78bfa"  # GA4
-    assert fig.layout.barmode == "group"
+    if "src.dashboard.Overview" in sys.modules:
+        return sys.modules["src.dashboard.Overview"]
+    return importlib.import_module("src.dashboard.Overview")
 
 
 def test_roas_indicator_thresholds() -> None:
@@ -80,11 +42,11 @@ def test_format_campaign_df_column_order() -> None:
     app = _import_app()
     rows = [
         {"campaign_name": "Brand", "spend": 100.0, "weighted_roas": 2.5,
-         "impressions": 1000, "deposits": 5, "cpd": 20.0, "ga4_sessions": 500},
+         "impressions": 1000, "begin_checkout": 5, "cost_per_bc": 20.0, "ga4_sessions": 500},
     ]
     df = app._format_campaign_df(rows)
-    assert list(df.columns) == ["Campaign", "Spend", "ROAS", "Impressions",
-                                 "Deposits", "CPD", "GA4 Sessions"]
+    assert list(df.columns) == ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
+                                 "Initiate Checkout", "CPR (Initiate Checkout)", "GA4 Sessions"]
     assert df.iloc[0]["ROAS"].startswith("🟢")
     assert df.iloc[0]["Campaign"] == "Brand"
 
@@ -93,9 +55,23 @@ def test_format_campaign_df_empty() -> None:
     app = _import_app()
     df = app._format_campaign_df([])
     # Empty DataFrame still has the expected columns
-    assert list(df.columns) == ["Campaign", "Spend", "ROAS", "Impressions",
-                                 "Deposits", "CPD", "GA4 Sessions"]
+    assert list(df.columns) == ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
+                                 "Initiate Checkout", "CPR (Initiate Checkout)", "GA4 Sessions"]
     assert len(df) == 0
+
+
+def test_format_campaign_df_leads_metric_swap() -> None:
+    """show_leads_metric=True swaps Initiate Checkout for Lead (D-19 toggle)."""
+    app = _import_app()
+    rows = [
+        {"campaign_name": "Brand", "spend": 100.0, "weighted_roas": 2.5,
+         "impressions": 1000, "leads": 7, "cost_per_lead": 12.0, "ga4_sessions": 500},
+    ]
+    df = app._format_campaign_df(rows, show_leads_metric=True)
+    assert list(df.columns) == ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
+                                 "Lead", "CPR (Lead)", "GA4 Sessions"]
+    assert df.iloc[0]["Lead"] == 7
+    assert df.iloc[0]["CPR (Lead)"] == 12.0
 
 
 # ---------------------------------------------------------------------------
@@ -155,34 +131,34 @@ def test_tier_tag_disabled_returns_empty_string() -> None:
 # ---------------------------------------------------------------------------
 
 def test_format_campaign_df_no_tier_when_cpd_target_zero() -> None:
-    """cpd_target == 0.0 → 7-column Phase-6-parity DataFrame, no TIER column."""
+    """cpd_target == 0.0 → 8-column Goal-aware DataFrame, no TIER column."""
     app = _import_app()
     df = app._format_campaign_df([], cpd_target=0.0)
-    assert list(df.columns) == ["Campaign", "Spend", "ROAS", "Impressions",
-                                 "Deposits", "CPD", "GA4 Sessions"]
+    assert list(df.columns) == ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
+                                 "Initiate Checkout", "CPR (Initiate Checkout)", "GA4 Sessions"]
 
 
 def test_format_campaign_df_has_tier_when_cpd_target_set() -> None:
-    """cpd_target > 0.0 → 8-column DataFrame with TIER as last column."""
+    """cpd_target > 0.0 → 9-column DataFrame with TIER as last column."""
     app = _import_app()
     df = app._format_campaign_df([], cpd_target=25.0)
     assert list(df.columns)[-1] == "TIER"
-    assert len(df.columns) == 8
+    assert len(df.columns) == 9
 
 
 def test_format_campaign_df_tier_scale_value() -> None:
-    """Row with cpd=20, deposits=5, cpd_target=25 → TIER == '★ SCALE'."""
+    """Row with cost_per_bc=20, begin_checkout=5, cpd_target=25 → TIER == '★ SCALE'."""
     app = _import_app()
     rows = [{"campaign_name": "x", "spend": 100.0, "weighted_roas": 2.0,
-             "impressions": 1000, "deposits": 5, "cpd": 20.0, "ga4_sessions": 50}]
+             "impressions": 1000, "begin_checkout": 5, "cost_per_bc": 20.0, "ga4_sessions": 50}]
     df = app._format_campaign_df(rows, cpd_target=25.0)
     assert df.iloc[0]["TIER"] == "★ SCALE"
 
 
 def test_format_campaign_df_tier_paused_no_deposits() -> None:
-    """Row with deposits=0, cpd=None → TIER == 'PAUSED'."""
+    """Row with begin_checkout=0, cost_per_bc=None → TIER == 'PAUSED'."""
     app = _import_app()
     rows = [{"campaign_name": "y", "spend": 50.0, "weighted_roas": 0.0,
-             "impressions": 500, "deposits": 0, "cpd": None, "ga4_sessions": 10}]
+             "impressions": 500, "begin_checkout": 0, "cost_per_bc": None, "ga4_sessions": 10}]
     df = app._format_campaign_df(rows, cpd_target=25.0)
     assert df.iloc[0]["TIER"] == "PAUSED"

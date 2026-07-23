@@ -1,7 +1,7 @@
 """DASH-01: streamlit app boots without import error.
 
 Uses streamlit.testing.v1.AppTest when available; otherwise falls back to a
-pure-import smoke check (importing app.py would call st.set_page_config which
+pure-import smoke check (importing Overview.py would call st.set_page_config which
 errors outside an AppTest context, so the fallback uses ast.parse only).
 """
 from __future__ import annotations
@@ -13,36 +13,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import build_migrated_db
+
 
 def _seed_db(path: Path) -> None:
+    build_migrated_db(path)
     con = sqlite3.connect(str(path))
     con.executescript("""
-        CREATE TABLE campaigns (id TEXT, source TEXT, name TEXT, status TEXT, created_at TEXT);
-        CREATE TABLE ad_metrics (
-            campaign_id TEXT, date TEXT, ad_set_id TEXT DEFAULT '',
-            ad_id TEXT DEFAULT '', spend REAL, impressions INTEGER, clicks INTEGER,
-            ctr REAL, cpc REAL, cpm REAL, roas REAL,
-            meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
-            reach INTEGER, frequency REAL,
-            meta_form_submit_deposit INTEGER DEFAULT 0, fetched_at TEXT
-        );
-        CREATE TABLE ga4_metrics (
-            campaign_utm TEXT, date TEXT, sessions INTEGER, users INTEGER,
-            new_users INTEGER, bounce_rate REAL, avg_engagement_time REAL,
-            ga4_purchases_lastclick INTEGER, fetched_at TEXT
-        );
-        CREATE TABLE ga4_landing_pages (
-            landing_page TEXT, date TEXT, sessions INTEGER, total_users INTEGER,
-            ga4_purchases_lastclick INTEGER, screen_page_views INTEGER,
-            avg_engagement_time REAL, fetched_at TEXT
-        );
-        CREATE TABLE anthropic_usage_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            request_at TEXT NOT NULL DEFAULT (datetime('now')),
-            model TEXT, input_tokens INTEGER, output_tokens INTEGER,
-            cost_usd REAL, chat_id INTEGER, user_id INTEGER
-        );
-        INSERT INTO campaigns VALUES ('c1','meta_ads','Brand','ACTIVE','2026-05-01');
+        INSERT INTO campaigns VALUES ('c1','meta_ads','Brand','ACTIVE','2026-05-01',NULL);
         INSERT INTO ad_metrics(campaign_id, date, spend, impressions, clicks, roas,
                                meta_form_submit_deposit, fetched_at)
           VALUES ('c1','2026-05-01',100.0,1000,50,2.5,5,'2026-05-02T00:00:00');
@@ -55,12 +33,12 @@ def _seed_db(path: Path) -> None:
 
 
 def test_app_file_parses() -> None:
-    src = Path("src/dashboard/app.py").read_text(encoding="utf-8")
+    src = Path("src/dashboard/Overview.py").read_text(encoding="utf-8")
     ast.parse(src)  # raises SyntaxError on failure
 
 
 def test_app_first_streamlit_call_is_set_page_config() -> None:
-    src = Path("src/dashboard/app.py").read_text(encoding="utf-8")
+    src = Path("src/dashboard/Overview.py").read_text(encoding="utf-8")
     # The first `st.` call in executable code (not docstrings/comments) must be
     # `st.set_page_config`. We use tokenize to skip string literals and comments.
     import tokenize
@@ -93,7 +71,7 @@ def test_app_boots_with_apptest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("DASHBOARD_PASSWORD", "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
-    at = AppTest.from_file("src/dashboard/app.py", default_timeout=30)
+    at = AppTest.from_file("src/dashboard/Overview.py", default_timeout=30)
     at.run()
     assert not at.exception, f"app raised: {[str(e) for e in at.exception]}"
     # At least the title should render

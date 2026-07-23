@@ -47,15 +47,12 @@ async def test_migration_006_mmm_results_has_all_columns(db_client) -> None:
 
 
 def test_migration_006_in_all_migrations() -> None:
-    """ALL_MIGRATIONS list contains ('006_phase8', MIGRATION_006_PHASE8) last."""
+    """ALL_MIGRATIONS list contains ('006_phase8', MIGRATION_006_PHASE8)."""
     from src.db.schema import ALL_MIGRATIONS, MIGRATION_006_PHASE8
 
-    names = [m[0] for m in ALL_MIGRATIONS]
-    assert "006_phase8" in names
-    assert names[-1] == "006_phase8"
-    # Last tuple maps name → SQL constant
-    last_name, last_sql = ALL_MIGRATIONS[-1]
-    assert last_sql is MIGRATION_006_PHASE8
+    by_name = dict(ALL_MIGRATIONS)
+    assert "006_phase8" in by_name
+    assert by_name["006_phase8"] is MIGRATION_006_PHASE8
     assert "CREATE TABLE IF NOT EXISTS mmm_results" in MIGRATION_006_PHASE8
 
 

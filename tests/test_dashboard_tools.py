@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,33 @@ def _make_db(tmp_path: Path) -> Path:
           ('/home','2026-05-01',1000,800,5,2000,40.0,'2026-05-02T00:00:00'),
           ('/buy', '2026-05-01', 500,400,4, 800,60.0,'2026-05-02T00:00:00');
     """)
+    # get_campaign_detail/list_underperformers filter on date('now', '-N days'),
+    # so they need a row inside a rolling window from the real clock -- the
+    # fixed 2026-05-01 rows above are for tests that pass explicit start/end
+    # dates and would otherwise age out of any days_back window over time.
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    con.execute(
+        "INSERT INTO ad_metrics (campaign_id, date, ad_set_id, ad_id, spend, "
+        "impressions, clicks, ctr, cpc, cpm, roas, meta_purchases_7dclick, "
+        "meta_cost_per_purchase, reach, frequency, meta_form_submit_deposit, "
+        "fetched_at) VALUES ('c1', ?, '', '', 100.0, 1000, 50, 5.0, 2.0, 10.0, "
+        "2.25, 5, 20.0, 800, 1.25, 3, ?)",
+        (yesterday, f"{yesterday}T00:00:00"),
+    )
+    con.execute(
+        "INSERT INTO ad_metrics (campaign_id, date, ad_set_id, ad_id, spend, "
+        "impressions, clicks, ctr, cpc, cpm, roas, meta_purchases_7dclick, "
+        "meta_cost_per_purchase, reach, frequency, meta_form_submit_deposit, "
+        "fetched_at) VALUES ('c2', ?, '', '', 200.0, 2000, 80, 4.0, 2.5, 10.0, "
+        "1.0, 2, 100.0, 1600, 1.25, 1, ?)",
+        (yesterday, f"{yesterday}T00:00:00"),
+    )
+    con.execute(
+        "INSERT INTO ga4_metrics (campaign_utm, date, sessions, users, "
+        "new_users, bounce_rate, avg_engagement_time, ga4_purchases_lastclick, "
+        "fetched_at) VALUES ('Brand', ?, 500, 400, 300, 0.30, 45.0, 3, ?)",
+        (yesterday, f"{yesterday}T00:00:00"),
+    )
     con.commit()
     con.close()
     return db
