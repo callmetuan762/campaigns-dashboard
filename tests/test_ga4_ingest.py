@@ -4,8 +4,9 @@ Covers: GA4-04 (6h cache), GA4-05 (upsert idempotency), D-09 (circuit breaker), 
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -14,16 +15,21 @@ from src.ga4.ingest import _check_circuit_breaker, _get_d2_iso, register_job_res
 # ---- D-10: D-2 freshness ----
 
 def test_get_d2_iso_returns_two_days_ago():
-    """D-10: GA4 D-2 freshness — result must be today minus 2 days, not 1 day."""
+    """D-10: GA4 D-2 freshness — result must be today minus 2 days, not 1 day.
+
+    _get_d2_iso computes "today" in the timezone it's given, not the local
+    system timezone -- date.today() would disagree with it (and flake)
+    whenever local and UTC fall on different calendar dates.
+    """
     result = _get_d2_iso("UTC")
-    expected = (date.today() - timedelta(days=2)).isoformat()
+    expected = (datetime.now(ZoneInfo("UTC")).date() - timedelta(days=2)).isoformat()
     assert result == expected
 
 
 def test_get_d2_iso_not_yesterday():
     """D-10: Explicitly verify D-2 != D-1 (guards against days=1 regression)."""
     result = _get_d2_iso("UTC")
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (datetime.now(ZoneInfo("UTC")).date() - timedelta(days=1)).isoformat()
     assert result != yesterday
 
 
