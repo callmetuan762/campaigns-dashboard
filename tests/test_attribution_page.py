@@ -1,4 +1,4 @@
-"""Smoke tests for src/dashboard/pages/3_Attribution.py (DASH-11).
+"""Smoke tests for src/dashboard/pages/5_Attribution.py (DASH-11).
 
 Source-level (no Streamlit runtime) tests verifying:
   - File exists and parses cleanly (no syntax errors)
@@ -14,11 +14,11 @@ import tokenize
 from io import StringIO
 from pathlib import Path
 
-PAGE_PATH = Path("src/dashboard/pages/3_Attribution.py")
+PAGE_PATH = Path("src/dashboard/pages/5_Attribution.py")
 
 
 def test_page_file_exists() -> None:
-    assert PAGE_PATH.exists(), f"3_Attribution.py not found at {PAGE_PATH}"
+    assert PAGE_PATH.exists(), f"5_Attribution.py not found at {PAGE_PATH}"
 
 
 def test_page_syntax_valid() -> None:
@@ -83,7 +83,7 @@ def test_no_banned_imports() -> None:
     for ban in banned:
         for mod in imported_modules:
             assert not mod.startswith(ban), (
-                f"Banned import '{mod}' (starts with {ban!r}) found in 3_Attribution.py"
+                f"Banned import '{mod}' (starts with {ban!r}) found in 5_Attribution.py"
             )
 
 
@@ -112,7 +112,7 @@ def test_required_elements_present() -> None:
         "DashboardSettings",
     ]
     missing = [r for r in required if r not in source]
-    assert not missing, f"Missing required elements in 3_Attribution.py: {missing}"
+    assert not missing, f"Missing required elements in 5_Attribution.py: {missing}"
 
 
 def test_palette_constants_declared() -> None:
@@ -133,7 +133,7 @@ def test_page_set_page_config_called_with_layout_wide() -> None:
     """D-11 layout: page uses wide layout for the two-row chart grid."""
     source = PAGE_PATH.read_text(encoding="utf-8")
     assert 'layout="wide"' in source or "layout='wide'" in source, (
-        "3_Attribution.py must call st.set_page_config(layout='wide')"
+        "5_Attribution.py must call st.set_page_config(layout='wide')"
     )
 
 

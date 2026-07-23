@@ -254,8 +254,8 @@ class TestPageModule:
 
     def test_ai_chat_page_parses(self):
         import ast
-        path = Path("src/dashboard/pages/2_AI_Chat.py")
-        assert path.exists(), "2_AI_Chat.py not found"
+        path = Path("src/dashboard/pages/4_AI_Chat.py")
+        assert path.exists(), "4_AI_Chat.py not found"
         ast.parse(path.read_text(encoding="utf-8"))
 
     def test_campaign_detail_uses_query_params(self):
@@ -269,12 +269,12 @@ class TestPageModule:
         assert "get_campaign_daily" in src
 
     def test_ai_chat_uses_run_chat_3agent(self):
-        path = Path("src/dashboard/pages/2_AI_Chat.py")
+        path = Path("src/dashboard/pages/4_AI_Chat.py")
         src = path.read_text(encoding="utf-8")
         assert "run_chat_3agent" in src
 
     def test_ai_chat_uses_independent_history_key(self):
-        path = Path("src/dashboard/pages/2_AI_Chat.py")
+        path = Path("src/dashboard/pages/4_AI_Chat.py")
         src = path.read_text(encoding="utf-8")
         assert "chat_page_history" in src
 

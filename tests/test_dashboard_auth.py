@@ -1,4 +1,4 @@
-"""Unit tests for the password gate helper in src/dashboard/app.py (DASH-04).
+"""Unit tests for the password gate helper in src/dashboard/Overview.py (DASH-04).
 
 Tests _check_auth() behavior:
 - Empty password_required → always True (open mode)
@@ -18,9 +18,9 @@ os.environ.setdefault("DASHBOARD_PASSWORD", "")
 def _import_app():
     import importlib
     import sys
-    if "src.dashboard.app" in sys.modules:
-        return sys.modules["src.dashboard.app"]
-    return importlib.import_module("src.dashboard.app")
+    if "src.dashboard.Overview" in sys.modules:
+        return sys.modules["src.dashboard.Overview"]
+    return importlib.import_module("src.dashboard.Overview")
 
 
 def test_empty_password_opens() -> None:
