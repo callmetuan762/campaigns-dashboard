@@ -119,11 +119,13 @@ def _generate_daily_insight(db_path_str: str, api_key: str) -> str:
         f"Daily performance briefing as of {_date.today().isoformat()}. "
         f"Use your tools to analyze the period {week_start} to {yesterday}. "
         "Focus only on what needs attention or action today — not general summaries.\n\n"
-        "**Alerts** — any campaigns with zero deposits in the last 3 days despite active spend? "
-        "Any CPR (FSD) that spiked more than 50% vs their prior week average? Name them specifically.\n"
-        "**Top 2 this week** — campaigns with lowest CPR (name, CPR (FSD), spend, deposits)\n"
-        "**Bottom 2 this week** — campaigns burning budget with worst CPR (FSD) or no conversions "
-        "(name, CPD or zero-deposit status, spend wasted)\n"
+        "**Alerts** — any campaigns with zero Initiate Checkout in the last 3 days despite "
+        "active spend? Any CPR (Initiate Checkout) that spiked more than 50% vs their prior "
+        "week average? Name them specifically.\n"
+        "**Top 2 this week** — campaigns with lowest CPR (name, CPR (Initiate Checkout), "
+        "spend, Initiate Checkout count)\n"
+        "**Bottom 2 this week** — campaigns burning budget with worst CPR (Initiate Checkout) "
+        "or no conversions (name, CPR or zero-conversion status, spend wasted)\n"
         "**Funnel gap** — which landing pages have the biggest drop between Meta ad sessions "
         "and GA4 conversions? Name the page, sessions, conversions, and implied conversion rate.\n"
         "**One action for today** — the single most impactful budget or creative change to make right now\n\n"
@@ -474,6 +476,7 @@ def _format_campaign_df(
     rows: list[dict[str, Any]],
     cpd_target: float = 0.0,
     objectives: dict[str, str] | None = None,
+    show_leads_metric: bool = False,
 ) -> pd.DataFrame:
     """objectives (item 2, 2026-07-22): {campaign_name: raw Meta objective},
     e.g. from _cached_campaign_objectives. Rendered as a "Goal" column via
@@ -485,27 +488,50 @@ def _format_campaign_df(
     Initiate Checkout re-point, 2026-07-22) -- meta_form_submit_deposit (FSD)
     is dead on current data. NOTE: `cpd_target` (TIER column threshold, from
     settings.cpd_target) was calibrated against cost-per-FSD dollars and is
-    now compared against cost-per-Initiate-Checkout dollars instead -- these
-    are typically very different price points (IC fires earlier/cheaper than
-    a deposit did), so the threshold itself has NOT been re-calibrated here.
-    It defaults to 0.0 (TIER hidden) in this environment, so this is currently
-    inert, but revisit the threshold before enabling TIER with a nonzero
-    CPD_TARGET."""
+    now compared against cost-per-Initiate-Checkout (or cost-per-Lead, see
+    below) dollars instead -- these are typically very different price
+    points (IC/Lead fire earlier/cheaper than a deposit did), so the
+    threshold itself has NOT been re-calibrated here. It defaults to 0.0
+    (TIER hidden) in this environment, so this is currently inert, but
+    revisit the threshold before enabling TIER with a nonzero CPD_TARGET.
+
+    show_leads_metric (dead use_form_submit toggle re-point, 2026-07-23):
+    when True, swaps the "Initiate Checkout"/"CPR (Initiate Checkout)"
+    columns for "Lead"/"CPR (Lead)", sourcing db.get_campaign_table's
+    leads/cost_per_lead fields (meta_leads -- Meta's
+    offsite_conversion.fb_pixel_lead). This is the Overview "Conversion
+    metric" sidebar picker: Initiate Checkout is the native metric for
+    OUTCOME_SALES campaigns, Lead is the native metric for OUTCOME_LEADS
+    campaigns. A campaign that isn't optimizing for the selected metric
+    simply reads 0 for it -- that's a true reading, not a bug. TIER (when
+    enabled) is computed against whichever metric is selected."""
+    metric_col = "Lead" if show_leads_metric else "Initiate Checkout"
+    cpr_col = f"CPR ({metric_col})"
     base_cols = ["Campaign", "Goal", "Spend", "ROAS", "Impressions",
-                 "Initiate Checkout", "CPR (Initiate Checkout)", "GA4 Sessions"]
+                 metric_col, cpr_col, "GA4 Sessions"]
     if not rows:
         cols = base_cols + (["TIER"] if cpd_target > 0.0 else [])
         return pd.DataFrame(columns=cols)
     df = pd.DataFrame(rows)
     df["ROAS"] = df["weighted_roas"].apply(_roas_indicator)
-    df = df.rename(columns={
-        "campaign_name": "Campaign",
-        "spend": "Spend",
-        "impressions": "Impressions",
-        "begin_checkout": "Initiate Checkout",
-        "cost_per_bc": "CPR (Initiate Checkout)",
-        "ga4_sessions": "GA4 Sessions",
-    })
+    if show_leads_metric:
+        df = df.rename(columns={
+            "campaign_name": "Campaign",
+            "spend": "Spend",
+            "impressions": "Impressions",
+            "leads": metric_col,
+            "cost_per_lead": cpr_col,
+            "ga4_sessions": "GA4 Sessions",
+        })
+    else:
+        df = df.rename(columns={
+            "campaign_name": "Campaign",
+            "spend": "Spend",
+            "impressions": "Impressions",
+            "begin_checkout": metric_col,
+            "cost_per_bc": cpr_col,
+            "ga4_sessions": "GA4 Sessions",
+        })
     _objectives = objectives or {}
     df["Goal"] = df["Campaign"].apply(
         lambda name: db.objective_display_label(_objectives.get(name)) or "—"
@@ -513,8 +539,8 @@ def _format_campaign_df(
     if cpd_target > 0.0:
         df["TIER"] = df.apply(
             lambda r: _tier_tag(
-                r["CPR (Initiate Checkout)"] if pd.notna(r["CPR (Initiate Checkout)"]) else None,
-                int(r["Initiate Checkout"] or 0),
+                r[cpr_col] if pd.notna(r[cpr_col]) else None,
+                int(r[metric_col] or 0),
                 cpd_target,
             ),
             axis=1,
@@ -526,8 +552,10 @@ def _format_campaign_df(
 _CAMPAIGN_COLUMN_CONFIG = {
     "Spend": st.column_config.NumberColumn("Spend ($)", format="$%.2f"),
     "CPR (Initiate Checkout)": st.column_config.NumberColumn("CPR (Initiate Checkout)", format="$%.2f"),
+    "CPR (Lead)": st.column_config.NumberColumn("CPR (Lead)", format="$%.2f"),
     "Impressions": st.column_config.NumberColumn(format="%d"),
     "Initiate Checkout": st.column_config.NumberColumn("Initiate Checkout", format="%d"),
+    "Lead": st.column_config.NumberColumn("Lead", format="%d"),
     "GA4 Sessions": st.column_config.NumberColumn(format="%d"),
     "Goal": st.column_config.TextColumn(
         "Goal", help="Meta campaign objective (e.g. Sales, Leads) — set at the campaign level in Ads Manager."
@@ -616,12 +644,17 @@ with st.sidebar:
 
     st.divider()
     conv_metric = st.radio(
-        "Conversion metric",
-        options=["FSD (form_submit)", "Purchases (7d-click)"],
+        "Conversion metric (Campaign performance table)",
+        options=["Initiate Checkout (Sales)", "Lead (Leads)"],
         index=0,
         key="conv_metric",
+        help="Picks which native conversion metric the campaign table below shows: "
+        "Initiate Checkout (meta_begin_checkout) for OUTCOME_SALES campaigns, "
+        "or Lead (meta_leads / Meta's offsite_conversion.fb_pixel_lead) for "
+        "OUTCOME_LEADS campaigns. A campaign that isn't optimizing for the "
+        "selected metric will simply show 0.",
     )
-    use_form_submit: bool = conv_metric == "FSD (form_submit)"
+    show_leads_metric: bool = conv_metric == "Lead (Leads)"
 
     st.divider()
     fresh = _cached_freshness(db_path_str)
@@ -1003,11 +1036,18 @@ if camp_daily:
 # Campaign table (D-08)
 # ---------------------------------------------------------------------------
 st.subheader("Campaign performance")
+st.caption(
+    "Showing **Lead** (Leads-objective campaigns)" if show_leads_metric
+    else "Showing **Initiate Checkout** (Sales-objective campaigns) — "
+    "switch to Lead in the sidebar to see Leads-objective campaigns' native metric."
+)
 campaign_rows = _cached_campaigns(db_path_str, start_iso, end_iso)
 campaign_objectives = _cached_campaign_objectives(db_path_str)
 if campaign_rows:
     st.dataframe(
-        _format_campaign_df(campaign_rows, settings.cpd_target, campaign_objectives),
+        _format_campaign_df(
+            campaign_rows, settings.cpd_target, campaign_objectives, show_leads_metric,
+        ),
         hide_index=True,
         use_container_width=True,
         column_config=_CAMPAIGN_COLUMN_CONFIG,

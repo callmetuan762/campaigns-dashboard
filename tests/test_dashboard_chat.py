@@ -176,7 +176,7 @@ def test_calculate_cost() -> None:
 def test_system_prompt_includes_required_phrases(tmp_path: Path) -> None:
     db = _make_db(tmp_path)
     prompt = build_system_prompt(str(db))
-    assert "CPR (FSD)" in prompt
+    assert "CPR (Initiate Checkout)" in prompt
     assert "North Star" in prompt
     assert "<data>" in prompt
     assert "Never blend" in prompt

@@ -146,6 +146,59 @@ def test_campaign_table_has_all_columns(db: Path) -> None:
     assert expected <= set(rows[0].keys())
 
 
+def test_campaign_table_leads_columns_degrade_gracefully_pre_migration(db: Path) -> None:
+    """The `db` fixture's ad_metrics table predates the meta_leads column
+    (item 3, 2026-07-23 -- Overview Conversion metric picker). get_campaign_table
+    must not raise sqlite3.OperationalError; it falls back to leads=0/
+    cost_per_lead=None for every row instead."""
+    rows = get_campaign_table(db, "2026-05-01", "2026-05-02")
+    assert {"leads", "cost_per_lead"} <= set(rows[0].keys())
+    for r in rows:
+        assert r["leads"] == 0
+        assert r["cost_per_lead"] is None
+
+
+def test_campaign_table_leads_columns_present_with_meta_leads(tmp_path: Path) -> None:
+    """When meta_leads exists and has data, get_campaign_table sums it per
+    campaign and computes cost_per_lead = spend / leads."""
+    db_with_leads = tmp_path / "metrics_leads.db"
+    con = sqlite3.connect(str(db_with_leads))
+    con.executescript("""
+        CREATE TABLE campaigns (id TEXT PRIMARY KEY, source TEXT, name TEXT,
+                                status TEXT, created_at TEXT);
+        CREATE TABLE ad_metrics (
+            campaign_id TEXT NOT NULL, date TEXT NOT NULL,
+            ad_set_id TEXT NOT NULL DEFAULT '', ad_id TEXT NOT NULL DEFAULT '',
+            spend REAL, impressions INTEGER, clicks INTEGER, ctr REAL,
+            cpc REAL, cpm REAL, roas REAL,
+            meta_purchases_7dclick INTEGER, meta_cost_per_purchase REAL,
+            reach INTEGER, frequency REAL,
+            meta_form_submit_deposit INTEGER NOT NULL DEFAULT 0,
+            meta_begin_checkout INTEGER,
+            meta_leads INTEGER,
+            fetched_at TEXT,
+            PRIMARY KEY (campaign_id, date, ad_set_id, ad_id)
+        );
+        CREATE TABLE ga4_metrics (
+            campaign_utm TEXT NOT NULL, date TEXT NOT NULL,
+            sessions INTEGER, users INTEGER, new_users INTEGER,
+            bounce_rate REAL, avg_engagement_time REAL,
+            ga4_purchases_lastclick INTEGER, fetched_at TEXT,
+            PRIMARY KEY (campaign_utm, date)
+        );
+        INSERT INTO campaigns VALUES ('c1','meta_ads','QuizLeads','ACTIVE','2026-05-01');
+        INSERT INTO ad_metrics(campaign_id, date, ad_set_id, ad_id, spend,
+                               roas, meta_leads, fetched_at)
+        VALUES ('c1','2026-05-01','','',80.0,1.0,4,'2026-05-02T00:00:00');
+    """)
+    con.commit()
+    con.close()
+    rows = get_campaign_table(db_with_leads, "2026-05-01", "2026-05-01")
+    assert rows[0]["campaign_name"] == "QuizLeads"
+    assert rows[0]["leads"] == 4
+    assert rows[0]["cost_per_lead"] == pytest.approx(80.0 / 4)
+
+
 def test_campaign_table_keeps_campaigns_with_zero_ga4(tmp_path: Path) -> None:
     """LEFT JOIN means campaigns with no GA4 row still appear."""
     db = tmp_path / "metrics.db"

@@ -255,12 +255,49 @@ def get_campaign_table(db_path: Path, start_date: str, end_date: str) -> list[di
     campaign fires this event. `begin_checkout`/`cost_per_bc`
     (meta_begin_checkout-based, Initiate Checkout) are the live metric and
     back the table's "Initiate Checkout"/"CPR (Initiate Checkout)" columns
-    (FSD -> Initiate Checkout re-point, 2026-07-22). Sort order intentionally
-    left as `deposits DESC` (pinned by test_campaign_table_sorted_by_deposits_desc,
-    and the on-screen dataframe is user-sortable by clicking any column header
-    anyway).
+    (FSD -> Initiate Checkout re-point, 2026-07-22). `leads`/`cost_per_lead`
+    (meta_leads-based -- Meta's offsite_conversion.fb_pixel_lead) are the
+    equivalent live metric for OUTCOME_LEADS-objective campaigns, added so
+    the Overview "Conversion metric" picker can show each campaign's own
+    native metric instead of always defaulting to Initiate Checkout (dead
+    use_form_submit toggle re-point, 2026-07-23). Falls back to an
+    unconditional `leads=0`/`cost_per_lead=None` on sqlite3.OperationalError
+    (pre-migration DB predating the meta_leads column) -- graceful
+    degradation, matching every other query in this module. Sort order
+    intentionally left as `deposits DESC` (pinned by
+    test_campaign_table_sorted_by_deposits_desc, and the on-screen dataframe
+    is user-sortable by clicking any column header anyway).
     """
     sql = """
+        SELECT
+            c.name                                                        AS campaign_name,
+            COALESCE(SUM(m.spend), 0)                                    AS spend,
+            CASE WHEN SUM(m.spend) > 0
+                 THEN SUM(m.spend * m.roas) / SUM(m.spend)
+                 ELSE 0 END                                              AS weighted_roas,
+            COALESCE(SUM(m.impressions), 0)                              AS impressions,
+            COALESCE(SUM(m.meta_form_submit_deposit), 0)                 AS deposits,
+            CASE WHEN SUM(m.meta_form_submit_deposit) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_form_submit_deposit)
+                 ELSE NULL END                                           AS cpd,
+            COALESCE(SUM(m.meta_begin_checkout), 0)                      AS begin_checkout,
+            CASE WHEN SUM(m.meta_begin_checkout) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_begin_checkout)
+                 ELSE NULL END                                           AS cost_per_bc,
+            COALESCE(SUM(m.meta_leads), 0)                               AS leads,
+            CASE WHEN SUM(m.meta_leads) > 0
+                 THEN SUM(m.spend) / SUM(m.meta_leads)
+                 ELSE NULL END                                           AS cost_per_lead,
+            COALESCE(SUM(g.sessions), 0)                                 AS ga4_sessions
+        FROM ad_metrics m
+        JOIN campaigns c ON m.campaign_id = c.id
+        LEFT JOIN ga4_metrics g ON g.campaign_utm = c.name AND g.date = m.date
+        WHERE m.ad_set_id = '' AND m.ad_id = ''
+          AND m.date BETWEEN ? AND ?
+        GROUP BY c.name
+        ORDER BY deposits DESC, spend DESC
+    """
+    fallback_sql_no_leads = """
         SELECT
             c.name                                                        AS campaign_name,
             COALESCE(SUM(m.spend), 0)                                    AS spend,
@@ -285,9 +322,18 @@ def get_campaign_table(db_path: Path, start_date: str, end_date: str) -> list[di
         GROUP BY c.name
         ORDER BY deposits DESC, spend DESC
     """
-    with _conn(db_path) as con:
-        rows = con.execute(sql, (start_date, end_date)).fetchall()
-    return [dict(r) for r in rows]
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        with _conn(db_path) as con:
+            rows = con.execute(fallback_sql_no_leads, (start_date, end_date)).fetchall()
+        out = [dict(r) for r in rows]
+        for r in out:
+            r["leads"] = 0
+            r["cost_per_lead"] = None
+        return out
 
 
 def get_attribution_comparison(db_path: Path, start_date: str, end_date: str) -> list[dict[str, Any]]:
