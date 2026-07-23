@@ -633,22 +633,49 @@ _PIXEL_STATS_API_VERSION = "v24.0"
 def _parse_pixel_stats_rows(rows: list[dict] | None) -> dict[str, int]:
     """Map event name -> summed count from a /{pixel_id}/stats aggregation=event response.
 
-    Row shape (Graph API docs): {"start_time": ..., "end_time": ..., "event": "Purchase",
-    "count": "12", ...}. Defensive: tolerates 'count' as str/int/missing and either
-    'event' or 'event_name' as the key; unparseable rows are skipped rather than raising
-    (CLAUDE.md graceful degradation — a single malformed row must not lose the whole day).
+    Real row shape (confirmed live against the Graph API, NOT the flat shape the docs'
+    prose implies): each row is one hourly bucket —
+        {"start_time": "2026-07-17T00:00:00+0000", "aggregation": "event",
+         "data": [{"value": "AddToCart", "count": 3}, {"value": "Purchase", "count": 1}, ...]}
+    — and a full day's response is a list of these buckets (one per hour that had activity,
+    not every hour necessarily present). This sums each event's count across every bucket's
+    'data' list for the day. Defensive: tolerates 'count' as str/int/missing, skips buckets
+    with a missing/non-list 'data' and items missing 'value', rather than raising (CLAUDE.md
+    graceful degradation — a single malformed bucket/item must not lose the whole day).
     """
     counts: dict[str, int] = {}
     for row in rows or []:
-        event_name = row.get("event") or row.get("event_name")
-        if not event_name:
+        items = row.get("data")
+        if not isinstance(items, list):
             continue
-        try:
-            count = int(float(row.get("count", 0) or 0))
-        except (TypeError, ValueError):
-            count = 0
-        counts[event_name] = counts.get(event_name, 0) + count
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            event_name = item.get("value")
+            if not event_name:
+                continue
+            try:
+                count = int(float(item.get("count", 0) or 0))
+            except (TypeError, ValueError):
+                count = 0
+            counts[event_name] = counts.get(event_name, 0) + count
     return counts
+
+
+def _day_bounds_unix(date_iso: str) -> tuple[int, int]:
+    """UTC midnight-to-midnight Unix timestamp bounds for one ISO date.
+
+    start = that date's UTC midnight; end = the next date's UTC midnight (end-exclusive),
+    covering exactly one full calendar day. Verified live: this range returns hourly
+    buckets spanning 00:00 through 23:xx of the requested date with no rows from the
+    following day.
+    """
+    import calendar
+    from datetime import datetime, timedelta
+
+    start_dt = datetime.strptime(date_iso, "%Y-%m-%d")
+    end_dt = start_dt + timedelta(days=1)
+    return calendar.timegm(start_dt.timetuple()), calendar.timegm(end_dt.timetuple())
 
 
 def _fetch_pixel_event_counts_sync(pixel_id: str, date_iso: str, event_source: str) -> list[dict]:
@@ -656,15 +683,20 @@ def _fetch_pixel_event_counts_sync(pixel_id: str, date_iso: str, event_source: s
 
     Called via asyncio.to_thread() from async context (same pattern as
     _fetch_insights_sync — the SDK's HTTP layer is synchronous 'requests').
+
+    start_time/end_time MUST be Unix timestamps, not ISO date strings — confirmed live
+    that passing a date string like "2026-07-17" silently returns zero rows (no error),
+    while a proper midnight-to-midnight Unix range returns real hourly-bucketed data.
     """
     from facebook_business.adobjects.adspixel import AdsPixel
 
     pixel = AdsPixel(pixel_id)
+    start_ts, end_ts = _day_bounds_unix(date_iso)
     params = {
         "aggregation": "event",
         "event_source": event_source,
-        "start_time": date_iso,
-        "end_time": date_iso,
+        "start_time": start_ts,
+        "end_time": end_ts,
     }
     cursor = pixel.get_stats(fields=[], params=params)
     return [dict(r) for r in cursor]
