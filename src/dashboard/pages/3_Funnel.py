@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -20,7 +21,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                          # noqa: E402
-from src.dashboard.components import render_scope_line  # noqa: E402
+from src.dashboard.components import badge_html, render_scope_line, source_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -151,11 +152,19 @@ def _cached_funnel_steps(
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_segment_funnels(
+def _cached_quiz_table(
     db_path_str: str, start: str, end: str, orders_valid_from: str = ""
 ) -> list[dict[str, Any]]:
     from pathlib import Path
-    return db.get_segment_mini_funnels(
+    return db.get_quiz_funnel_table(Path(db_path_str), start, end, orders_valid_from)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_lp_table(
+    db_path_str: str, start: str, end: str, orders_valid_from: str = ""
+) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_landing_page_table(
         Path(db_path_str), start, end, orders_valid_from,
         canonical_slugs=QUIZ_LP_SLUGS + PREORDER_LP_SLUGS,
     )
@@ -300,6 +309,7 @@ render_scope_line(start_date, end_date, campaign_filter="All")
 # legacy Stripe funnel has data.
 # ---------------------------------------------------------------------------
 st.subheader("Preorder Funnel (v3)")
+source_line("M", "G", "Shop", note="every step reported straight from its own source, never combined")
 st.caption(
     "Ads → Landing Page → GA4 Session → Reserve Click → Add to Cart → "
     "Begin Checkout → Order. Built on the new funnel-v3 data layer "
@@ -308,11 +318,20 @@ st.caption(
 )
 
 _funnel_steps = _cached_funnel_steps(db_path_str, start_str, end_str, settings.orders_valid_from)
+
+# Prior window = same length, immediately preceding the selected range, matching
+# the Overview's "vs prior" convention. (The `prior_start`/`prior_end` further
+# down this page are a fixed 14-day lookback for the legacy Stripe section and
+# are deliberately not reused here.)
+_fn_period_days = (end_date - start_date).days + 1
+_fn_prior_end = start_date - timedelta(days=1)
+_fn_prior_start = _fn_prior_end - timedelta(days=_fn_period_days - 1)
+_funnel_steps_prior = _cached_funnel_steps(
+    db_path_str, _fn_prior_start.isoformat(), _fn_prior_end.isoformat(),
+    settings.orders_valid_from,
+)
 _click_gap = _cached_click_gap(db_path_str, start_str, end_str)
 _not_set_share = _cached_not_set_share(db_path_str, start_str, end_str)
-_segment_funnels = _cached_segment_funnels(
-    db_path_str, start_str, end_str, settings.orders_valid_from
-)
 _quiz_funnel = _cached_quiz_funnel(db_path_str, start_str, end_str)
 _quiz_cpl = _cached_quiz_cpl(db_path_str, start_str, end_str)
 
@@ -325,41 +344,102 @@ if not _v3_available_steps:
         "the Shopify orders ingest have run."
     )
 else:
-    _v3_labels = [s["label"] for s in _v3_available_steps]
-    _v3_values = [s["value"] for s in _v3_available_steps]
-    _v3_conv = [s["conversion_pct"] for s in _v3_available_steps]
-    _v3_text = [
-        f"{v:,}" + (f"  ·  {c:.0f}% of prev step" if c is not None else "")
-        for v, c in zip(_v3_values, _v3_conv)
-    ]
-    _n_steps = len(_v3_values)
-    # Gradient shading — lightest at the top of the funnel (largest volume),
-    # darkest toward the bottom (smallest). Plotly renders horizontal-bar
-    # categories bottom-to-top, so the lists are reversed before plotting.
-    _v3_colors = [
-        f"rgba(99, 125, 255, {0.30 + 0.55 * (i / max(_n_steps - 1, 1)):.2f})"
-        for i in range(_n_steps)
-    ]
+    # Rendered as a table rather than a horizontal bar chart. On a linear axis
+    # Impressions (~55k) dwarfs Orders (~4), so every step below Landing-Page
+    # Views collapsed into an invisible sliver and the axis auto-ranged away from
+    # zero — the chart was unreadable for exactly the steps that matter. A table
+    # shows each step's own number, its source, its step conversion and its
+    # prior-period comparison, with the bar demoted to a proportional cue.
+    _fn_prior_by_label = {
+        s["label"]: s for s in _funnel_steps_prior if s.get("available")
+    }
+    _fn_max = max((s["value"] or 0) for s in _v3_available_steps) or 1
 
-    fig_v3 = go.Figure(go.Bar(
-        y=_v3_labels[::-1],
-        x=_v3_values[::-1],
-        text=_v3_text[::-1],
-        textposition="outside",
-        orientation="h",
-        marker_color=_v3_colors[::-1],
-    ))
-    fig_v3.update_layout(
-        paper_bgcolor=COLOR_BG_PAPER,
-        plot_bgcolor=COLOR_BG_PLOT,
-        font={"color": COLOR_FONT},
-        margin={"l": 20, "r": 140, "t": 10, "b": 10},
-        xaxis={"title": "Count", "gridcolor": COLOR_GRID},
-        yaxis={"gridcolor": COLOR_GRID, "showgrid": False},
-        height=max(320, _n_steps * 48),
-        showlegend=False,
+    def _fn_delta_cell(cur: int | None, prev: int | None) -> str:
+        """Δ vs prior. More is better at every funnel step, so up is green."""
+        if cur is None or prev is None or prev == 0:
+            return '<span style="color:#8b8474">—</span>'
+        pct = (cur - prev) / prev * 100.0
+        color = "#2f6d4f" if pct >= 0 else "#a8402f"
+        return f'<span style="color:{color};font-weight:600">{pct:+.0f}%</span>'
+
+    _FN_CELL = "padding:7px 8px;border-bottom:1px solid rgba(128,128,128,.14);"
+    _FN_MUTED = "color:#6e6552"
+    _FN_NUM = "text-align:right;font-variant-numeric:tabular-nums"
+
+    def _fn_td(inner: str, extra: str = "") -> str:
+        return f'<td style="{_FN_CELL}{extra}">{inner}</td>'
+
+    _fn_rows: list[str] = []
+    _fn_prev_label: str | None = None
+    for _s in _v3_available_steps:
+        _val = _s["value"] or 0
+        _conv = _s.get("conversion_pct")
+        # Name the actual previous step instead of a generic "prev step" —
+        # "70% of Clicks" is readable on its own, "70% of prev step" is not.
+        _conv_txt = (
+            f"{_conv:.1f}% of {_fn_prev_label}"
+            if _conv is not None and _fn_prev_label
+            else "—"
+        )
+        _prior_step = _fn_prior_by_label.get(_s["label"])
+        _prior_val = _prior_step["value"] if _prior_step else None
+        # Sub-1% bars would render as nothing; floor the width so the row still
+        # reads as "a bar, just a tiny one" rather than as missing data.
+        _bar_w = max(_val / _fn_max * 100.0, 0.6)
+        _label_html = _s["label"] + (
+            ' <span title="North Star metric">★</span>'
+            if _s["label"] == "Begin Checkout" else ""
+        )
+        _fn_rows.append(
+            "<tr>"
+            + _fn_td(_label_html, "font-weight:600")
+            + _fn_td(f"{_val:,}", f"{_FN_NUM};font-weight:700")
+            + _fn_td(badge_html(_s["source"]), "text-align:center")
+            + _fn_td(_conv_txt, f"text-align:right;{_FN_MUTED};font-size:12px")
+            + _fn_td(
+                f"{_prior_val:,}" if _prior_val is not None else "—",
+                f"{_FN_NUM};{_FN_MUTED}",
+            )
+            + _fn_td(_fn_delta_cell(_val, _prior_val), "text-align:right")
+            + _fn_td(
+                '<span style="display:inline-block;height:14px;border-radius:3px;'
+                f'background:rgba(99,125,255,.75);width:{_bar_w:.2f}%"></span>',
+                "width:34%",
+            )
+            + "</tr>"
+        )
+        _fn_prev_label = _s["label"]
+
+    _FN_TH = (
+        "font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;"
+        "color:#6e6552;font-weight:700;padding:0 8px 6px;"
+        "border-bottom:1px solid rgba(128,128,128,.28)"
     )
-    st.plotly_chart(fig_v3, use_container_width=True)
+
+    def _fn_th(label: str, align: str = "right") -> str:
+        return f'<th style="{_FN_TH};text-align:{align}">{label}</th>'
+
+    st.markdown(
+        '<table style="width:100%;border-collapse:collapse;font-size:13.5px">'
+        "<thead><tr>"
+        + _fn_th("Stage", "left")
+        + _fn_th("Events")
+        + _fn_th("Src", "center")
+        + _fn_th("Step conv%")
+        + _fn_th("Prior")
+        + _fn_th("&Delta;")
+        + _fn_th("Visual", "left")
+        + "</tr></thead><tbody>"
+        + "".join(_fn_rows)
+        + "</tbody></table>",
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Prior period = {_fn_prior_start.isoformat()} → {_fn_prior_end.isoformat()} "
+        f"({_fn_period_days}d, immediately before the selected range). Δ compares "
+        "each step against itself, never against the step above it."
+    )
 
     _v3_skipped = [s["label"] for s in _funnel_steps if not s["available"]]
     if _v3_skipped:
@@ -385,51 +465,240 @@ else:
         "showing real funnel drop-off."
     )
 
-    if _segment_funnels:
-        st.markdown(
-            "**Segment comparison** — Sessions¹ → Add to Cart → Begin "
-            "Checkout → Orders, by landing page"
-        )
+    def _pct(v: float | None, dp: int = 1) -> str:
+        """Rates render as text, not numbers: a row with no denominator has no rate
+        at all, and Streamlit 1.60 prints NaN in a NumberColumn as the literal
+        "None" whatever format is set. Defined here rather than inside either
+        table's branch so the quiz table below does not depend on the
+        landing-page table having rendered."""
+        return f"{v:.{dp}f}%" if v is not None else "—"
+
+    # --- By landing page ---------------------------------------------------
+    # Replaces four per-segment mini bar charts. Those plotted Sessions beside
+    # Orders on a shared axis, so every bar except Sessions was a stub, and a
+    # reader had to hold four separate charts in their head to compare segments.
+    # One table does the comparison directly and adds the Meta delivery columns
+    # the charts could not show at all.
+    st.markdown("**By landing page** — Meta delivery against on-site behaviour")
+    source_line(
+        "M", "G", "Shop",
+        note="Spend/Clicks/CTR/CPM = Meta · LP views/CTA clicks = GA4 · Orders = Shopify",
+    )
+
+    _lp_rows = _cached_lp_table(db_path_str, start_str, end_str, settings.orders_valid_from)
+    if not _lp_rows:
         st.caption(
-            "¹ 'Sessions' = GA4 page_view_lp event count for that landing "
-            "page — ga4_metrics has no per-lp_slug dimension, so this is the "
-            "closest per-segment top-of-funnel proxy, not a blended GA4 "
-            "session count."
+            "No per-landing-page data yet — needs Meta ad-set rows plus ad "
+            "creatives (for the destination URL) and GA4 lp_slug events."
         )
-        _seg_max = max(
-            (max(r["sessions"], r["add_to_cart"], r["begin_checkout"], r["orders"])
-             for r in _segment_funnels),
-            default=1,
-        ) or 1
-        _seg_cols = st.columns(min(len(_segment_funnels), 4))
-        for _i, _seg in enumerate(_segment_funnels):
-            with _seg_cols[_i % len(_seg_cols)]:
-                fig_seg = go.Figure(go.Bar(
-                    x=["Sessions", "ATC", "BC", "Orders"],
-                    y=[_seg["sessions"], _seg["add_to_cart"],
-                       _seg["begin_checkout"], _seg["orders"]],
-                    marker_color=[COLOR_GA4, COLOR_META, COLOR_CPD, COLOR_PAID],
-                ))
-                fig_seg.update_layout(
-                    title={"text": db.segment_display_name(_seg["lp_slug"]),
-                           "font": {"size": 12}},
-                    paper_bgcolor=COLOR_BG_PAPER,
-                    plot_bgcolor=COLOR_BG_PLOT,
-                    font={"color": COLOR_FONT, "size": 10},
-                    yaxis={"range": [0, _seg_max], "gridcolor": COLOR_GRID},
-                    xaxis={"showgrid": False},
-                    margin={"l": 30, "r": 10, "t": 30, "b": 20},
-                    height=220,
-                    showlegend=False,
-                )
-                st.plotly_chart(fig_seg, use_container_width=True)
     else:
+        _lp_df = pd.DataFrame([
+            {
+                "Landing page": db.segment_display_name(r["lp_slug"]),
+                "Spend": r["spend"],
+                "Impressions": r["impressions"],
+                "Clicks": r["clicks"],
+                "CTR %": _pct(r["ctr_pct"], 2),
+                "Link CTR %": _pct(r["link_ctr_pct"], 2),
+                "CPM": f"${r['cpm']:.2f}" if r["cpm"] is not None else "—",
+                "Sessions": r["sessions"],
+                "LP views": r["lp_views"],
+                "CTA clicks": r["cta_clicks"],
+                "% CTA": _pct(r["cta_pct"]),
+                "→ /preorder": r["preorder_sessions"],
+                "% → /preorder": _pct(r["preorder_pct"]),
+                "Orders": r["orders"],
+                "% Order": _pct(r["order_pct"], 2),
+            }
+            for r in _lp_rows
+        ])
+        st.dataframe(
+            _lp_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Landing page": st.column_config.TextColumn("Landing page", width="medium"),
+                "Spend": st.column_config.NumberColumn("Spend", format="$%.2f"),
+                "Impressions": st.column_config.NumberColumn("Impressions", format="%d"),
+                "Clicks": st.column_config.NumberColumn("Clicks", format="%d"),
+                "CTR %": st.column_config.TextColumn(
+                    "CTR %", help="All clicks ÷ impressions (Meta) — includes reactions, "
+                                  "comments and profile taps, not just link clicks."),
+                "Link CTR %": st.column_config.TextColumn(
+                    "Link CTR %", help="Link clicks ÷ impressions (Meta inline_link_clicks). "
+                                       "Always lower than CTR; this is the one that reflects "
+                                       "traffic actually sent to site. '—' means the date "
+                                       "range predates this field being ingested."),
+                "CPM": st.column_config.TextColumn("CPM"),
+                "Sessions": st.column_config.NumberColumn(
+                    "Sessions", format="%d",
+                    help="GA4 sessions whose landing page was this one."),
+                "LP views": st.column_config.NumberColumn(
+                    "LP views", format="%d", help="GA4 page_view_lp events on this page."),
+                "CTA clicks": st.column_config.NumberColumn(
+                    "CTA clicks", format="%d",
+                    help="GA4 cta_click_convert on this page — intent to advance, not a "
+                         "checkout. Means different things per page; see note below."),
+                "% CTA": st.column_config.TextColumn(
+                    "% CTA", help="CTA clicks ÷ LP views. Above 100% means those two "
+                                  "events disagree on that page — broken tracking, not a "
+                                  "real rate. See note below."),
+                "→ /preorder": st.column_config.NumberColumn(
+                    "→ /preorder", format="%d",
+                    help="GA4 sessions that started on this page and went on to view "
+                         "/preorder."),
+                "% → /preorder": st.column_config.TextColumn(
+                    "% → /preorder",
+                    help="Sessions reaching /preorder ÷ sessions on this page. Blank on "
+                         "the /preorder row itself, where it would measure nothing."),
+                "Orders": st.column_config.NumberColumn(
+                    "Orders", format="%d", help="Shopify paid orders, last-touch."),
+                "% Order": st.column_config.TextColumn(
+                    "% Order", help="Orders ÷ LP views on this page."),
+            },
+        )
+        _lp_spend_total = sum(r["spend"] for r in _lp_rows)
         st.caption(
-            "No per-landing-page segment data yet "
-            "(ga4_events.lp_slug / shopify_orders.lp_slug empty for this range)."
+            f"Totals — spend **${_lp_spend_total:,.2f}** · clicks "
+            f"**{sum(r['clicks'] for r in _lp_rows):,}** · LP views "
+            f"**{sum(r['lp_views'] for r in _lp_rows):,}** · orders "
+            f"**{sum(r['orders'] for r in _lp_rows):,}**. Spend reconciles with the "
+            "Total Spend KPI because it is summed from ad-set rows and attributed by "
+            "each ad-set's creative destination URL."
+        )
+        # A rate over 100% is not a rendering bug — it is two GA4 events that do not
+        # agree about which page they belong to. Surfaced by name rather than
+        # capped, because the fix is a tracking fix and hiding it loses the signal.
+        _cta_broken = [
+            db.segment_display_name(r["lp_slug"])
+            for r in _lp_rows
+            if r["cta_pct"] is not None and r["cta_pct"] > 100
+        ]
+
+        st.caption(
+            "**CTA clicks** = the GA4 `cta_click_convert` event fired on that page. "
+            "It is an *intent-to-advance* click, not a checkout: on `/`, `/for/*` and "
+            "the quiz pages it means \"clicked through toward the offer\"; only on "
+            "`/preorder` does it mean \"left for Shopify\". So the column is **not "
+            "comparable across rows** — a click on a segment page and a click on the "
+            "offer page are different actions that happen to share an event name."
+        )
+        if _cta_broken:
+            st.caption(
+                f"⚠️ **% CTA is above 100% on: {', '.join(_cta_broken)}.** That is not a "
+                "real conversion rate — on those pages `cta_click_convert` carries the "
+                "`lp_slug` dimension but `page_view_lp` largely does not, so the "
+                "numerator counts a page the denominator has barely heard of. Treat "
+                "those rows' **% CTA** as broken tracking to fix, not as performance. "
+                "The raw **CTA clicks** count is still usable."
+            )
+        st.caption(
+            "**Sessions** vs **LP views**: sessions are GA4 session-scoped (one per "
+            "visit that started on this page); LP views are `page_view_lp` events, so a "
+            "visitor who reloads counts twice. **% CTA** and **% Order** divide by LP "
+            "views (event ÷ event); **% → /preorder** divides by sessions (session ÷ "
+            "session) — each rate keeps one scope on both sides. "
+            "**Orders** are Shopify last-touch, so a visitor who arrived via a segment "
+            "page but checked out from the homepage counts on the homepage row — which "
+            "is why the segment rows can show 0 orders while still feeding sales."
+        )
+        st.caption(
+            "Add-to-Cart and Begin-Checkout are deliberately absent: they fire on "
+            "Shopify's domain, so most arrive with no landing-page dimension "
+            "(`(not set)`) and any per-page split of them would be mostly invented. "
+            "They are shown as totals in the funnel table above."
+        )
+
+    # --- Quiz funnel ------------------------------------------------------
+    # Split out of the landing-page table because a quiz page's job is two hops,
+    # not one: it hands off to its own segment LP and only then to the offer page.
+    # In the combined table those rows looked like weak landing pages; they are
+    # actually the first step of a longer path.
+    st.markdown("**Quiz funnel** — quiz page → its segment LP → `/preorder`")
+    source_line(
+        "G", "Sheet", "Shop",
+        note="Sessions = GA4 page flow · Leads = Preorder Leads sheet · Orders = Shopify",
+    )
+
+    _quiz_rows = _cached_quiz_table(
+        db_path_str, start_str, end_str, settings.orders_valid_from
+    )
+    if not _quiz_rows or not any(r["sessions"] for r in _quiz_rows):
+        st.caption(
+            "No quiz-page session flow for this range — needs the GA4 page-flow "
+            "ingest to have run (`ga4_page_flow`)."
+        )
+    else:
+        _q_df = pd.DataFrame([
+            {
+                "Quiz page": r["quiz_slug"],
+                "Segment LP": r["segment_slug"],
+                "Quiz sessions": r["sessions"],
+                "→ segment LP": r["to_segment"],
+                "% → segment": _pct(r["to_segment_pct"]),
+                "→ /preorder": r["to_preorder"],
+                "% → /preorder": _pct(r["to_preorder_pct"]),
+                "Email leads": r["leads"],
+                "Orders": r["orders"],
+            }
+            for r in _quiz_rows
+        ])
+        st.dataframe(
+            _q_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Quiz page": st.column_config.TextColumn("Quiz page", width="medium"),
+                "Segment LP": st.column_config.TextColumn("Segment LP", width="small"),
+                "Quiz sessions": st.column_config.NumberColumn(
+                    "Quiz sessions", format="%d",
+                    help="GA4 sessions whose landing page was this quiz page."),
+                "→ segment LP": st.column_config.NumberColumn(
+                    "→ segment LP", format="%d",
+                    help="Of those sessions, how many went on to view the segment LP."),
+                "% → segment": st.column_config.TextColumn("% → segment"),
+                "→ /preorder": st.column_config.NumberColumn(
+                    "→ /preorder", format="%d",
+                    help="Of those sessions, how many reached /preorder — by any route, "
+                         "not necessarily via the segment LP."),
+                "% → /preorder": st.column_config.TextColumn("% → /preorder"),
+                "Email leads": st.column_config.NumberColumn(
+                    "Email leads", format="%d",
+                    help="Leads on the sheet whose QUIZNAME is this segment. Counted by "
+                         "segment, not by entry page — see note below."),
+                "Orders": st.column_config.NumberColumn(
+                    "Orders", format="%d",
+                    help="Shopify paid orders last-touched to the segment LP."),
+            },
+        )
+        st.caption(
+            "**Reading the two hops.** `% → segment` is how well the quiz hands off to "
+            "its own segment page; `% → /preorder` is how many of the same sessions "
+            "reached the offer page by any route. Both share one denominator (quiz "
+            "sessions), so they are directly comparable — and `→ /preorder` is not a "
+            "subset of `→ segment LP`, since a session can jump straight to the offer."
+        )
+        _leads_exceed = [
+            r["quiz_slug"] for r in _quiz_rows if r["leads"] > r["sessions"] > 0
+        ]
+        if _leads_exceed:
+            st.caption(
+                f"ℹ️ **Email leads exceed quiz sessions on: {', '.join(_leads_exceed)}** — "
+                "that is expected, not an error. The quiz is reachable from the segment "
+                "LP as well as from its own landing page, and leads are counted per "
+                "*segment* (the sheet's QUIZNAME) regardless of where the visitor "
+                "entered. So leads here are **not** a conversion rate on the sessions "
+                "column; read the two independently."
+            )
+        st.caption(
+            "**Orders are Shopify last-touch on the segment LP**, so a quiz lead who "
+            "later bought from the homepage counts on the homepage row of the table "
+            "above, not here. Zero orders on a quiz row does not mean the quiz "
+            "produced no revenue — it means no purchase last-touched that segment page."
         )
 
 st.markdown("**Click → Session Gap**")
+source_line("M", "G", note="split into capture gap vs attribution gap — never combined")
 st.caption(
     "4-step decomposition: Meta Clicks → Meta LPV → GA4 Sessions (all traffic) → "
     "Campaign-Attributed Sessions. Two separately-labeled gaps below — never "
@@ -516,6 +785,7 @@ st.metric(
 )
 
 st.markdown("**Quiz Funnel**")
+source_line("G", note="Cost per Lead below blends in Meta spend")
 st.caption(f"Landing pages: {', '.join(QUIZ_LP_SLUGS)}")
 _quiz_has_data = any(v["available"] for v in _quiz_funnel.values())
 if not _quiz_has_data:
@@ -591,6 +861,7 @@ if not daily_rows and not source_rows:
 # Section 0 — NSM Two-Gate Command Strip
 # ---------------------------------------------------------------------------
 st.subheader("NSM Two-Gate Framework")
+source_line("Sheet", "M", note="legacy $1-deposit era — Paid comes from the Google Sheet, CPR/CPaC blend in Meta spend")
 st.caption(
     "**Gate 1** (Ad → FSD): controlled by creative, targeting, and bid — metric = **CPR**  ·  "
     "**Gate 2** (FSD → Paid): controlled by landing page offer and UX — metric = **Paid Rate**  ·  "
@@ -634,7 +905,7 @@ if source_rows:
             "Gap between FSD bar and Paid bar = Gate 2 leakage. "
             "Amber line = paid rate % (right axis)."
         )
-        st.plotly_chart(_make_two_gate_segment_chart(source_rows), use_container_width=True)
+        st.plotly_chart(_make_two_gate_segment_chart(source_rows), use_container_width=True, theme=None)
 
     with _table_col:
         st.caption("Segment Scorecard")
@@ -720,6 +991,7 @@ if tracking_rows:
         )
 
     with st.expander("📡 Tracking Health Audit", expanded=(_consecutive_bad >= 3)):
+        source_line("M", "G")
         st.caption(
             "GA4 sessions / Meta clicks ratio per day · "
             "Healthy = 50–100% · "
@@ -786,7 +1058,7 @@ if tracking_rows:
             },
             height=320,
         )
-        st.plotly_chart(fig_track, use_container_width=True)
+        st.plotly_chart(fig_track, use_container_width=True, theme=None)
 
 st.divider()
 
@@ -794,6 +1066,7 @@ st.divider()
 # Section 1 — Daily FSD vs Paid Trend
 # ---------------------------------------------------------------------------
 st.subheader("Daily Form Submits vs. Paid Conversions")
+source_line("Sheet", note="legacy $1-deposit era, from the Google Sheet")
 
 # Compute prior-period paid_rate for delta metric
 prior_start = (start_date - timedelta(days=14)).isoformat()
@@ -882,7 +1155,7 @@ with col_chart:
         },
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
 with col_metrics:
     total_fsd = totals.get("total_fsd") or 0
@@ -910,6 +1183,7 @@ with col_metrics:
 # Section 2 — Source Breakdown Table (Gate 2 detail)
 # ---------------------------------------------------------------------------
 st.subheader("Source Breakdown")
+source_line("Sheet")
 st.caption(
     "Each row = one landing page segment. "
     "**Paid Rate** = Gate 2 strength. "
@@ -963,6 +1237,7 @@ else:
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Funnel by Campaign")
+source_line("M", "G", note="GA4 Sessions joined by campaign name — same fallback matching as Campaign Detail")
 st.caption("Impressions → Clicks → GA4 Sessions → Meta FSD per active campaign")
 
 funnel_rows = _cached_campaign_funnel(db_path_str, start_str, end_str)
@@ -1017,10 +1292,11 @@ if funnel_rows:
         yaxis={"gridcolor": COLOR_GRID, "showgrid": False, "automargin": True},
         height=max(260, len(funnel_rows) * 52),
     )
-    st.plotly_chart(fig_f, use_container_width=True)
+    st.plotly_chart(fig_f, use_container_width=True, theme=None)
 
     # Funnel Health table
     st.subheader("Funnel Health Table")
+    source_line("M", "G")
     health_data = []
     for r in funnel_rows:
         imp = r["impressions"] or 0
@@ -1077,6 +1353,7 @@ else:
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("Landing Page Health Matrix")
+source_line("G", "Sheet", note="GA4 engagement joined to the Sheet-sourced paid count")
 st.caption(
     "Each bubble = one landing page · "
     "X = GA4 engagement time · Y = FSD rate (form submits / sessions) · "
@@ -1150,7 +1427,7 @@ if lp_rows:
         margin={"l": 60, "r": 60, "t": 30, "b": 60},
         height=460,
     )
-    st.plotly_chart(fig_lp, use_container_width=True)
+    st.plotly_chart(fig_lp, use_container_width=True, theme=None)
 else:
     st.info(
         "No landing page health data. "
@@ -1162,6 +1439,7 @@ else:
 # ---------------------------------------------------------------------------
 st.divider()
 st.subheader("ROAS vs Frequency Watch")
+source_line("M")
 st.caption(
     "Blended ROAS (spend-weighted) vs average ad frequency · "
     "Frequency > 3 signals creative fatigue risk"
@@ -1256,7 +1534,7 @@ if roas_freq_rows:
         },
         height=360,
     )
-    st.plotly_chart(fig_rf, use_container_width=True)
+    st.plotly_chart(fig_rf, use_container_width=True, theme=None)
 else:
     st.info("No Meta spend data in this date range.")
 
@@ -1267,6 +1545,7 @@ import os as _os  # noqa: E402 — stdlib, safe in standalone page
 
 st.divider()
 st.subheader("Email Leads Funnel")
+source_line("Sheet", note="separate, unconfigured sheet — placeholder, no backend table yet")
 
 _email_sheet_id = _os.environ.get("GOOGLE_SHEETS_EMAIL_LEADS_SPREADSHEET_ID", "").strip()
 

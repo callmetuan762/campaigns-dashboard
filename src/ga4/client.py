@@ -490,3 +490,96 @@ async def fetch_event_metrics(
     )
     logger.info("ga4_fetch_complete", type="events", date=date_iso, rows=len(rows))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Page-to-page session flow (migration 018)
+# ---------------------------------------------------------------------------
+# Pages whose onward flow the dashboard cares about. Anything not in this set is
+# dropped at ingest — the unfiltered cross product of landing page x page viewed
+# is thousands of rows a day, almost all of it noise.
+_FLOW_PATH_PREFIXES = ("/preorder", "/for/", "/resources/quiz/")
+
+
+def _is_tracked_flow_path(path: str) -> bool:
+    """True for the offer page, the segment LPs, the quiz LPs, and the homepage."""
+    p = (path or "").split("?", 1)[0].split("#", 1)[0]
+    if p in ("/", ""):
+        return True
+    return any(p.startswith(prefix) for prefix in _FLOW_PATH_PREFIXES)
+
+
+def _fetch_page_flow_sync(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    """Sessions per (landing page -> page viewed) pair, per day.
+
+    landingPagePlusQueryString is session-scoped and pagePath is page-scoped, so
+    one row is "sessions that started on A and included a view of B". Summing
+    across B would double-count sessions — each pair must be read on its own.
+
+    Rows where from == to are the landing-page's own views, i.e. the session
+    denominator for that page, and are deliberately kept.
+
+    Both dimensions carry the full query string, so fbclid / campaign_id variants
+    arrive as separate rows and are aggregated here on path alone. The final slug
+    normalisation happens in the ingest layer, which owns that mapping.
+    """
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name=_LANDING_PAGE_DIMENSION),
+            Dimension(name="pagePath"),
+            Dimension(name="date"),
+        ],
+        metrics=[Metric(name="sessions")],
+        date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+        keep_empty_rows=False,
+        limit=100000,
+    )
+    resp = client.run_report(request)
+
+    agg: dict[tuple[str, str, str], int] = {}
+    for row in resp.rows:
+        dv = {h.name: v.value for h, v in zip(resp.dimension_headers, row.dimension_values)}
+        landing = dv.get(_LANDING_PAGE_DIMENSION, "") or ""
+        viewed = dv.get("pagePath", "") or ""
+        if not landing or not viewed:
+            continue
+        if not (_is_tracked_flow_path(landing) and _is_tracked_flow_path(viewed)):
+            continue
+        f = landing.split("?", 1)[0].split("#", 1)[0]
+        t = viewed.split("?", 1)[0].split("#", 1)[0]
+        date_key = _normalise_ga4_date(dv.get("date", ""), start_date)
+        key = (date_key, f, t)
+        agg[key] = agg.get(key, 0) + int(row.metric_values[0].value or 0)
+
+    return [
+        {"date": d, "from_path": f, "to_path": t, "sessions": n}
+        for (d, f, t), n in sorted(agg.items())
+    ]
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(GoogleAPIError),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_page_flow(
+    client: BetaAnalyticsDataClient,
+    property_id: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict]:
+    """Async wrapper for the page-to-page session flow report."""
+    logger.info("ga4_page_flow_fetch_start", start=start_date, end=end_date)
+    rows = await asyncio.to_thread(
+        _fetch_page_flow_sync, client, property_id, start_date, end_date
+    )
+    logger.info("ga4_page_flow_fetch_complete", rows=len(rows))
+    return rows

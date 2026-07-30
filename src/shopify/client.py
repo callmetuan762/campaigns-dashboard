@@ -179,3 +179,229 @@ async def fetch_orders(
     )
     logger.info("shopify_fetch_complete", since=since_iso, until=until_iso, rows=len(rows))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Abandoned checkouts — the Shopify leg of the Initiate Checkout reconciliation
+# ---------------------------------------------------------------------------
+
+# /checkouts.json does not accept a `fields` filter the way /orders.json does,
+# so the full payload comes back and _parse_checkout picks what it needs.
+def _parse_checkout(raw: dict) -> dict:
+    """Normalise one /checkouts.json row into a shopify_checkouts row."""
+    created_at = str(raw.get("created_at") or "")
+    utm = _parse_landing_site(raw.get("landing_site"))
+    total = raw.get("total_price")
+    try:
+        total_price = float(total) if total not in (None, "") else None
+    except (TypeError, ValueError):
+        total_price = None
+    return {
+        "checkout_id": str(raw.get("id") or raw.get("token") or ""),
+        "created_at": created_at,
+        # Date bucket comes from the ISO timestamp's own date part, matching how
+        # _parse_order derives order_date — no timezone shifting anywhere here.
+        "checkout_date": created_at[:10],
+        "completed_at": raw.get("completed_at") or None,
+        "email": str(raw.get("email") or ""),
+        "total_price": total_price,
+        "cart_token": str(raw.get("cart_token") or ""),
+        "landing_site": raw.get("landing_site") or "",
+        "lp_slug": utm["lp_slug"],
+    }
+
+
+def _fetch_checkouts_sync(
+    store_domain: str,
+    admin_token: str,
+    since_iso: str,
+    until_iso: str,
+    api_version: str = _DEFAULT_API_VERSION,
+) -> list[dict]:
+    """Synchronous /checkouts.json call — same Link-header pagination as orders."""
+    base_url = f"https://{store_domain}/admin/api/{api_version}/checkouts.json"
+    headers = {"X-Shopify-Access-Token": admin_token, "Content-Type": "application/json"}
+    params: dict | None = {
+        "created_at_min": f"{since_iso}T00:00:00Z",
+        "created_at_max": f"{until_iso}T23:59:59Z",
+        "limit": 250,
+    }
+
+    checkouts: list[dict] = []
+    url: str | None = base_url
+    while url:
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        for raw in resp.json().get("checkouts", []):
+            row = _parse_checkout(raw)
+            if row["checkout_id"]:
+                checkouts.append(row)
+        url = _next_page_url(resp.headers.get("Link"))
+        params = None
+
+    return checkouts
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(requests.exceptions.RequestException),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_checkouts(
+    store_domain: str,
+    admin_token: str,
+    since_iso: str,
+    until_iso: str,
+    api_version: str = _DEFAULT_API_VERSION,
+) -> list[dict]:
+    """Fetch abandoned checkouts for a date range.
+
+    Shopify only exposes abandoned checkouts here, and only once the shopper has
+    left contact details — see the migration 017 comment for why that makes the
+    Shopify checkout figure a floor rather than a like-for-like counterpart to
+    Meta's pixel event or GA4's begin_checkout.
+    """
+    logger.info("shopify_checkouts_fetch_start", since=since_iso, until=until_iso)
+    rows = await asyncio.to_thread(
+        _fetch_checkouts_sync, store_domain, admin_token, since_iso, until_iso, api_version
+    )
+    logger.info(
+        "shopify_checkouts_fetch_complete", since=since_iso, until=until_iso, rows=len(rows)
+    )
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Order customer journey (migration 019) — GraphQL, not REST
+# ---------------------------------------------------------------------------
+# REST /orders.json exposes a single landing_site with no notion of separate
+# visits. customerJourneySummary is GraphQL-only and is what makes a two-touch
+# path ("segment LP introduced, homepage closed") visible.
+_ORDER_JOURNEY_QUERY = """
+query($cursor: String) {
+  orders(first: 100, after: $cursor, reverse: true) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id
+      name
+      createdAt
+      displayFinancialStatus
+      totalPriceSet { shopMoney { amount } }
+      customerJourneySummary {
+        momentsCount { count }
+        firstVisit { landingPage source sourceType
+                     utmParameters { source medium campaign content term } }
+        lastVisit  { landingPage source sourceType
+                     utmParameters { source medium campaign content term } }
+      }
+    }
+  }
+}
+"""
+
+
+def _visit_fields(visit: dict | None, prefix: str) -> dict:
+    """Flatten one firstVisit/lastVisit node into prefixed columns."""
+    v = visit or {}
+    utm = v.get("utmParameters") or {}
+    return {
+        f"{prefix}_landing_page": v.get("landingPage") or "",
+        f"{prefix}_source": v.get("source") or "",
+        f"{prefix}_source_type": v.get("sourceType") or "",
+        f"{prefix}_utm_source": utm.get("source") or "",
+        f"{prefix}_utm_medium": utm.get("medium") or "",
+        f"{prefix}_utm_campaign": utm.get("campaign") or "",
+        f"{prefix}_utm_content": utm.get("content") or "",
+        f"{prefix}_utm_term": utm.get("term") or "",
+    }
+
+
+def _parse_order_journey(node: dict) -> dict:
+    """Normalise one GraphQL order node into a shopify_order_journey row."""
+    created = str(node.get("createdAt") or "")
+    money = ((node.get("totalPriceSet") or {}).get("shopMoney") or {}).get("amount")
+    try:
+        total = float(money) if money not in (None, "") else None
+    except (TypeError, ValueError):
+        total = None
+    cj = node.get("customerJourneySummary") or {}
+    # Shopify returns a gid:// URI; keep only the trailing numeric id so this
+    # joins to shopify_orders.order_id, which REST reports as a bare number.
+    gid = str(node.get("id") or "")
+    return {
+        "order_id": gid.rsplit("/", 1)[-1] if gid else "",
+        "order_name": node.get("name") or "",
+        "created_at": created,
+        "order_date": created[:10],
+        "financial_status": (node.get("displayFinancialStatus") or "").lower(),
+        "total_price": total,
+        "moments_count": (cj.get("momentsCount") or {}).get("count"),
+        **_visit_fields(cj.get("firstVisit"), "first"),
+        **_visit_fields(cj.get("lastVisit"), "last"),
+    }
+
+
+def _fetch_order_journeys_sync(
+    store_domain: str,
+    admin_token: str,
+    api_version: str = _DEFAULT_API_VERSION,
+    max_orders: int = 500,
+) -> list[dict]:
+    """Page the GraphQL orders connection newest-first, collecting journeys.
+
+    Not date-filtered: the store's whole order history is small (tens of orders),
+    and a journey can gain a moment after the order date, so re-reading all of
+    them is both cheap and more correct than a windowed pull. max_orders is a
+    guard for when that stops being true.
+    """
+    url = f"https://{store_domain}/admin/api/{api_version}/graphql.json"
+    headers = {"X-Shopify-Access-Token": admin_token, "Content-Type": "application/json"}
+
+    rows: list[dict] = []
+    cursor: str | None = None
+    while True:
+        resp = requests.post(
+            url, headers=headers,
+            json={"query": _ORDER_JOURNEY_QUERY, "variables": {"cursor": cursor}},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("errors"):
+            # A GraphQL 200-with-errors is still a failure; surface it rather than
+            # returning a silently short list.
+            raise requests.exceptions.RequestException(str(payload["errors"])[:500])
+        conn = payload["data"]["orders"]
+        for node in conn.get("nodes", []):
+            row = _parse_order_journey(node)
+            if row["order_id"]:
+                rows.append(row)
+        info = conn.get("pageInfo") or {}
+        if not info.get("hasNextPage") or len(rows) >= max_orders:
+            break
+        cursor = info.get("endCursor")
+
+    return rows
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    retry=retry_if_exception_type(requests.exceptions.RequestException),
+    before_sleep=before_sleep_log(_stdlib_log, logging.WARNING),
+    reraise=True,
+)
+async def fetch_order_journeys(
+    store_domain: str,
+    admin_token: str,
+    api_version: str = _DEFAULT_API_VERSION,
+) -> list[dict]:
+    """Fetch first/last-touch journeys for every order."""
+    logger.info("shopify_journey_fetch_start")
+    rows = await asyncio.to_thread(
+        _fetch_order_journeys_sync, store_domain, admin_token, api_version
+    )
+    logger.info("shopify_journey_fetch_complete", rows=len(rows))
+    return rows

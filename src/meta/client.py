@@ -50,6 +50,10 @@ _CAMPAIGN_FIELDS = [
     "impressions",
     "clicks",
     "ctr",
+    # LINK clicks, not all clicks: `clicks` above counts reactions/comments/profile
+    # taps too, so link CTR (inline_link_clicks / impressions) always reads lower
+    # and is the one that reflects traffic actually sent to site.
+    "inline_link_clicks",
     "cpc",
     "cpm",
     "reach",
@@ -156,6 +160,13 @@ def _parse_insight_row(row: dict, date_iso: str, level: str = "campaign") -> dic
         "impressions": int(row.get("impressions", 0) or 0),
         "clicks": int(row.get("clicks", 0) or 0),
         "ctr": float(row.get("ctr", 0) or 0),
+        # None (not 0) when Meta omits the field, so a date ingested before this
+        # field was requested stays distinguishable from a real zero.
+        "inline_link_clicks": (
+            int(row["inline_link_clicks"])
+            if str(row.get("inline_link_clicks", "")).strip() not in ("", "None")
+            else None
+        ),
         "cpc": float(row.get("cpc", 0) or 0),
         "cpm": float(row.get("cpm", 0) or 0),
         "roas": roas,

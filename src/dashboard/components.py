@@ -40,6 +40,53 @@ _GAP_AMBER_MAX = 40.0
 
 _GAP_CHIP_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴", "gray": "⚪"}
 
+# ---------------------------------------------------------------------------
+# Source badges -- small colored tags marking which system a metric/chart/
+# table comes from. Same palette + short codes as the standalone weekly
+# funnel report (M/G/Shop), extended with Sheet (legacy $1-deposit Google
+# Sheet) and Model (MMM-derived, not fetched from anywhere). Fixed bg/ink
+# pairs so contrast holds regardless of the surrounding Streamlit theme.
+# ---------------------------------------------------------------------------
+SOURCE_BADGES: dict[str, tuple[str, str, str]] = {
+    "M": ("#1f3a5f", "#eaf1ff", "Meta Ads"),
+    "G": ("#9c6f1a", "#fff8e8", "GA4"),
+    "Shop": ("#2f6d4f", "#eafff2", "Shopify"),
+    "Sheet": ("#6b4a7a", "#f6ecff", "Google Sheet"),
+    "Model": ("#5b6470", "#f1f3f5", "Derived / modeled"),
+}
+
+
+def badge_html(*codes: str) -> str:
+    """Inline HTML for one or more source badges, e.g. badge_html('M', 'Shop')."""
+    spans = []
+    for c in codes:
+        bg, ink, _ = SOURCE_BADGES[c]
+        spans.append(
+            f'<span style="background:{bg};color:{ink};font-size:10px;'
+            f'font-weight:800;letter-spacing:.02em;padding:2px 6px;'
+            f'border-radius:4px;margin-right:4px;display:inline-block;'
+            f'vertical-align:middle;line-height:1.5;">{c}</span>'
+        )
+    return "".join(spans)
+
+
+def source_line(*codes: str, note: str = "") -> None:
+    """Render a small source-badge row, optionally followed by a note.
+
+    Call directly under a subheader/chart/table so a viewer can tell which
+    system(s) produced it without opening the code.
+    """
+    html = badge_html(*codes)
+    if note:
+        html += f' <span style="color:var(--text-color,#8b8474);opacity:.75;font-size:11.5px">{note}</span>'
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def source_help(*codes: str, note: str = "") -> str:
+    """Plain-text source line for use as an st.metric(help=...) tooltip."""
+    names = " + ".join(SOURCE_BADGES[c][2] for c in codes)
+    return f"Source: {names}" + (f" — {note}" if note else "")
+
 
 def _fmt_scope_date(d: date) -> str:
     """'15 Jul' style short date -- day first, no leading zero, no year."""

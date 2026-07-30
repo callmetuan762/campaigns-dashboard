@@ -28,6 +28,8 @@ from src.dashboard.components import (                                   # noqa:
     compute_gap_pct,
     gap_chip_color,
     render_scope_line,
+    source_help,
+    source_line,
 )
 from src.dashboard.settings import DashboardSettings                     # noqa: E402
 from src.dashboard.tracking_health import (                              # noqa: E402
@@ -175,7 +177,10 @@ chip_cols = st.columns(4 + len(CRITICAL_EVENTS))
 with chip_cols[0]:
     color = click_session_ratio_color(ratio_pct)
     ratio_text = f"{ratio_pct:.0f}%" if ratio_pct is not None else "—"
-    st.metric("Click → Session (7d, all traffic)", f"{chip_emoji(color)} {ratio_text}")
+    st.metric(
+        "Click → Session (7d, all traffic)", f"{chip_emoji(color)} {ratio_text}",
+        help=source_help("M", "G", note="Meta clicks stand in for landing-page views — no real LPV column here"),
+    )
     st.caption(
         "Meta clicks vs ALL GA4 sessions (ga4_landing_pages, incl. '(not set)') — "
         "capture rate, not campaign attribution"
@@ -184,7 +189,10 @@ with chip_cols[0]:
 with chip_cols[1]:
     not_set_color = not_set_share_color(not_set_pct)
     not_set_text = f"{not_set_pct:.0f}%" if not_set_pct is not None else "—"
-    st.metric("(not set) on checkout", f"{chip_emoji(not_set_color)} {not_set_text}")
+    st.metric(
+        "(not set) on checkout", f"{chip_emoji(not_set_color)} {not_set_text}",
+        help=source_help("G"),
+    )
     st.caption(f"{_PRIMARY_CHECKOUT_EVENT} campaign_utm missing")
 
 with chip_cols[2]:
@@ -193,7 +201,10 @@ with chip_cols[2]:
     gap = compute_gap_pct(meta_p, ga4_p)
     gap_color = gap_chip_color(gap)
     gap_text = f"{gap:.0f}%" if gap is not None else "—"
-    st.metric("Meta vs GA4 purchases", f"{chip_emoji(gap_color)} {gap_text}")
+    st.metric(
+        "Meta vs GA4 purchases", f"{chip_emoji(gap_color)} {gap_text}",
+        help=source_help("M", "G", note="two counts + a gap %, never merged into one count"),
+    )
     ga4_attr = divergence.get("ga4_purchases_attributed")
     attr_note = f", {ga4_attr:,} campaign-attributed" if ga4_attr is not None else ""
     st.caption(f"Meta {meta_p:,} · GA4 {ga4_p:,} property-wide{attr_note} (never blended)")
@@ -203,7 +214,10 @@ for i, event_name in enumerate(CRITICAL_EVENTS):
         hours = freshness.get(event_name)
         f_color = freshness_color(hours)
         hours_text = f"{hours:.0f}h" if hours is not None else "—"
-        st.metric(f"{event_name} freshness", f"{chip_emoji(f_color)} {hours_text}")
+        st.metric(
+            f"{event_name} freshness", f"{chip_emoji(f_color)} {hours_text}",
+            help=source_help("G"),
+        )
         st.caption("since last ingest")
 
 st.divider()
@@ -212,6 +226,7 @@ st.divider()
 # Per-event volume trend chart with anomaly markers
 # ---------------------------------------------------------------------------
 st.subheader("Event volume trend")
+source_line("G")
 
 sessions_rows = _cached_sessions_daily(db_path_str, start_str, end_str)
 sessions_by_date = {r["date"]: float(r["sessions"] or 0) for r in sessions_rows}
@@ -268,7 +283,7 @@ if any_event_data:
         margin=dict(l=10, r=10, t=40, b=10),
         height=420,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
     st.caption(
         "X markers = anomaly: event count dropped >50% vs its trailing 7-day median "
         "while sessions dropped <20% over the same window — that asymmetry points at "
@@ -287,6 +302,7 @@ st.divider()
 # Pixel health table
 # ---------------------------------------------------------------------------
 st.subheader("Pixel health")
+source_line("M", note="Meta Pixel — separate from the ad-campaign numbers on other pages")
 
 pixel_rows = _cached_pixel_health(db_path_str, start_str, end_str)
 if not pixel_rows:

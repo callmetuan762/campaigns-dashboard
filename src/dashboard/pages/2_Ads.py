@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                            # noqa: E402
-from src.dashboard.components import render_scope_line  # noqa: E402
+from src.dashboard.components import render_scope_line, source_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings    # noqa: E402
 
 # --- Dark-theme palette — duplicated from app.py per D-19 standalone rule ---
@@ -346,6 +346,7 @@ start_iso = start_date.isoformat()
 end_iso = end_date.isoformat()
 
 render_scope_line(start_date, end_date, campaign_filter="All")
+source_line("M", note="every table on this page is Meta only — no GA4/Shopify/Sheets")
 
 # ---------------------------------------------------------------------------
 # Load data
@@ -585,7 +586,7 @@ st.caption(
 if format_rows:
     left_col, right_col = st.columns([3, 2])
     with left_col:
-        st.plotly_chart(_make_format_chart(format_rows), use_container_width=True)
+        st.plotly_chart(_make_format_chart(format_rows), use_container_width=True, theme=None)
     with right_col:
         _fmt_display = []
         for r in format_rows:
@@ -621,7 +622,7 @@ st.caption(
 if style_rows:
     left_col2, right_col2 = st.columns([3, 2])
     with left_col2:
-        st.plotly_chart(_make_style_chart(style_rows), use_container_width=True)
+        st.plotly_chart(_make_style_chart(style_rows), use_container_width=True, theme=None)
     with right_col2:
         _sty_display = []
         for r in style_rows:
@@ -675,7 +676,7 @@ if concept_rows:
     if _concept_filtered:
         chart_col, table_col = st.columns([2, 3])
         with chart_col:
-            st.plotly_chart(_make_concept_chart(_concept_filtered), use_container_width=True)
+            st.plotly_chart(_make_concept_chart(_concept_filtered), use_container_width=True, theme=None)
 
         with table_col:
             def _conf_badge(bc: int, has_cpbc: bool) -> str:

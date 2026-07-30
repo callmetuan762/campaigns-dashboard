@@ -23,7 +23,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                          # noqa: E402
-from src.dashboard.components import render_scope_line  # noqa: E402
+from src.dashboard.components import render_scope_line, source_help, source_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # Dark-theme palette -- duplicated from app.py per D-19 standalone rule
@@ -242,11 +242,14 @@ total_meta_purchases = sum(r["meta_purchases"] for r in rows)
 total_ga4_purchases = sum(r["ga4_purchases"] for r in rows)
 
 k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Total Spend", f"${total_spend:,.2f}")
-k2.metric("Initiate Checkout", f"{total_ic:,}")
-k3.metric("CPR (Initiate Checkout)", f"${cost_per_ic:.2f}" if cost_per_ic else "--")
-k4.metric("Avg ROAS", f"{avg_roas:.2f}")
-k5.metric("GA4 Sessions", f"{total_sessions:,}")
+k1.metric("Total Spend", f"${total_spend:,.2f}", help=source_help("M"))
+k2.metric("Initiate Checkout", f"{total_ic:,}", help=source_help("M"))
+k3.metric("CPR (Initiate Checkout)", f"${cost_per_ic:.2f}" if cost_per_ic else "--", help=source_help("M"))
+k4.metric("Avg ROAS", f"{avg_roas:.2f}", help=source_help("M"))
+k5.metric(
+    "GA4 Sessions", f"{total_sessions:,}",
+    help=source_help("G", note="joined to this campaign by exact name match — can silently read zero, see caption below"),
+)
 
 st.divider()
 
@@ -314,10 +317,12 @@ fig_cpd.update_layout(
 col_left, col_right = st.columns(2)
 with col_left:
     st.subheader("Daily trend")
-    st.plotly_chart(fig_trend, use_container_width=True)
+    source_line("M", "G", note="each its own trace, not blended")
+    st.plotly_chart(fig_trend, use_container_width=True, theme=None)
 with col_right:
     st.subheader("Cost per Initiate Checkout over time")
-    st.plotly_chart(fig_cpd, use_container_width=True)
+    source_line("M")
+    st.plotly_chart(fig_cpd, use_container_width=True, theme=None)
     st.caption("Cost per Initiate Checkout = spend / meta_begin_checkout. Gaps = zero-IC days.")
 
 st.divider()
@@ -359,7 +364,8 @@ fig_attr.update_layout(
 )
 
 st.subheader("Meta vs GA4 attribution (daily)")
-st.plotly_chart(fig_attr, use_container_width=True)
+source_line("M", "G", note="grouped bars, never summed")
+st.plotly_chart(fig_attr, use_container_width=True, theme=None)
 st.caption("Never blend -- Meta uses 7-day click attribution; GA4 uses last-click.")
 if _utm_caption:
     st.caption(_utm_caption)
@@ -399,6 +405,7 @@ if _eng_empty:
         )
 
 st.subheader("GA4 Engagement")
+source_line("G")
 bounce = ga4_eng.get("avg_bounce_rate")
 eng_time = ga4_eng.get("avg_engagement_time_sec")
 total_users = int(ga4_eng.get("total_users") or 0)
@@ -433,6 +440,7 @@ st.divider()
 
 # --- Ad-set breakdown -------------------------------------------------------
 st.subheader("Ad-set breakdown")
+source_line("M")
 adset_rows = _cached_adset_breakdown(
     db_path_str, campaign, start_date.isoformat(), end_date.isoformat()
 )

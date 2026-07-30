@@ -46,13 +46,17 @@ def test_new_section_present() -> None:
     required = [
         "Preorder Funnel (v3)",
         "Click → Session Gap",
-        "Segment comparison",
+        # The per-segment mini bar charts were replaced by a landing-page table
+        # (they plotted Sessions beside Orders on one axis, so every bar but
+        # Sessions was a stub); this is that table's heading.
+        "By landing page",
         "Quiz Funnel",
         "(not set)",
         "_cached_funnel_steps",
+        "_funnel_steps_prior",   # prior-period comparison column
         "_cached_click_gap",
         "_cached_not_set_share",
-        "_cached_segment_funnels",
+        "_cached_lp_table",
         "_cached_quiz_funnel",
         "_cached_quiz_cpl",
     ]
@@ -114,10 +118,11 @@ def test_preorder_lp_slugs_constant_declared_and_matches_config() -> None:
         assert slug in source
 
 
-def test_segment_funnels_pass_canonical_slugs() -> None:
-    """The segment-comparison call must pass canonical_slugs so junk/legacy
-    lp_slug values bucket into a trailing "(other)" group instead of
-    appearing individually (segment slug cleanup, 2026-07-22)."""
+def test_landing_page_table_passes_canonical_slugs() -> None:
+    """The landing-page table must pass canonical_slugs so retired lp_slug values
+    bucket into a trailing "(other)" row instead of each claiming a row on a
+    handful of stray page-views (segment slug cleanup, 2026-07-22 — carried over
+    when the segment mini-charts became this table)."""
     source = PAGE_PATH.read_text(encoding="utf-8")
     assert "canonical_slugs=QUIZ_LP_SLUGS + PREORDER_LP_SLUGS" in source
 

@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     shopify_store_domain: str | None = None       # e.g. "shop.nowaplanet.com"
     shopify_admin_token: SecretStr | None = None  # custom-app Admin API access token
     shopify_api_version: str = "2025-01"
+    # Orders numbered below this are excluded from every order figure. Shopify
+    # order names are "#1020"-style, and the pre-launch test orders on this store
+    # are everything below #1020. A number rather than a date because the order
+    # number is the actual identity of the cutoff — a date is only a proxy for it,
+    # and would not catch a test order placed after launch. 0 = no filtering.
+    orders_min_order_number: int = 0
 
     # Test/pre-launch orders pollute the funnel: internal test orders placed before
     # the campaign actually launched (order_date < this cutoff) are excluded from
@@ -138,6 +144,29 @@ class Settings(BaseSettings):
     google_service_account_json_path: str | None = None  # file path to service account JSON
     google_service_account_json: str | None = None       # full JSON string (alternative)
     google_oauth_token_path: str | None = None           # OAuth2 token file path
+
+    # ---- Email leads sheet (Preorder Leads Dashboard) ----
+    # Separate spreadsheet from the legacy stripe one above. Unset = clean no-op,
+    # matching the Shopify/Sentry graceful-degradation pattern.
+    google_sheets_leads_spreadsheet_id: str | None = None
+    # Substrings that mark an email as internal/test rather than a real lead. Stored
+    # on the row (is_internal) rather than dropped at ingest, so changing this list
+    # re-classifies existing rows on the next pull instead of needing a backfill.
+    #
+    # Matched case-insensitively anywhere in the address, so a bare domain also
+    # catches plus-addressing (huyle+1@resonancetech.co) and "nowaplanet" catches
+    # any TLD. Verified against a live snapshot: this list flags exactly the 17
+    # addresses the sheet itself describes as internal — 8 @resonancetech.co,
+    # 3 @nowaplanet, and the 6 personal test accounts — with no real lead caught.
+    #
+    # "nghia" and "tradanghi" cover one teammate's test series (nghiatran@,
+    # tdnghia.sdh221@hcmut.edu.vn, tradanghi1999chung/chuyennganh/try2@gmail.com).
+    # These are name substrings rather than domains, so they would also exclude a
+    # real lead whose address contained them; acceptable while the campaigns target
+    # US parents, and narrowable via this env var if that ever changes.
+    leads_internal_email_patterns: str = (
+        "resonancetech.co,nowaplanet,testingthis.com,example.com,nghia,tradanghi"
+    )
 
     # ---- Sentry (Phase 5) ----
     sentry_dsn: SecretStr | None = None
