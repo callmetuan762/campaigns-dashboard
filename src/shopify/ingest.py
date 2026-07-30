@@ -104,3 +104,61 @@ async def shopify_ingest_job() -> None:
         logger.error("ingest_job_resources_not_registered")
         return
     await _run_shopify_ingest(_bot, _db, _settings)
+
+
+async def run_shopify_checkout_ingest_for_range(
+    db, settings, since_iso: str, until_iso: str
+) -> int:
+    """Fetch abandoned checkouts for a range and upsert them. Returns row count.
+
+    Clean no-op (returns 0) when Shopify credentials are unset, matching the
+    orders ingest above and the Sheets/Sentry graceful-degradation pattern.
+
+    Unlike the orders job this pulls a WINDOW rather than a single day: an
+    abandoned checkout created days ago can complete later, and re-reading the
+    window lets completed_at catch up instead of the row staying stale forever.
+    """
+    if not (settings.shopify_store_domain and settings.shopify_admin_token):
+        logger.info("shopify_checkouts_skipped", reason="credentials_unset")
+        return 0
+
+    from src.shopify.client import fetch_checkouts
+
+    token = settings.shopify_admin_token
+    rows = await fetch_checkouts(
+        settings.shopify_store_domain,
+        token.get_secret_value() if hasattr(token, "get_secret_value") else str(token),
+        since_iso,
+        until_iso,
+        settings.shopify_api_version,
+    )
+    if rows:
+        await db.upsert_shopify_checkouts(rows)
+    logger.info("shopify_checkouts_ingest_complete", since=since_iso, until=until_iso,
+                rows=len(rows))
+    return len(rows)
+
+
+async def run_order_journey_ingest(db, settings) -> int:
+    """Fetch every order's first/last-touch journey and upsert. Returns row count.
+
+    Clean no-op (0) when Shopify credentials are unset, like the ingests above.
+    Not date-scoped — see fetch_order_journeys for why re-reading all orders is
+    both cheap here and more correct than a window.
+    """
+    if not (settings.shopify_store_domain and settings.shopify_admin_token):
+        logger.info("shopify_journey_skipped", reason="credentials_unset")
+        return 0
+
+    from src.shopify.client import fetch_order_journeys
+
+    token = settings.shopify_admin_token
+    rows = await fetch_order_journeys(
+        settings.shopify_store_domain,
+        token.get_secret_value() if hasattr(token, "get_secret_value") else str(token),
+        settings.shopify_api_version,
+    )
+    if rows:
+        await db.upsert_order_journeys(rows)
+    logger.info("shopify_journey_ingest_complete", rows=len(rows))
+    return len(rows)

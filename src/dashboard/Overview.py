@@ -33,6 +33,8 @@ from src.dashboard import db                  # noqa: E402
 from src.dashboard.components import (         # noqa: E402
     render_reconciliation_block,
     render_scope_line,
+    source_help,
+    source_line,
 )
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
@@ -47,6 +49,9 @@ COLOR_SPEND = "rgba(99, 125, 255, 0.6)"
 COLOR_DEPOSITS = "#34d399"
 COLOR_META = "#60a5fa"
 COLOR_GA4 = "#a78bfa"
+# Amber = unit cost, matching the cost-per-checkout and frequency lines already
+# drawn further down this page.
+COLOR_COST = "#f59e0b"
 
 # TIER tag palette (D-05) — campaign-table action labels
 COLOR_TIER_SCALE = "#34d399"     # reuses COLOR_DEPOSITS green
@@ -202,6 +207,34 @@ def _cached_shopify_paid_daily(
 ) -> list[dict[str, Any]]:
     from pathlib import Path
     return db.get_shopify_paid_daily(Path(db_path_str), start, end, valid_from)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_email_leads(db_path_str: str, start: str, end: str) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_email_leads_summary(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_internal_leads(db_path_str: str, start: str, end: str) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_internal_lead_emails(Path(db_path_str), start, end)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_checkout_recon(
+    db_path_str: str, start: str, end: str, valid_from: str
+) -> dict[str, Any]:
+    from pathlib import Path
+    return db.get_checkout_reconciliation(Path(db_path_str), start, end, valid_from)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_leads_daily_status(
+    db_path_str: str, start: str, end: str
+) -> list[dict[str, Any]]:
+    from pathlib import Path
+    return db.get_email_leads_daily_by_status(Path(db_path_str), start, end)
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +758,16 @@ def _delta_pct_text(pct: float | None) -> str | None:
     return f"{pct:+.1f}% vs prior" if pct is not None else None
 
 
-c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+# One row per conversion goal, because the two goals answer different questions
+# and mixing them in one strip invites reading a Paid ratio against an
+# Initiate-Checkout count. Row 1 is the paid goal (Shopify ground truth); row 2
+# is the Initiate Checkout goal (Meta-attributed, the signal the ad sets actually
+# optimise on). Spend sits in row 1 as the shared denominator for both.
+st.markdown("**Goal: Paid** — Shopify orders, ground truth")
+c1, c1b, c2, c3, c4 = st.columns(5)
+
+st.markdown("**Goal: Initiate Checkout** — Meta-attributed, what the ad sets optimise on")
+c_ic, c_cpic, c6, c7 = st.columns(4)
 
 # Card 1 — Total Spend (Meta)
 _spend = float(kpi.get("total_spend") or 0)
@@ -735,7 +777,25 @@ c1.metric(
     _fmt_spend(_spend),
     delta=_delta_pct_text(_pct_change(_spend, _prior_spend)),
     delta_color="off",
-    help="Total Meta ad spend for the period.",
+    help=source_help("M", note="Total Meta ad spend for the period."),
+)
+
+# Card 1b — Total Revenue (Shopify paid orders) — sits next to Spend so the
+# two halves of every efficiency ratio below (MER, CAC) are both visible as
+# raw dollars, not only as the derived multiple.
+_revenue = float(shopify_kpi.get("revenue") or 0)
+_prior_revenue = float(prior_shopify_kpi.get("revenue") or 0)
+c1b.metric(
+    "Total Revenue",
+    _fmt_spend(_revenue),
+    delta=_delta_pct_text(_pct_change(_revenue, _prior_revenue)),
+    delta_color="normal",
+    help=source_help(
+        "Shop",
+        note="Sum of total_price on paid Shopify orders — money collected, so it "
+             "includes shipping, not just the $99 product line. Same rows that "
+             "feed the Pre-orders count and MER.",
+    ),
 )
 
 # Card 2 — MER (blended) = Shopify paid revenue ÷ Meta spend
@@ -748,7 +808,7 @@ c2.metric(
     f"{_mer:.2f}x" if _mer is not None else "—",
     delta=_delta_pct_text(_pct_change(_mer, _prior_mer)),
     delta_color="normal",
-    help="Shopify revenue ÷ ad spend — attribution-free",
+    help=source_help("Shop", "M", note="Shopify revenue ÷ Meta ad spend — attribution-free"),
 )
 
 # Card 3 — Blended CAC = Spend ÷ Shopify paid order count
@@ -761,7 +821,7 @@ c3.metric(
     f"${_cac:.2f}" if _cac is not None else "—",
     delta=_delta_pct_text(_pct_change(_cac, _prior_cac)),
     delta_color="inverse",  # lower CAC = better = green for a negative delta
-    help="true cost per preorder",
+    help=source_help("M", "Shop", note="Meta spend ÷ Shopify paid order count — true cost per preorder"),
 )
 
 # Card 4 — Pre-orders (Shopify paid count in range)
@@ -772,20 +832,47 @@ c4.metric(
     f"{_preorders:,}",
     delta=_delta_pct_text(_pct_change(_preorders, _prior_preorders)),
     delta_color="normal",
-    help="Shopify paid order count (financial_status = 'paid'), respecting the "
-         "orders_valid_from cutoff that excludes pre-launch/test orders.",
+    help=source_help("Shop", note="Paid order count (financial_status = 'paid'), respecting the "
+         "orders_valid_from cutoff that excludes pre-launch/test orders."),
 )
 
-# Card 5 — Meta ROAS (7d-click) — honest relabel of the old "Blended ROAS"
-# (it was always spend-weighted Meta *platform* ROAS, never blended).
-roas = float(kpi.get("weighted_roas") or 0.0)
-prior_roas = float(prior_kpi.get("weighted_roas") or 0.0)
-c5.metric(
-    "Meta ROAS (7d-click)",
-    f"{roas:.2f}",
-    delta=_delta_pct_text(_pct_change(roas, prior_roas)),
+# --- Goal: Initiate Checkout row ------------------------------------------
+# Meta ROAS (7d-click) was dropped from this strip: it is spend-weighted Meta
+# platform ROAS, which over-reports, and MER one row up already answers the same
+# question against Shopify ground truth. It is still on the Campaign performance
+# table per campaign, where the over-reporting is easier to judge in context.
+
+# Card — Initiate Checkout (Meta), the volume behind the cost figure beside it
+c_ic.metric(
+    "Initiate Checkout",
+    f"{meta_bc_total:,}",
+    delta=_delta_pct_text(_pct_change(meta_bc_total, prior_meta_bc_total)),
     delta_color="normal",
-    help="platform-attributed, expect over-reporting; compare with MER",
+    help=source_help(
+        "M",
+        note="Meta's begin-checkout pixel event. Inflated by the cart-permalink "
+             "auto-redirect, so read it as reserve-click intent rather than "
+             "deliberate checkout entry — it will run above Shopify's own count.",
+    ),
+)
+
+# Card — Cost per Initiate Checkout = Meta spend ÷ Meta Initiate Checkout
+_cpic = (_spend / meta_bc_total) if meta_bc_total > 0 else None
+_prior_cpic = (
+    (_prior_spend / prior_meta_bc_total) if prior_meta_bc_total > 0 else None
+)
+c_cpic.metric(
+    "Cost per Initiate Checkout",
+    f"${_cpic:.2f}" if _cpic is not None else "—",
+    delta=_delta_pct_text(_pct_change(_cpic, _prior_cpic)),
+    delta_color="inverse",  # cheaper is better, so a negative delta is green
+    help=source_help(
+        "M",
+        note="Total Meta spend ÷ Meta Initiate Checkout. Both sides are Meta's own "
+             "numbers, so this is single-source — but it inherits the same "
+             "auto-redirect inflation, which makes it read cheaper than the true "
+             "cost of a deliberate checkout.",
+    ),
 )
 
 # Card 6 — GA4 Sessions (all) — from ga4_landing_pages (NOT the campaign-
@@ -797,9 +884,9 @@ c6.metric(
     f"{_sessions_all:,}",
     delta=_delta_pct_text(_pct_change(_sessions_all, _prior_sessions_all)),
     delta_color="normal",
-    help="All GA4 sessions from ga4_landing_pages — no campaign filter, "
+    help=source_help("G", note="All GA4 sessions from ga4_landing_pages — no campaign filter, "
          "includes '(not set)' / untagged traffic. Compare with the campaign-"
-         "attributed figure in the Reconciliation section below.",
+         "attributed figure in the Reconciliation section below."),
 )
 
 # Card 7 — LPV → Checkout (Meta-attributed) = SUM(meta_begin_checkout) ÷ SUM(landing_page_views)
@@ -814,8 +901,107 @@ c7.metric(
     f"{_lpv_cvr:.1f}%" if _lpv_cvr is not None else "—",
     delta=_delta_pct_text(_pct_change(_lpv_cvr, _prior_lpv_cvr)),
     delta_color="normal",
-    help="Meta Initiate Checkout ÷ Meta landing_page_views — platform-side only.",
+    help=source_help("M", note="Meta Initiate Checkout ÷ Meta landing_page_views — platform-side only."),
 )
+
+# --- Initiate Checkout, counted three ways --------------------------------
+# The card above is Meta's number alone. Shown on its own it invites the reader
+# to treat it as "how many people started checkout", which it is not — so the
+# same step is repeated here from each source that can see it, side by side and
+# never combined (CLAUDE.md house rule), with the reason they disagree stated
+# rather than left to be discovered.
+_ck = _cached_checkout_recon(db_path_str, start_iso, end_iso, settings.orders_valid_from)
+
+with st.expander(
+    f"Initiate Checkout across sources — Meta {_ck['meta']:,} · GA4 {_ck['ga4']:,}"
+    + (f" · Shopify {_ck['shopify']:,}" if _ck["shopify_available"] else " · Shopify n/a")
+):
+    source_line("M", "G", "Shop", note="three measurements of one step — never averaged")
+    k1, k2, k3 = st.columns(3)
+
+    k1.metric("Meta Initiate Checkout", f"{_ck['meta']:,}")
+    k1.caption("Pixel event, 7-day click / 1-day view")
+
+    k2.metric("GA4 begin_checkout", f"{_ck['ga4']:,}")
+    k2.caption("Property-wide event count")
+
+    if _ck["shopify_available"]:
+        k3.metric("Shopify checkouts (floor)", f"{_ck['shopify']:,}")
+        k3.caption(
+            f"{_ck['shopify_abandoned']:,} abandoned-with-email + "
+            f"{_ck['shopify_orders']:,} paid orders"
+        )
+    else:
+        k3.metric("Shopify checkouts", "n/a")
+        k3.caption("Checkout ingest has not run yet")
+
+    st.markdown(
+        "**Why the three disagree — none of them is wrong.**\n\n"
+        "- **Meta** counts its own pixel firing. The cart permalink auto-redirects "
+        "straight into Shopify checkout, so this fires on reserve-click intent, "
+        "not on a deliberate decision to check out.\n"
+        "- **GA4** counts the `begin_checkout` event property-wide, including "
+        "traffic Meta never claimed — which is why it usually runs highest.\n"
+        "- **Shopify** is a **floor, not a count**: it only exposes an abandoned "
+        "checkout once the shopper leaves contact details, so anyone who opened "
+        "checkout and left before entering an email is invisible to it. Paid "
+        "orders are added back because a completed checkout disappears from that "
+        "endpoint. A true Shopify checkout-page-load count needs funnel analytics "
+        "this store's plan does not expose.\n\n"
+        "Read the **trend in each** against itself, not the gap between them. The "
+        "one to act on is Shopify — it is the only one tied to money."
+    )
+
+# --- Initiate Checkout + Cost per Initiate Checkout, by day ----------------
+# The two cards above are period totals, which hide whether a move happened on
+# one bad day or drifted all week. Volume and unit cost share one chart on two
+# axes because they are read together: rising cost is only alarming if volume
+# is not rising with it.
+_ic_daily = _cached_trend(db_path_str, start_iso, end_iso)
+if _ic_daily:
+    fig_ic = go.Figure()
+    fig_ic.add_trace(go.Bar(
+        x=[r["date"] for r in _ic_daily],
+        y=[int(r["begin_checkout"] or 0) for r in _ic_daily],
+        name="Initiate Checkout",
+        marker_color=COLOR_META,
+        opacity=0.75,
+        yaxis="y",
+    ))
+    fig_ic.add_trace(go.Scatter(
+        x=[r["date"] for r in _ic_daily],
+        # None rather than 0 on zero-checkout days: a gap in the line is honest,
+        # a $0 point would read as "checkouts were free that day".
+        y=[
+            (float(r["spend"]) / int(r["begin_checkout"]))
+            if int(r["begin_checkout"] or 0) > 0 else None
+            for r in _ic_daily
+        ],
+        name="Cost per Initiate Checkout",
+        mode="lines+markers",
+        connectgaps=False,
+        line=dict(color=COLOR_COST, width=2),
+        marker=dict(size=7),
+        yaxis="y2",
+    ))
+    fig_ic.update_layout(
+        plot_bgcolor=COLOR_BG_PLOT,
+        paper_bgcolor=COLOR_BG_PAPER,
+        font=dict(color=COLOR_FONT),
+        xaxis=dict(title="Date", gridcolor=COLOR_GRID),
+        yaxis=dict(title="Initiate Checkout", gridcolor=COLOR_GRID,
+                   zeroline=False, rangemode="tozero"),
+        yaxis2=dict(title="Cost per IC ($)", overlaying="y", side="right",
+                    gridcolor=COLOR_GRID, zeroline=False, rangemode="tozero"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=40, r=50, t=30, b=40),
+        height=300,
+    )
+    st.plotly_chart(fig_ic, use_container_width=True, theme=None)
+    st.caption(
+        "Both series are Meta's own numbers. Gaps in the cost line are days with "
+        "zero Initiate Checkout, where a cost per checkout does not exist."
+    )
 
 # --- Legacy deposit funnel (FSD/Stripe era) — only when there was legacy FSD
 # activity in range. The $1-deposit/Stripe step no longer exists in the live
@@ -824,17 +1010,18 @@ c7.metric(
 _legacy_fsd_total = int(kpi.get("total_deposits") or 0)
 if _legacy_fsd_total > 0:
     with st.expander("Legacy deposit funnel (FSD/Stripe era)"):
+        source_line("M", "Sheet", note="Deposit-era metrics: FSD/CPR from Meta, Paid from the legacy Stripe Google Sheet")
         l1, l2, l3, l4 = st.columns(4)
 
         l1.metric(
             "FSD (Gate 1)",
             f"{_legacy_fsd_total:,}",
-            help="Form Submit Deposits — Gate 1 output: everyone who submitted the form "
-                 "(includes both paid and still-pending). CPR = Spend ÷ FSD.",
+            help=source_help("M", note="Form Submit Deposits — Gate 1 output: everyone who submitted the form "
+                 "(includes both paid and still-pending). CPR = Spend ÷ FSD."),
         )
 
         cpd = kpi.get("cpd")
-        l2.metric("CPR (FSD)", f"${float(cpd):.2f}" if cpd else "—")
+        l2.metric("CPR (FSD)", f"${float(cpd):.2f}" if cpd else "—", help=source_help("M"))
 
         _paid_count = int(stripe_kpi.get("paid") or 0)
         _paid_rate = stripe_kpi.get("paid_rate")
@@ -853,8 +1040,8 @@ if _legacy_fsd_total > 0:
             f"{_paid_count:,}" if _paid_count else "—",
             delta=_pr_delta,
             delta_color=_pr_delta_color,
-            help="Stripe paid conversions — your North Star Metric (Gate 2 output). "
-                 "Delta = paid rate change vs prior period.",
+            help=source_help("Sheet", note="Stripe paid conversions (from the legacy Google Sheet) — "
+                 "your North Star Metric (Gate 2 output). Delta = paid rate change vs prior period."),
         )
 
         # CPaC = Cost Per Actual Conversion = total spend / paid
@@ -878,21 +1065,273 @@ if _legacy_fsd_total > 0:
             f"${_cpac:.2f}" if _cpac is not None else "—",
             delta=_cpac_delta,
             delta_color="inverse",
-            help="Cost Per Actual Conversion = Spend ÷ Paid. Combines ad efficiency "
-                 "(CPR) + landing page paid rate. Deposit/Stripe-era metric.",
+            help=source_help("M", "Sheet", note="Cost Per Actual Conversion = Meta spend ÷ Sheet-sourced Paid. "
+                 "Combines ad efficiency (CPR) + landing page paid rate. Deposit/Stripe-era metric."),
         )
 
 # --- Secondary KPI row: efficiency metrics ---
+source_line("M", note="Secondary efficiency metrics")
 s1, s2, s3, s4 = st.columns(4)
-s1.metric("CTR %", f"{float(kpi.get('overall_ctr') or 0):.2f}%")
-s2.metric("CPM", f"${float(kpi.get('avg_cpm') or 0):.2f}")
-s3.metric("CPC", f"${float(kpi.get('avg_cpc') or 0):.2f}")
+s1.metric("CTR %", f"{float(kpi.get('overall_ctr') or 0):.2f}%", help=source_help("M"))
+s2.metric("CPM", f"${float(kpi.get('avg_cpm') or 0):.2f}", help=source_help("M"))
+s3.metric("CPC", f"${float(kpi.get('avg_cpc') or 0):.2f}", help=source_help("M"))
 reach = int(kpi.get('total_reach') or 0)
 s4.metric(
     "Reach (sum of daily)",
     f"{reach:,}",
-    help="daily reach summed — overcounts unique people across days",
+    help=source_help("M", note="daily reach summed — overcounts unique people across days"),
 )
+
+# ---------------------------------------------------------------------------
+# Email leads — from the Preorder Leads Dashboard sheet (email_leads table).
+#
+# Sits directly under the two NSM rows because leads are the other half of what
+# the same ad spend bought: the rows above price a preorder, this one prices an
+# email address. Counts are unique addresses, not sheet rows, and are scoped the
+# same way the sheet's own summary tab scopes them (internal/test excluded,
+# deduped-tab population) so the totals reconcile with what the team already
+# reads there. See db.get_email_leads_summary for why statuses are not
+# normalised and why the channel counts do not sum to the total.
+# ---------------------------------------------------------------------------
+_leads = _cached_email_leads(db_path_str, start_iso, end_iso)
+_prior_leads = _cached_email_leads(db_path_str, _prior_start, _prior_end)
+
+if _leads["total"] or _prior_leads["total"]:
+    st.subheader("Email leads")
+    source_line(
+        "Sheet", "M",
+        note="lead counts from the Preorder Leads sheet; cost per lead divides Meta spend by them",
+    )
+
+    _n_leads = _leads["total"]
+    _n_prior_leads = _prior_leads["total"]
+    _cpl = (_spend / _n_leads) if _n_leads > 0 else None
+    _prior_cpl = (_prior_spend / _n_prior_leads) if _n_prior_leads > 0 else None
+
+    e1, e2, e3, e4, e5, e6 = st.columns(6)
+    e1.metric(
+        "Total leads",
+        f"{_n_leads:,}",
+        delta=_delta_pct_text(_pct_change(_n_leads, _n_prior_leads)),
+        delta_color="normal",
+        help=source_help(
+            "Sheet",
+            note="Unique email addresses first seen in this period, internal/test "
+                 "addresses excluded. Counts addresses, not sheet rows.",
+        ),
+    )
+    e2.metric(
+        "Cost per lead",
+        f"${_cpl:.2f}" if _cpl is not None else "—",
+        delta=_delta_pct_text(_pct_change(_cpl, _prior_cpl)),
+        delta_color="inverse",  # cheaper is better, so a negative delta is green
+        help=source_help(
+            "M", "Sheet",
+            note="All Meta spend in the period ÷ total leads — blended, so it charges "
+                 "preorder and quiz spend alike against every lead. Not a quiz-only CPL.",
+        ),
+    )
+    e3.metric(
+        "Quiz leads",
+        f"{_leads['from_quiz']:,}",
+        delta=_delta_pct_text(_pct_change(_leads["from_quiz"], _prior_leads["from_quiz"])),
+        delta_color="normal",
+        help=source_help("Sheet", note="Seen on the quiz tab."),
+    )
+    e4.metric(
+        "Preorder Started",
+        f"{_leads['from_preorder_started']:,}",
+        delta=_delta_pct_text(
+            _pct_change(_leads["from_preorder_started"], _prior_leads["from_preorder_started"])
+        ),
+        delta_color="normal",
+        help=source_help("Sheet", note="Seen on the preorder-started tab (the checkout email gate)."),
+    )
+    e5.metric(
+        "Exit Intent leads",
+        f"{_leads['from_exit_intent']:,}",
+        delta=_delta_pct_text(
+            _pct_change(_leads["from_exit_intent"], _prior_leads["from_exit_intent"])
+        ),
+        delta_color="normal",
+        help=source_help("Sheet", note="Seen on the exit-intent tab."),
+    )
+    # Abandoned checkout — the recoverable audience, so it earns a card of its own
+    # rather than only living in the status bar below. delta_color is "off": more
+    # abandoned checkouts is neither plainly good (more people reached checkout)
+    # nor plainly bad (more people dropped), so colouring it would assert a
+    # judgement the number does not support.
+    _abandoned = _leads["by_status"].get("abandoned_checkout", 0)
+    _prior_abandoned = _prior_leads["by_status"].get("abandoned_checkout", 0)
+    e6.metric(
+        "Abandoned checkout",
+        f"{_abandoned:,}",
+        delta=_delta_pct_text(_pct_change(_abandoned, _prior_abandoned)),
+        delta_color="off",
+        help=source_help(
+            "Sheet",
+            note="Leads whose latest deposit status is abandoned_checkout — they "
+                 "reached checkout and did not pay, so this is the recovery "
+                 "audience. Counted on latest status, not on the day they "
+                 "abandoned.",
+        ),
+    )
+
+    st.caption(
+        "The three channel counts overlap and will not add up to Total leads — one "
+        "address can take a quiz and later hit the exit-intent popup, and is counted "
+        "in both. These are sheet (ActiveCampaign-synced) figures, so they will not "
+        "match GA4 `lead_submit` / popup event counts."
+        + (
+            f" · {_leads['channel_only']} more address(es) appear in the channel tabs "
+            "but not on the deduped Leads tab, so they are excluded from Total leads."
+            if _leads["channel_only"] else ""
+        )
+        + (
+            f" · {_leads['internal_excluded']} internal/test address(es) excluded."
+            if _leads["internal_excluded"] else ""
+        )
+    )
+
+    # The excluded list is shown rather than just counted: the failure mode here
+    # is a NEW staff or test address the pattern list has not caught yet, and the
+    # only way to spot that is to see what the filter did catch and notice what
+    # is missing from it.
+    if _leads["internal_excluded"]:
+        with st.expander(
+            f"Excluded internal / test addresses ({_leads['internal_excluded']})"
+        ):
+            _internal_rows = _cached_internal_leads(db_path_str, start_iso, end_iso)
+            st.dataframe(
+                pd.DataFrame(_internal_rows).rename(columns={
+                    "email": "Email",
+                    "lead_date": "First seen",
+                    "deposit_status": "Deposit status",
+                }),
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption(
+                "Matched by `LEADS_INTERNAL_EMAIL_PATTERNS`. Rows are flagged, not "
+                "deleted — editing that list re-classifies them on the next sheet "
+                "pull with no backfill. Spot a real lead in here, or a test address "
+                "missing from it, and that env var is the one thing to change."
+            )
+
+    # --- Deposit-status split -------------------------------------------------
+    # Ordered by funnel progression rather than by size, so the shape of the bar
+    # reads left-to-right as coldest -> paid. Anything the sheet reports that is
+    # not in this list still renders, appended after the known stages.
+    _STATUS_ORDER = [
+        "exit_intent", "pending", "preorder_started",
+        "abandoned_checkout", "payment-pending", "paid",
+    ]
+    _STATUS_COLORS = {
+        "exit_intent": "#64748b",
+        "pending": "#f59e0b",
+        "preorder_started": COLOR_META,
+        "abandoned_checkout": "#f87171",
+        "payment-pending": "#a78bfa",
+        "paid": COLOR_DEPOSITS,
+        "(not set)": "#3f3f46",
+    }
+    _by_status = _leads["by_status"]
+    if _by_status:
+        _known = [s for s in _STATUS_ORDER if s in _by_status]
+        _rest = sorted(s for s in _by_status if s not in _STATUS_ORDER)
+        _ordered = _known + _rest
+        _total_status = sum(_by_status.values()) or 1
+
+        fig_status = go.Figure()
+        for status in _ordered:
+            n = _by_status[status]
+            pct = n / _total_status * 100
+            fig_status.add_trace(go.Bar(
+                x=[n],
+                y=["Leads"],
+                name=f"{status} ({n} · {pct:.0f}%)",
+                orientation="h",
+                marker_color=_STATUS_COLORS.get(status, "#94a3b8"),
+                # Hide the label on slivers, where it would overlap its neighbours.
+                text=[f"{status}<br>{n} · {pct:.0f}%" if pct >= 7 else ""],
+                textposition="inside",
+                insidetextanchor="middle",
+                hovertemplate=f"{status}: {n} leads ({pct:.1f}%)<extra></extra>",
+            ))
+        fig_status.update_layout(
+            barmode="stack",
+            plot_bgcolor=COLOR_BG_PLOT,
+            paper_bgcolor=COLOR_BG_PAPER,
+            font=dict(color=COLOR_FONT, size=11),
+            xaxis=dict(title="", showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(title="", showgrid=False, showticklabels=False),
+            legend=dict(orientation="h", y=-0.45, x=0, font=dict(size=10)),
+            margin=dict(l=10, r=10, t=6, b=6),
+            height=170,
+            showlegend=True,
+        )
+        st.plotly_chart(fig_status, use_container_width=True, theme=None)
+        st.caption(
+            "Deposit status is the address's latest funnel stage on the sheet, coldest "
+            "on the left. Statuses are shown exactly as the sheet writes them — "
+            "`pending` and `payment-pending` are separate bars because they are "
+            "separate values in the source, not a rendering bug."
+        )
+
+        # --- Same split, by day ------------------------------------------------
+        # Read this as cohorts, not transitions: the sheet keeps one row per
+        # address with its first-seen date and its LATEST status, with no history.
+        # So a point on the 'paid' line is "leads first seen that day who are paid
+        # today", not "leads that paid that day". Stated in the caption because the
+        # natural reading of a status time-series is the wrong one here.
+        _leads_daily = _cached_leads_daily_status(db_path_str, start_iso, end_iso)
+        if _leads_daily:
+            _all_dates = sorted({r["lead_date"] for r in _leads_daily})
+            _by_status_date: dict[str, dict[str, int]] = {}
+            for r in _leads_daily:
+                _by_status_date.setdefault(r["deposit_status"], {})[r["lead_date"]] = (
+                    int(r["count"] or 0)
+                )
+            _daily_order = [s for s in _ordered if s in _by_status_date] + [
+                s for s in sorted(_by_status_date) if s not in _ordered
+            ]
+
+            fig_leads_ts = go.Figure()
+            for status in _daily_order:
+                per_date = _by_status_date[status]
+                fig_leads_ts.add_trace(go.Scatter(
+                    x=_all_dates,
+                    # 0 rather than None here: unlike a unit cost, "no leads at
+                    # this stage that day" is a real, meaningful zero.
+                    y=[per_date.get(d, 0) for d in _all_dates],
+                    name=status,
+                    mode="lines+markers",
+                    line=dict(color=_STATUS_COLORS.get(status, "#94a3b8"), width=2),
+                    marker=dict(size=6),
+                ))
+            fig_leads_ts.update_layout(
+                plot_bgcolor=COLOR_BG_PLOT,
+                paper_bgcolor=COLOR_BG_PAPER,
+                font=dict(color=COLOR_FONT),
+                xaxis=dict(title="Lead first-seen date", gridcolor=COLOR_GRID),
+                yaxis=dict(title="Leads", gridcolor=COLOR_GRID,
+                           zeroline=False, rangemode="tozero"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="left", x=0, font=dict(size=10)),
+                margin=dict(l=40, r=20, t=30, b=40),
+                height=300,
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_leads_ts, use_container_width=True, theme=None)
+            st.caption(
+                "**Cohorts, not transitions.** The x-axis is the day a lead was "
+                "first seen; the line it sits on is that lead's status *today*. A "
+                "rise in `paid` on 24 Jul means leads acquired on 24 Jul who have "
+                "since paid — not payments received on 24 Jul. The sheet stores "
+                "only each address's latest status, so a true status-change-per-day "
+                "view is not derivable from it. Daily totals here sum to Total "
+                f"leads ({_n_leads:,})."
+            )
 
 # ---------------------------------------------------------------------------
 # Triangle reconciliation v2 (Overview v2, 2026-07-22) — Meta vs GA4
@@ -902,6 +1341,7 @@ s4.metric(
 # plain-English "why don't these match" note.
 # ---------------------------------------------------------------------------
 st.subheader("Reconciliation: Meta vs GA4 vs Shopify")
+source_line("M", "G", "Shop", note="three independent counts, shown side by side on purpose — never summed")
 _meta_purchases_total = _cached_meta_purchases_total(db_path_str, start_iso, end_iso)
 _ga4_purchase_events = _cached_ga4_purchase_events(db_path_str, start_iso, end_iso)
 _ga4_purchases_total = int(_ga4_purchase_events.get("count") or 0)
@@ -921,17 +1361,20 @@ left, right = st.columns(2)
 
 with left:
     st.subheader("Spend vs Initiate Checkout (Meta)")
+    source_line("M", note="both series are Meta's own numbers")
     trend_rows = _cached_trend(db_path_str, start_iso, end_iso)
     if trend_rows:
         st.plotly_chart(
             _make_spend_vs_begin_checkout_chart(trend_rows),
             use_container_width=True,
+            theme=None,
         )
     else:
         st.info("No Meta data in this date range.")
 
 with right:
     st.subheader("Meta Initiate Checkout vs Shopify Paid Orders")
+    source_line("M", "Shop", note="never blended — different attribution scopes")
     shopify_daily_rows = _cached_shopify_paid_daily(
         db_path_str, start_iso, end_iso, settings.orders_valid_from
     )
@@ -939,6 +1382,7 @@ with right:
         st.plotly_chart(
             _make_begin_checkout_vs_shopify_chart(trend_rows, shopify_daily_rows),
             use_container_width=True,
+            theme=None,
         )
     else:
         st.info("No data in this date range.")
@@ -965,6 +1409,7 @@ if roas_freq_rows:
     )
 
     with st.expander(f"ROAS vs Frequency Watch{_caption_extra}", expanded=bool(_fatigue_days)):
+        source_line("M")
         fig_rf_home = go.Figure()
         fig_rf_home.add_trace(go.Scatter(
             x=rf_dates, y=rf_roas,
@@ -1008,7 +1453,7 @@ if roas_freq_rows:
                 rangemode="tozero",
             ),
         )
-        st.plotly_chart(fig_rf_home, use_container_width=True)
+        st.plotly_chart(fig_rf_home, use_container_width=True, theme=None)
         st.caption("Full analysis → Funnel page · Section 5")
 
 # ---------------------------------------------------------------------------
@@ -1017,25 +1462,27 @@ if roas_freq_rows:
 camp_daily = _cached_camp_daily(db_path_str, start_iso, end_iso)
 if camp_daily:
     st.subheader("Daily trends by campaign")
+    source_line("M", note="all 4 charts below are Meta only")
     _dt_l, _dt_r = st.columns(2)
     with _dt_l:
         st.caption("Initiate Checkout by campaign")
-        st.plotly_chart(_make_begin_checkout_by_campaign(camp_daily), use_container_width=True)
+        st.plotly_chart(_make_begin_checkout_by_campaign(camp_daily), use_container_width=True, theme=None)
     with _dt_r:
         st.caption("Spend by campaign ($)")
-        st.plotly_chart(_make_spend_by_campaign(camp_daily), use_container_width=True)
+        st.plotly_chart(_make_spend_by_campaign(camp_daily), use_container_width=True, theme=None)
     _dt_l2, _dt_r2 = st.columns(2)
     with _dt_l2:
         st.caption("Cost per Initiate Checkout per campaign — lower is better")
-        st.plotly_chart(_make_cost_per_bc_by_campaign(camp_daily), use_container_width=True)
+        st.plotly_chart(_make_cost_per_bc_by_campaign(camp_daily), use_container_width=True, theme=None)
     with _dt_r2:
         st.caption("CTR % per campaign")
-        st.plotly_chart(_make_ctr_by_campaign(camp_daily), use_container_width=True)
+        st.plotly_chart(_make_ctr_by_campaign(camp_daily), use_container_width=True, theme=None)
 
 # ---------------------------------------------------------------------------
 # Campaign table (D-08)
 # ---------------------------------------------------------------------------
 st.subheader("Campaign performance")
+source_line("M", "G", note="GA4 badge covers the Sessions column only, joined by exact campaign name")
 st.caption(
     "Showing **Lead** (Leads-objective campaigns)" if show_leads_metric
     else "Showing **Initiate Checkout** (Sales-objective campaigns) — "
@@ -1061,6 +1508,7 @@ else:
 api_key = settings.anthropic_api_key or ""
 from datetime import date as _today_date  # noqa: E402
 with st.expander("AI Daily Briefing", expanded=True):
+    source_line("M", "G", "Shop", note="Claude reads across all three via tool calls")
     if not api_key:
         st.info("Set `ANTHROPIC_API_KEY` in your `.env` to enable the daily AI briefing.")
     else:

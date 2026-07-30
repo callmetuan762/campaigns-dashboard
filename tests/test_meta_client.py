@@ -167,6 +167,8 @@ def test_parse_row_all_keys_present(sample_campaign_row):
         "landing_page_views", "video_3s_views", "video_thruplay",
         "meta_begin_checkout", "meta_cost_per_begin_checkout",
         "meta_add_to_cart", "meta_leads",
+        # 018: LINK clicks, distinct from the all-clicks `clicks` field above
+        "inline_link_clicks",
     }
     assert set(row.keys()) == expected_keys
 

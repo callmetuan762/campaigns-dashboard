@@ -66,6 +66,35 @@ async def daily_backfill_job() -> None:
     except Exception as exc:  # noqa: BLE001
         logger.error("daily_backfill_ga4_failed", date=d2, error=str(exc))
 
+    # GA4 page-to-page session flow (migration 018). Same D-2 date as the GA4
+    # ingest above, for the same incomplete-day reason. Paths are normalised to
+    # the dashboard's lp_slug here rather than in the GA4 client, keeping that
+    # mapping in one place (dashboard.db.lp_slug_from_url).
+    try:
+        from src.dashboard.db import lp_slug_from_url
+        from src.ga4.client import _build_ga4_client, fetch_page_flow
+
+        ga4_client = _build_ga4_client(_settings.ga4_service_account_json)
+        flow_rows = await fetch_page_flow(
+            ga4_client, _settings.ga4_property_id, d2, d2
+        )
+        merged: dict[tuple[str, str, str], int] = {}
+        for r in flow_rows:
+            f = lp_slug_from_url(r["from_path"])
+            t = lp_slug_from_url(r["to_path"])
+            if not f or not t:
+                continue
+            key = (r["date"], f, t)
+            merged[key] = merged.get(key, 0) + int(r["sessions"] or 0)
+        if merged:
+            await _db.upsert_ga4_page_flow([
+                {"date": d, "from_slug": f, "to_slug": t, "sessions": n}
+                for (d, f, t), n in merged.items()
+            ])
+        logger.info("daily_backfill_page_flow_done", date=d2, rows=len(merged))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("daily_backfill_page_flow_failed", date=d2, error=str(exc))
+
     # Fetch changelogs for the last 7 days (catches any API delivery lag)
     from datetime import timedelta
     seven_days_ago = (date.today() - timedelta(days=7)).isoformat()
@@ -120,6 +149,36 @@ async def daily_backfill_job() -> None:
         except Exception as exc:  # noqa: BLE001
             logger.error("daily_backfill_stripe_failed", error=str(exc))
 
+    # Pull the email-leads sheet (if configured). Unlike the date-scoped pulls
+    # above this reads the whole sheet every run: its deduped tab is one row per
+    # email with no timestamp column, so there is nothing to slice by date —
+    # upsert_email_leads is keyed on email and idempotent, so a full re-read is
+    # the correct shape here rather than a bug.
+    if _settings.google_sheets_leads_spreadsheet_id:
+        try:
+            import asyncio
+
+            from src.sheets.client import get_sheets_credentials
+            from src.sheets.leads_client import fetch_email_leads
+
+            patterns = [
+                p.strip()
+                for p in (_settings.leads_internal_email_patterns or "").split(",")
+                if p.strip()
+            ]
+            creds = get_sheets_credentials(_settings)
+            lead_rows = await asyncio.to_thread(
+                fetch_email_leads,
+                _settings.google_sheets_leads_spreadsheet_id,
+                creds,
+                patterns,
+            )
+            if lead_rows:
+                await _db.upsert_email_leads(lead_rows)
+                logger.info("daily_backfill_email_leads_done", rows=len(lead_rows))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("daily_backfill_email_leads_failed", error=str(exc))
+
     # Pull Shopify preorder orders (funnel-v3, if configured). run_shopify_ingest_for_range
     # is itself a clean no-op when SHOPIFY_STORE_DOMAIN/SHOPIFY_ADMIN_TOKEN are unset
     # (src/shopify/ingest.py), matching the Stripe/Sheets graceful-degradation pattern —
@@ -130,6 +189,28 @@ async def daily_backfill_job() -> None:
         logger.info("daily_backfill_shopify_done", date=yesterday)
     except Exception as exc:  # noqa: BLE001
         logger.error("daily_backfill_shopify_failed", error=str(exc))
+
+    # Abandoned checkouts — a 30-day window rather than yesterday alone, because a
+    # checkout created days ago can complete later and only a re-read updates its
+    # completed_at. Idempotent on checkout_id, so re-reading costs nothing but the
+    # request.
+    try:
+        from src.shopify.ingest import run_shopify_checkout_ingest_for_range
+        checkout_since = (date.today() - timedelta(days=30)).isoformat()
+        n_checkouts = await run_shopify_checkout_ingest_for_range(
+            _db, _settings, checkout_since, yesterday
+        )
+        logger.info("daily_backfill_shopify_checkouts_done", rows=n_checkouts)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("daily_backfill_shopify_checkouts_failed", error=str(exc))
+
+    # Per-order first/last touch journeys (migration 019). Whole history each run.
+    try:
+        from src.shopify.ingest import run_order_journey_ingest
+        n_journeys = await run_order_journey_ingest(_db, _settings)
+        logger.info("daily_backfill_order_journey_done", rows=n_journeys)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("daily_backfill_order_journey_failed", error=str(exc))
 
     # Pull Meta Pixel health (per-event browser/server counts + best-effort EMQ,
     # Phase C). run_pixel_health_ingest_for_date is itself a clean no-op when

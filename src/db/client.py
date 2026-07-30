@@ -130,13 +130,15 @@ class DBClient:
             meta_purchases_7dclick, meta_cost_per_purchase, reach, frequency,
             meta_form_submit_deposit,
             landing_page_views, video_3s_views, video_thruplay,
-            meta_begin_checkout, meta_cost_per_begin_checkout, meta_add_to_cart, meta_leads
+            meta_begin_checkout, meta_cost_per_begin_checkout, meta_add_to_cart, meta_leads,
+            inline_link_clicks
         ) VALUES (
             :campaign_id, :date, :ad_set_id, :ad_id, :spend, :impressions, :clicks, :ctr, :cpc, :cpm, :roas,
             :meta_purchases_7dclick, :meta_cost_per_purchase, :reach, :frequency,
             :meta_form_submit_deposit,
             :landing_page_views, :video_3s_views, :video_thruplay,
-            :meta_begin_checkout, :meta_cost_per_begin_checkout, :meta_add_to_cart, :meta_leads
+            :meta_begin_checkout, :meta_cost_per_begin_checkout, :meta_add_to_cart, :meta_leads,
+            :inline_link_clicks
         )
         ON CONFLICT(campaign_id, date, ad_set_id, ad_id) DO UPDATE SET
             spend                         = excluded.spend,
@@ -158,6 +160,7 @@ class DBClient:
             meta_cost_per_begin_checkout  = excluded.meta_cost_per_begin_checkout,
             meta_add_to_cart              = excluded.meta_add_to_cart,
             meta_leads                    = excluded.meta_leads,
+            inline_link_clicks            = excluded.inline_link_clicks,
             fetched_at                    = datetime('now');
     """
 
@@ -174,6 +177,9 @@ class DBClient:
         "meta_cost_per_begin_checkout": None,
         "meta_add_to_cart": None,
         "meta_leads": None,
+        # 018: NULL means "this date has not been re-ingested since the field was
+        # added", which is deliberately distinct from a real zero link clicks.
+        "inline_link_clicks": None,
     }
 
     _UPSERT_GA4_METRICS_SQL = """
@@ -669,5 +675,156 @@ class DBClient:
         if not rows:
             return 0
         await self.conn.executemany(self._UPSERT_PIXEL_HEALTH_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- Shopify order customer journey (migration 019) ----
+
+    _UPSERT_ORDER_JOURNEY_SQL = """
+        INSERT INTO shopify_order_journey (
+            order_id, order_name, created_at, order_date, financial_status, total_price, moments_count, first_landing_page, first_source, first_source_type, first_utm_source, first_utm_medium, first_utm_campaign, first_utm_content, first_utm_term, last_landing_page, last_source, last_source_type, last_utm_source, last_utm_medium, last_utm_campaign, last_utm_content, last_utm_term
+        ) VALUES (
+            :order_id, :order_name, :created_at, :order_date, :financial_status, :total_price, :moments_count, :first_landing_page, :first_source, :first_source_type, :first_utm_source, :first_utm_medium, :first_utm_campaign, :first_utm_content, :first_utm_term, :last_landing_page, :last_source, :last_source_type, :last_utm_source, :last_utm_medium, :last_utm_campaign, :last_utm_content, :last_utm_term
+        )
+        ON CONFLICT(order_id) DO UPDATE SET
+            order_name         = excluded.order_name,
+            created_at         = excluded.created_at,
+            order_date         = excluded.order_date,
+            financial_status   = excluded.financial_status,
+            total_price        = excluded.total_price,
+            moments_count      = excluded.moments_count,
+            first_landing_page = excluded.first_landing_page,
+            first_source       = excluded.first_source,
+            first_source_type  = excluded.first_source_type,
+            first_utm_source   = excluded.first_utm_source,
+            first_utm_medium   = excluded.first_utm_medium,
+            first_utm_campaign = excluded.first_utm_campaign,
+            first_utm_content  = excluded.first_utm_content,
+            first_utm_term     = excluded.first_utm_term,
+            last_landing_page  = excluded.last_landing_page,
+            last_source        = excluded.last_source,
+            last_source_type   = excluded.last_source_type,
+            last_utm_source    = excluded.last_utm_source,
+            last_utm_medium    = excluded.last_utm_medium,
+            last_utm_campaign  = excluded.last_utm_campaign,
+            last_utm_content   = excluded.last_utm_content,
+            last_utm_term      = excluded.last_utm_term,
+            fetched_at         = datetime('now');
+    """
+
+    async def upsert_order_journeys(self, rows: list[dict]) -> int:
+        """Upsert shopify_order_journey rows. Idempotent via PK (order_id).
+
+        Every column takes the incoming value: a journey can gain a moment after
+        the order was placed, so the freshest pull is always the correct one.
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_ORDER_JOURNEY_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- GA4 page-to-page session flow (migration 018) ----
+
+    _UPSERT_GA4_PAGE_FLOW_SQL = """
+        INSERT INTO ga4_page_flow (date, from_slug, to_slug, sessions)
+        VALUES (:date, :from_slug, :to_slug, :sessions)
+        ON CONFLICT(date, from_slug, to_slug) DO UPDATE SET
+            sessions   = excluded.sessions,
+            fetched_at = datetime('now');
+    """
+
+    async def upsert_ga4_page_flow(self, rows: list[dict]) -> int:
+        """Upsert ga4_page_flow rows. Idempotent via PK (date, from_slug, to_slug)."""
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_GA4_PAGE_FLOW_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- Shopify abandoned checkouts (Initiate Checkout reconciliation) ----
+
+    _UPSERT_SHOPIFY_CHECKOUTS_SQL = """
+        INSERT INTO shopify_checkouts (
+            checkout_id, created_at, checkout_date, completed_at, email,
+            total_price, cart_token, landing_site, lp_slug
+        ) VALUES (
+            :checkout_id, :created_at, :checkout_date, :completed_at, :email,
+            :total_price, :cart_token, :landing_site, :lp_slug
+        )
+        ON CONFLICT(checkout_id) DO UPDATE SET
+            completed_at = excluded.completed_at,
+            email        = excluded.email,
+            total_price  = excluded.total_price,
+            cart_token   = excluded.cart_token,
+            landing_site = excluded.landing_site,
+            lp_slug      = excluded.lp_slug,
+            fetched_at   = datetime('now');
+    """
+
+    async def upsert_shopify_checkouts(self, rows: list[dict]) -> int:
+        """Upsert shopify_checkouts rows. Idempotent via PK (checkout_id).
+
+        created_at / checkout_date are deliberately NOT updated on conflict: a
+        checkout's creation time cannot change, and pinning them keeps the row in
+        the period it actually belongs to. completed_at can change (an abandoned
+        checkout may later complete), so it takes the incoming value.
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_SHOPIFY_CHECKOUTS_SQL, rows)
+        await self.conn.commit()
+        return len(rows)
+
+    # ---- Email leads (Preorder Leads Dashboard sheet) ----
+
+    _UPSERT_EMAIL_LEADS_SQL = """
+        INSERT INTO email_leads (
+            email, first_seen_at, lead_date, deposit_status,
+            quiz_name, quiz_type, quiz_lp_url,
+            shopify_order_id, shopify_order_value, total_orders, total_value,
+            from_quiz, from_preorder_started, from_exit_intent,
+            in_dedup_tab, is_internal
+        ) VALUES (
+            :email, :first_seen_at, :lead_date, :deposit_status,
+            :quiz_name, :quiz_type, :quiz_lp_url,
+            :shopify_order_id, :shopify_order_value, :total_orders, :total_value,
+            :from_quiz, :from_preorder_started, :from_exit_intent,
+            :in_dedup_tab, :is_internal
+        )
+        ON CONFLICT(email) DO UPDATE SET
+            first_seen_at         = MIN(email_leads.first_seen_at, excluded.first_seen_at),
+            lead_date             = MIN(email_leads.lead_date, excluded.lead_date),
+            deposit_status        = excluded.deposit_status,
+            quiz_name             = excluded.quiz_name,
+            quiz_type             = excluded.quiz_type,
+            quiz_lp_url           = excluded.quiz_lp_url,
+            shopify_order_id      = excluded.shopify_order_id,
+            shopify_order_value   = excluded.shopify_order_value,
+            total_orders          = excluded.total_orders,
+            total_value           = excluded.total_value,
+            from_quiz             = excluded.from_quiz,
+            from_preorder_started = excluded.from_preorder_started,
+            from_exit_intent      = excluded.from_exit_intent,
+            in_dedup_tab          = excluded.in_dedup_tab,
+            is_internal           = excluded.is_internal,
+            fetched_at            = datetime('now');
+    """
+
+    async def upsert_email_leads(self, rows: list[dict]) -> int:
+        """Upsert email_leads rows. Idempotent via PK (email).
+
+        INFRA-03: idempotent at SQL layer via INSERT ... ON CONFLICT DO UPDATE.
+        deposit_status intentionally takes the incoming value on conflict — it is a
+        funnel stage that moves forward (exit_intent -> pending -> preorder_started
+        -> abandoned_checkout -> paid), so the latest pull wins.
+
+        first_seen_at / lead_date instead keep the EARLIER of the two via MIN(): a
+        lead's acquisition date must not drift later just because the sheet later
+        logged another event for that same address.
+        """
+        if not rows:
+            return 0
+        await self.conn.executemany(self._UPSERT_EMAIL_LEADS_SQL, rows)
         await self.conn.commit()
         return len(rows)

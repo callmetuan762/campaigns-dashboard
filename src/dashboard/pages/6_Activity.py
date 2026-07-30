@@ -21,6 +21,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                          # noqa: E402
+from src.dashboard.components import source_line     # noqa: E402
 from src.dashboard.settings import DashboardSettings  # noqa: E402
 
 # Dark-theme palette -- duplicated from app.py per D-19 standalone rule
@@ -234,6 +235,7 @@ if not _check_auth(settings.dashboard_password):
 # Page header
 # ---------------------------------------------------------------------------
 st.title("Activity Log")
+source_line("M")
 st.caption("Major changes to campaigns, ad sets and ads pulled from Meta's change history API.")
 
 # ---------------------------------------------------------------------------

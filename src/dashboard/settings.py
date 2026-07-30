@@ -27,6 +27,11 @@ class DashboardSettings(BaseSettings):
     # Empty string (default) = no filtering. Mirrors src/config.py's field of the
     # same name for the bot side.
     orders_valid_from: str = ""
+    # Order-number floor for the Orders page. shopify_orders has no order NAME
+    # (only Shopify's internal numeric id), so date-keyed tables keep using
+    # orders_valid_from while the journey table — which does carry "#1020" — uses
+    # this. Both express one cutoff; see .env.example for keeping them in step.
+    orders_min_order_number: int = 0
 
     model_config = SettingsConfigDict(
         env_file=".env",

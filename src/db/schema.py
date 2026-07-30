@@ -393,6 +393,203 @@ ALTER TABLE campaigns ADD COLUMN objective TEXT;
 """
 
 # ---------------------------------------------------------------------------
+# 016 — email_leads: one row per unique email from the Preorder Leads
+# Dashboard sheet (GOOGLE_SHEETS_LEADS_SPREADSHEET_ID), NOT the legacy
+# stripe_payments sheet above.
+#
+# Grain is one row per email, deduped, because that sheet's own "Leads" tab is
+# deduped and is the number the team quotes. That tab carries the authoritative
+# deposit_status but has NO timestamp column, so first_seen_at/lead_date are
+# derived by taking the earliest timestamp for that email across the three
+# channel tabs (quiz / preorder-started / exit-intent) and the raw event log.
+# Verified against a live snapshot: all 169 emails on the deduped tab resolve to
+# a timestamp this way, so no lead is dropped for want of a date.
+#
+# lead_date is stored in UTC to match REPORT_TIMEZONE and the rest of the
+# dashboard's date filters. The sheet also shows a GMT+7 column; that is
+# inconsistently populated, so it is deliberately not the source of truth here
+# and a late-evening-UTC lead can land on the next day vs the sheet's own view.
+#
+# from_quiz / from_preorder_started / from_exit_intent are per-channel flags,
+# not mutually exclusive: one email that took a quiz and later hit the
+# exit-intent popup sets both, so the three never sum to the total.
+#
+# in_dedup_tab distinguishes the sheet's own headline population from the wider
+# union. On the verified snapshot, 156 external emails sit on the deduped tab —
+# exactly the total the sheet's summary tab reports — while another 17 appear in
+# the channel tabs only. Dashboard totals filter on in_dedup_tab = 1 so they
+# reconcile with the sheet; the extra 17 are still stored and surfaced as a
+# reconciliation note rather than quietly dropped or quietly added.
+#
+# is_internal marks staff/test addresses instead of dropping them, so tuning
+# LEADS_INTERNAL_EMAIL_PATTERNS re-classifies on the next pull with no backfill.
+# ---------------------------------------------------------------------------
+
+MIGRATION_016_EMAIL_LEADS: str = """
+CREATE TABLE IF NOT EXISTS email_leads (
+    email                 TEXT PRIMARY KEY,
+    first_seen_at         TEXT NOT NULL,
+    lead_date             TEXT NOT NULL,
+    deposit_status        TEXT NOT NULL DEFAULT '',
+    quiz_name             TEXT NOT NULL DEFAULT '',
+    quiz_type             TEXT NOT NULL DEFAULT '',
+    quiz_lp_url           TEXT NOT NULL DEFAULT '',
+    shopify_order_id      TEXT NOT NULL DEFAULT '',
+    shopify_order_value   REAL,
+    total_orders          INTEGER,
+    total_value           REAL,
+    from_quiz             INTEGER NOT NULL DEFAULT 0,
+    from_preorder_started INTEGER NOT NULL DEFAULT 0,
+    from_exit_intent      INTEGER NOT NULL DEFAULT 0,
+    in_dedup_tab          INTEGER NOT NULL DEFAULT 0,
+    is_internal           INTEGER NOT NULL DEFAULT 0,
+    fetched_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_leads_date ON email_leads(lead_date);
+CREATE INDEX IF NOT EXISTS idx_email_leads_status ON email_leads(deposit_status);
+CREATE INDEX IF NOT EXISTS idx_email_leads_internal ON email_leads(is_internal);
+"""
+
+# ---------------------------------------------------------------------------
+# 017 — shopify_checkouts: the Shopify leg of the Initiate Checkout
+# reconciliation (Meta vs GA4 vs Shopify).
+#
+# Populated from Shopify's /checkouts.json, which returns ABANDONED checkouts
+# only -- and only those where the shopper got far enough to leave contact
+# details. Completed checkouts leave that endpoint and become orders. So the
+# Shopify-side "reached checkout" figure is
+#     rows here (created in the period)  +  paid orders (created in the period)
+# and it is a FLOOR, not a like-for-like match to Meta's pixel event or GA4's
+# begin_checkout: anyone who opened checkout and left before entering an email
+# is invisible to it. Verified against live data: 12 rows vs Meta 32 vs GA4 66
+# for the same week.
+#
+# A true Shopify "checkout page loaded" count would need Shopify's funnel
+# analytics, which this store's plan does not expose -- hence the floor.
+#
+# completed_at is kept even though the endpoint returns abandoned checkouts:
+# a checkout can complete between two pulls, and the column makes that
+# transition visible rather than silently dropping the row on re-ingest.
+# ---------------------------------------------------------------------------
+
+MIGRATION_017_SHOPIFY_CHECKOUTS: str = """
+CREATE TABLE IF NOT EXISTS shopify_checkouts (
+    checkout_id   TEXT PRIMARY KEY,
+    created_at    TEXT NOT NULL,
+    checkout_date TEXT NOT NULL,
+    completed_at  TEXT,
+    email         TEXT NOT NULL DEFAULT '',
+    total_price   REAL,
+    cart_token    TEXT NOT NULL DEFAULT '',
+    landing_site  TEXT NOT NULL DEFAULT '',
+    lp_slug       TEXT NOT NULL DEFAULT '',
+    fetched_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_shopify_checkouts_date
+    ON shopify_checkouts(checkout_date);
+"""
+
+# ---------------------------------------------------------------------------
+# 018 — Meta link clicks + a general page-to-page session flow table.
+#
+# ad_metrics.inline_link_clicks: Meta's LINK clicks, as opposed to the existing
+# `clicks` column which is all clicks (including reactions, comments, profile
+# taps). Link CTR = inline_link_clicks / impressions is the number that actually
+# reflects traffic sent to site, and it always reads lower than the `ctr` column.
+# Nullable, and NULL means "not re-ingested yet" rather than zero — the column is
+# only populated for dates the Meta ingest has run since this migration.
+#
+# ga4_page_flow: sessions that started on one page and went on to view another,
+# per day. GA4's landingPagePlusQueryString + pagePath report is the only way to
+# get this — ga4_events carries an lp_slug per event but no path linkage, so
+# "which page sent this session onward" is not derivable from it.
+#
+# Grain is (date, from_slug, to_slug) rather than a single "reached /preorder"
+# count, because the quiz funnel needs TWO hops: a quiz page pushes to its own
+# segment LP and only then to /preorder (verified live: each quiz page sends
+# ~20-35% onward to its /for/* page). A single-destination table would have had
+# to be widened immediately.
+#
+# Both slugs are NORMALISED via dashboard.db lp_slug_from_url: the raw GA4
+# dimension carries the full query string, so fbclid / campaign_id variants of
+# one page would otherwise each become their own row.
+#
+# A row where from_slug == to_slug is the session's own landing-page view, which
+# makes the per-page session denominator available from this table alone.
+# ---------------------------------------------------------------------------
+
+MIGRATION_018_LP_FUNNEL_COLUMNS: str = """
+ALTER TABLE ad_metrics ADD COLUMN inline_link_clicks INTEGER;
+
+CREATE TABLE IF NOT EXISTS ga4_page_flow (
+    date       TEXT NOT NULL,
+    from_slug  TEXT NOT NULL,
+    to_slug    TEXT NOT NULL,
+    sessions   INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (date, from_slug, to_slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ga4_page_flow_date ON ga4_page_flow(date);
+CREATE INDEX IF NOT EXISTS idx_ga4_page_flow_from ON ga4_page_flow(from_slug);
+"""
+
+# ---------------------------------------------------------------------------
+# 019 — shopify_order_journey: per-order first/last touch, for the Orders page.
+#
+# Source is Shopify's GraphQL `order.customerJourneySummary`, which the REST
+# /orders.json endpoint does not expose: REST gives only landing_site (one URL)
+# with no notion of separate visits. The GraphQL summary gives momentsCount plus
+# a firstVisit and lastVisit, each with their own landing page, source and UTM
+# parameters -- which is what makes "segment LP introduced, homepage closed"
+# visible at all. Verified live: order #1026 has momentsCount = 2, firstVisit
+# utm_content = screen-anxious, lastVisit utm_content = home.
+#
+# utm_content is OVERLOADED by the site's own tagging and must be read with that
+# in mind: under the scheme live from 24 Jul it carries a numeric Meta ad id
+# (traceable to one ad), while older/organic traffic puts a landing-page slug
+# there ("home", "screen-anxious"). All-digits means ad id; anything else is a
+# slug. utm_term carries the ad-set id under the same scheme.
+#
+# One row per order, keyed on the Shopify order id, so the pull is idempotent and
+# a journey that gains a moment between runs simply overwrites.
+# ---------------------------------------------------------------------------
+
+MIGRATION_019_ORDER_JOURNEY: str = """
+CREATE TABLE IF NOT EXISTS shopify_order_journey (
+    order_id            TEXT PRIMARY KEY,
+    order_name          TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL DEFAULT '',
+    order_date          TEXT NOT NULL DEFAULT '',
+    financial_status    TEXT NOT NULL DEFAULT '',
+    total_price         REAL,
+    moments_count       INTEGER,
+    first_landing_page  TEXT NOT NULL DEFAULT '',
+    first_source        TEXT NOT NULL DEFAULT '',
+    first_source_type   TEXT NOT NULL DEFAULT '',
+    first_utm_source    TEXT NOT NULL DEFAULT '',
+    first_utm_medium    TEXT NOT NULL DEFAULT '',
+    first_utm_campaign  TEXT NOT NULL DEFAULT '',
+    first_utm_content   TEXT NOT NULL DEFAULT '',
+    first_utm_term      TEXT NOT NULL DEFAULT '',
+    last_landing_page   TEXT NOT NULL DEFAULT '',
+    last_source         TEXT NOT NULL DEFAULT '',
+    last_source_type    TEXT NOT NULL DEFAULT '',
+    last_utm_source     TEXT NOT NULL DEFAULT '',
+    last_utm_medium     TEXT NOT NULL DEFAULT '',
+    last_utm_campaign   TEXT NOT NULL DEFAULT '',
+    last_utm_content    TEXT NOT NULL DEFAULT '',
+    last_utm_term       TEXT NOT NULL DEFAULT '',
+    fetched_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_journey_date
+    ON shopify_order_journey(order_date);
+"""
+
+# ---------------------------------------------------------------------------
 # Migration registry — add new tuples at the end; never reorder existing ones.
 # ---------------------------------------------------------------------------
 
@@ -412,4 +609,8 @@ ALL_MIGRATIONS: list[tuple[str, str]] = [
     ("013_pixel_health", MIGRATION_013_PIXEL_HEALTH),
     ("014_ga4_daily_totals", MIGRATION_014_GA4_DAILY_TOTALS),
     ("015_campaign_objective", MIGRATION_015_CAMPAIGN_OBJECTIVE),
+    ("016_email_leads", MIGRATION_016_EMAIL_LEADS),
+    ("017_shopify_checkouts", MIGRATION_017_SHOPIFY_CHECKOUTS),
+    ("018_lp_funnel_columns", MIGRATION_018_LP_FUNNEL_COLUMNS),
+    ("019_order_journey", MIGRATION_019_ORDER_JOURNEY),
 ]

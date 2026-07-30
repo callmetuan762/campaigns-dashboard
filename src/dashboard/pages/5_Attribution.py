@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 from src.dashboard import db                            # noqa: E402
-from src.dashboard.components import render_scope_line  # noqa: E402
+from src.dashboard.components import render_scope_line, source_help, source_line  # noqa: E402
 from src.dashboard.settings import DashboardSettings    # noqa: E402
 
 # --- Dark-theme palette -- duplicated from app.py per D-19 standalone rule ---
@@ -346,31 +346,32 @@ if mmm is None:
 # --- Row 1: KPI cards (D-11) -----------------------------------------------
 deposit_value_usd = float(getattr(settings, "deposit_value_usd", 0.0) or 0.0)
 
+source_line("Model", note="all 4 cards are a statistical model over Meta spend + conversions, not fetched directly")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric(
     "Media Contribution",
     f"{mmm['media_pct']:.1f}%",
-    help="Share of deposits attributed to Meta media spend (MMM estimate). "
-         "Remainder is baseline / organic.",
+    help=source_help("Model", note="Share of deposits attributed to Meta media spend (MMM estimate). "
+         "Remainder is baseline / organic."),
 )
 c2.metric(
     "Incremental ROAS",
     _format_roas(mmm.get("incremental_roas_per_1k"), deposit_value_usd),
-    help="Deposits per $1000 spend when DEPOSIT_VALUE_USD is 0; "
-         "true dollar ROAS multiple when set.",
+    help=source_help("Model", note="Deposits per $1000 spend when DEPOSIT_VALUE_USD is 0; "
+         "true dollar ROAS multiple when set."),
 )
 c3.metric(
     "Optimal Daily Spend",
     f"~${mmm['optimal_daily_spend']:.0f}",
-    help="Spend level at 80% of Hill saturation -- above this, returns "
-         "diminish sharply.",
+    help=source_help("Model", note="Spend level at 80% of Hill saturation -- above this, returns "
+         "diminish sharply."),
 )
 maturity_display = str(mmm.get("maturity_label", "")).replace("_", " ").title()
 c4.metric(
     "Data Maturity",
     maturity_display or "--",
-    help=f"Based on {mmm.get('weeks_of_data', 0)} weeks of data. "
-         f">=12 weeks = reliable; 8-11 = early; <8 = directional only.",
+    help=source_help("Model", note=f"Based on {mmm.get('weeks_of_data', 0)} weeks of data. "
+         f">=12 weeks = reliable; 8-11 = early; <8 = directional only."),
 )
 
 # Footnote when maturity warrants it.
@@ -396,6 +397,7 @@ contribs = _cached_weekly_contributions(db_path_str)
 
 with col_left:
     st.subheader("Saturation Curve")
+    source_line("Model")
     km_val = float(mmm.get("km") or 1.0)
     n_val = float(mmm.get("n") or 1.0)
     opt_val = float(mmm.get("optimal_daily_spend") or 0.0)
@@ -407,7 +409,7 @@ with col_left:
         avg_spend = opt_val * 0.5
 
     fig_sat = _build_saturation_chart(km_val, n_val, avg_spend, opt_val)
-    st.plotly_chart(fig_sat, use_container_width=True)
+    st.plotly_chart(fig_sat, use_container_width=True, theme=None)
     st.caption(
         f"Hill parameters: Km=${km_val:.0f}, n={n_val:.2f}, theta={float(mmm.get('theta') or 0):.2f}. "
         "Optimal zone is +/-15% of optimal daily spend."
@@ -415,8 +417,9 @@ with col_left:
 
 with col_right:
     st.subheader("12-Week Contribution Breakdown")
+    source_line("Model", note="one real metric split by a modeled ratio — not two real sources stacked")
     fig_bar = _build_contribution_bar(contribs)
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, use_container_width=True, theme=None)
     st.caption(
         "Total weekly deposits split into baseline (organic / seasonal) vs "
         "Meta media using the MMM's media_pct ratio."
@@ -424,6 +427,7 @@ with col_right:
 
 # --- Row 3: Meta vs GA4 attribution table (D-11) ----------------------------
 st.subheader("Meta vs GA4 Attribution (last 30 days)")
+source_line("M", "G", note="side by side, never blend — Meta uses 7-day click, GA4 uses last-click")
 today = date.today()
 end_yesterday = (today - timedelta(days=1)).isoformat()
 start_30 = (today - timedelta(days=30)).isoformat()

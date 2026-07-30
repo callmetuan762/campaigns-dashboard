@@ -6,6 +6,7 @@ Never blends Meta and GA4 conversion numbers.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -1942,22 +1943,30 @@ def get_preorder_funnel_steps(
     elif orders["source"] == "ga4_events":
         orders_note = "Source: GA4 purchase events (Shopify orders not yet ingested)"
 
+    # `source` is the badge code the UI shows per row (see components.SOURCE_BADGES).
+    # It is derived here, next to the query that actually produces each number, so
+    # the badge cannot drift from the table the value came from. Note Add to Cart
+    # and Begin Checkout are GA4 events (ga4_events), NOT Shopify-side counts --
+    # labelling them "Shopify" would misattribute the source.
+    orders_source = "Shop" if orders["source"] == "shopify_orders" else "G"
+
     steps: list[dict[str, Any]] = [
-        {"label": "Impressions", "value": meta["impressions"],
+        {"label": "Impressions", "value": meta["impressions"], "source": "M",
          "available": meta["available"], "note": None},
-        {"label": "Clicks", "value": meta["clicks"],
+        {"label": "Clicks", "value": meta["clicks"], "source": "M",
          "available": meta["available"], "note": None},
-        {"label": "Landing-Page Views", "value": meta["landing_page_views"],
+        {"label": "Landing-Page Views", "value": meta["landing_page_views"], "source": "M",
          "available": meta["lpv_available"], "note": None},
-        {"label": "GA4 Sessions", "value": ga4_sessions["sessions"],
+        {"label": "GA4 Sessions", "value": ga4_sessions["sessions"], "source": "G",
          "available": ga4_sessions["available"], "note": None},
         {"label": "CTA Clicks (convert)", "value": events["cta_click_convert"]["count"],
+         "source": "G",
          "available": events["cta_click_convert"]["available"], "note": None},
-        {"label": "Add to Cart", "value": events["add_to_cart"]["count"],
+        {"label": "Add to Cart", "value": events["add_to_cart"]["count"], "source": "G",
          "available": events["add_to_cart"]["available"], "note": None},
-        {"label": "Begin Checkout", "value": events["begin_checkout"]["count"],
+        {"label": "Begin Checkout", "value": events["begin_checkout"]["count"], "source": "G",
          "available": events["begin_checkout"]["available"], "note": None},
-        {"label": "Orders", "value": orders["count"],
+        {"label": "Orders", "value": orders["count"], "source": orders_source,
          "available": orders["available"], "note": orders_note},
     ]
 
@@ -2670,3 +2679,713 @@ def get_pixel_health(db_path: Path, start_date: str, end_date: str) -> list[dict
     except sqlite3.OperationalError:
         return []
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Email leads (Preorder Leads Dashboard sheet) — Overview NSM strip
+# ---------------------------------------------------------------------------
+def get_email_leads_summary(
+    db_path: Path, start_date: str, end_date: str
+) -> dict[str, Any]:
+    """Deduped email-lead counts for a window, sliced by deposit status + channel.
+
+    Counts unique EMAILS whose first-seen date falls in the window, not sheet rows:
+    the underlying table is one row per address (see migration 016).
+
+    Scope matches the sheet's own summary tab -- internal/test addresses excluded
+    (is_internal = 0) and restricted to the deduped Leads tab (in_dedup_tab = 1),
+    which is what reproduces the 156 that tab reports. Addresses seen only in the
+    channel tabs are returned separately as ``channel_only`` so the difference is
+    visible instead of silently inflating or deflating the headline.
+
+    Returns zeros / empty on a missing table (pre-migration DB, or the sheet not
+    configured) -- same graceful-degradation contract as the Shopify helpers.
+
+    ``by_status`` keys are the sheet's raw values, deliberately not normalised:
+    the live sheet contains both ``pending`` and ``payment-pending`` and
+    collapsing them here would hide a real data-entry inconsistency.
+
+    ``from_*`` counts are NOT mutually exclusive and do not sum to ``total`` --
+    one address can arrive via a quiz and later via the exit-intent popup.
+    """
+    base = "FROM email_leads WHERE is_internal = 0 AND lead_date BETWEEN ? AND ?"
+    params = (start_date, end_date)
+    empty = {
+        "total": 0,
+        "by_status": {},
+        "from_quiz": 0,
+        "from_preorder_started": 0,
+        "from_exit_intent": 0,
+        "channel_only": 0,
+        "internal_excluded": 0,
+    }
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                "SELECT "
+                "  COUNT(*) AS total, "
+                "  COALESCE(SUM(from_quiz), 0) AS from_quiz, "
+                "  COALESCE(SUM(from_preorder_started), 0) AS from_preorder_started, "
+                "  COALESCE(SUM(from_exit_intent), 0) AS from_exit_intent "
+                + base + " AND in_dedup_tab = 1",
+                params,
+            ).fetchone()
+            status_rows = con.execute(
+                "SELECT COALESCE(NULLIF(TRIM(deposit_status), ''), '(not set)') AS status, "
+                "COUNT(*) AS n "
+                + base + " AND in_dedup_tab = 1 GROUP BY status ORDER BY n DESC",
+                params,
+            ).fetchall()
+            extra = con.execute(
+                "SELECT COUNT(*) AS n " + base + " AND in_dedup_tab = 0", params
+            ).fetchone()
+            internal = con.execute(
+                "SELECT COUNT(*) AS n FROM email_leads "
+                "WHERE is_internal = 1 AND lead_date BETWEEN ? AND ?",
+                params,
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return empty
+
+    if row is None:
+        return empty
+    return {
+        "total": int(row["total"] or 0),
+        "by_status": {r["status"]: int(r["n"]) for r in status_rows},
+        "from_quiz": int(row["from_quiz"] or 0),
+        "from_preorder_started": int(row["from_preorder_started"] or 0),
+        "from_exit_intent": int(row["from_exit_intent"] or 0),
+        "channel_only": int(extra["n"] or 0) if extra else 0,
+        "internal_excluded": int(internal["n"] or 0) if internal else 0,
+    }
+
+
+def get_internal_lead_emails(
+    db_path: Path, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """The internal/test addresses excluded from the reported lead numbers.
+
+    Exists so the exclusion is auditable from the dashboard instead of having to
+    be re-derived by hand: if a new staff or test address starts landing in the
+    sheet and LEADS_INTERNAL_EMAIL_PATTERNS has not caught it yet, the way to
+    notice is to see what the filter *did* catch and spot what is missing.
+
+    Returns [] on a missing table, same graceful-degradation contract as the rest
+    of this module.
+    """
+    sql = (
+        "SELECT email, lead_date, deposit_status "
+        "FROM email_leads WHERE is_internal = 1 AND lead_date BETWEEN ? AND ? "
+        "ORDER BY lead_date, email"
+    )
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Landing-page table (Funnel page) — Meta delivery joined to on-site behaviour
+# ---------------------------------------------------------------------------
+# The offer page's own slug. Rates that describe "traffic sent onward to the offer
+# page" are undefined on this row, since it IS the destination.
+PREORDER_OFFER_SLUG = "preorder"
+
+
+def lp_slug_from_url(url: str) -> str:
+    """Normalise an ad's destination URL to the lp_slug GA4 reports.
+
+    ``https://nowaplanet.com/for/routine/?utm_source=meta...``  -> ``routine``
+    ``https://nowaplanet.com/``                                 -> ``home``
+    ``https://nowaplanet.com/resources/quiz/screen-kid``         -> ``screen-kid``
+
+    Returns "" for anything unrecognised so the caller can bucket it as unmapped
+    rather than inventing an attribution.
+    """
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    path = raw.split("?", 1)[0].split("#", 1)[0]
+    # Drop scheme + host without needing urlparse's full machinery.
+    if "//" in path:
+        path = path.split("//", 1)[1]
+        path = path[path.find("/"):] if "/" in path else "/"
+    segments = [s for s in path.split("/") if s]
+    if not segments:
+        return "home"
+    # /for/<slug> and /resources/quiz/<slug> both key on their last segment, which
+    # is exactly what GA4's lp_slug dimension carries.
+    return segments[-1]
+
+
+def get_landing_page_table(
+    db_path: Path,
+    start_date: str,
+    end_date: str,
+    orders_valid_from: str = "",
+    canonical_slugs: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Per-landing-page rows joining Meta ad delivery to GA4 on-site behaviour.
+
+    The Meta side is attributed per landing page through ad_creatives.destination_url
+    -- the only link in the schema between an ad and the page it points at. There is
+    no ad-set-to-landing-page mapping table, and campaign/ad-set NAMES are not a
+    reliable substitute (they are renamed freely, and the current generation dropped
+    the format tokens the old parser relied on).
+
+    Spend/clicks/impressions are read from AD-SET-level rows, not ad-level ones,
+    and mapped to a landing page via each ad-set's creatives. Ad-level rows look
+    like the more natural grain but only exist for the days the ad-level backfill
+    has run -- on live data that was 1 day of a 7-day window, 12.8% of spend --
+    which would have silently shown a single day's spend beside a full week of GA4
+    events. Ad-set rows carry 100% of spend, and every ad-set's creatives resolve
+    to exactly one landing page (verified: 0 of 64 ad-sets ambiguous), so nothing
+    is lost by aggregating one level up. Ad-sets whose creatives disagree on the
+    destination are skipped rather than split on a guess.
+
+    Deliberately excluded: add_to_cart and begin_checkout. Those fire on Shopify's
+    domain, so ~90% of them arrive with lp_slug = '(not set)' or empty (verified on
+    live data: 159 of 207 add_to_cart, 61 of 78 begin_checkout). A per-landing-page
+    split of them would be mostly invented. They stay in the funnel table above,
+    where they are only ever shown as a total.
+
+    Each row: {"lp_slug", "spend", "clicks", "impressions", "ctr_pct", "cpm",
+    "lp_views", "cta_clicks", "orders", "has_meta"}. Sorted by spend DESC, then
+    landing pages with on-site activity but no ad spend of their own (e.g. the
+    /preorder offer page, which every other page feeds).
+
+    `canonical_slugs` (segment slug cleanup, 2026-07-22): slugs outside this list
+    are folded into a trailing "(other)" row, matching get_segment_mini_funnels.
+    Without it, retired slugs from earlier campaign generations (e.g.
+    `1a-screen-time`) each get their own row on the strength of a handful of
+    stray page-views. None (default) leaves every slug on its own row.
+
+    Returns [] on a missing table -- same graceful-degradation contract as the rest
+    of this module.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+
+    def _slot(slug: str) -> dict[str, Any]:
+        if slug not in rows:
+            rows[slug] = {
+                "lp_slug": slug, "spend": 0.0, "clicks": 0, "impressions": 0,
+                "link_clicks": 0, "link_clicks_available": False,
+                "lp_views": 0, "cta_clicks": 0, "sessions": 0,
+                "preorder_sessions": 0, "orders": 0, "has_meta": False,
+            }
+        return rows[slug]
+
+    try:
+        with _conn(db_path) as con:
+            # --- ad-set -> landing page, from the ad-set's own creatives ---
+            adset_slugs: dict[str, set[str]] = {}
+            for r in con.execute(
+                "SELECT adset_id, destination_url FROM ad_creatives "
+                "WHERE COALESCE(adset_id, '') != '' "
+                "AND COALESCE(destination_url, '') != ''"
+            ):
+                slug = lp_slug_from_url(r["destination_url"])
+                if slug:
+                    adset_slugs.setdefault(str(r["adset_id"]), set()).add(slug)
+            adset_to_lp = {a: next(iter(s)) for a, s in adset_slugs.items() if len(s) == 1}
+
+            # --- Meta delivery at ad-set grain (full spend coverage) ---
+            meta_sql = """
+                SELECT ad_set_id,
+                       COALESCE(SUM(spend), 0)       AS spend,
+                       COALESCE(SUM(clicks), 0)      AS clicks,
+                       COALESCE(SUM(impressions), 0) AS impressions,
+                       SUM(inline_link_clicks)       AS link_clicks
+                FROM ad_metrics
+                WHERE date BETWEEN ? AND ? AND ad_set_id != '' AND ad_id = ''
+                GROUP BY ad_set_id
+            """
+            for r in con.execute(meta_sql, (start_date, end_date)):
+                slug = adset_to_lp.get(str(r["ad_set_id"]))
+                if not slug:
+                    continue
+                slot = _slot(slug)
+                slot["spend"] += float(r["spend"] or 0)
+                slot["clicks"] += int(r["clicks"] or 0)
+                slot["impressions"] += int(r["impressions"] or 0)
+                slot["has_meta"] = True
+                # SUM() over an all-NULL column is NULL, which is how a window
+                # predating migration 018 is told apart from genuine zero link
+                # clicks — the UI shows "—" for the former, "0" for the latter.
+                if r["link_clicks"] is not None:
+                    slot["link_clicks"] += int(r["link_clicks"])
+                    slot["link_clicks_available"] = True
+
+            # --- GA4 sessions per landing page (denominator for the flow rate) ---
+            # ga4_landing_pages keys on the full landing path incl. query string,
+            # so it is normalised to a slug here the same way ad destinations are.
+            try:
+                lp_sessions_sql = """
+                    SELECT landing_page, COALESCE(SUM(sessions), 0) AS sessions
+                    FROM ga4_landing_pages
+                    WHERE date BETWEEN ? AND ?
+                    GROUP BY landing_page
+                """
+                for r in con.execute(lp_sessions_sql, (start_date, end_date)):
+                    slug = lp_slug_from_url(str(r["landing_page"] or ""))
+                    if not slug or slug in NOT_SET_CAMPAIGN_VALUES:
+                        continue
+                    _slot(slug)["sessions"] += int(r["sessions"] or 0)
+            except sqlite3.OperationalError:
+                pass
+
+            # --- sessions that went on to view /preorder (migration 018) ---
+            try:
+                for r in con.execute(
+                    "SELECT from_slug, COALESCE(SUM(sessions), 0) AS sessions "
+                    "FROM ga4_page_flow WHERE date BETWEEN ? AND ? AND to_slug = ? "
+                    "AND from_slug != to_slug GROUP BY from_slug",
+                    (start_date, end_date, PREORDER_OFFER_SLUG),
+                ):
+                    slug = str(r["from_slug"] or "").strip()
+                    if not slug or slug in NOT_SET_CAMPAIGN_VALUES:
+                        continue
+                    _slot(slug)["preorder_sessions"] += int(r["sessions"] or 0)
+            except sqlite3.OperationalError:
+                pass
+
+            # --- GA4 on-site behaviour per landing page ---
+            ga4_sql = """
+                SELECT lp_slug, event_name, COALESCE(SUM(event_count), 0) AS n
+                FROM ga4_events
+                WHERE date BETWEEN ? AND ?
+                  AND event_name IN ('page_view_lp', 'cta_click_convert')
+                  AND TRIM(COALESCE(lp_slug, '')) != ''
+                GROUP BY lp_slug, event_name
+            """
+            for r in con.execute(ga4_sql, (start_date, end_date)):
+                slug = str(r["lp_slug"]).strip()
+                if slug in NOT_SET_CAMPAIGN_VALUES:
+                    continue
+                slot = _slot(slug)
+                if r["event_name"] == "page_view_lp":
+                    slot["lp_views"] += int(r["n"] or 0)
+                else:
+                    slot["cta_clicks"] += int(r["n"] or 0)
+
+            # --- Shopify paid orders per landing page ---
+            valid_clause = " AND order_date >= ?" if orders_valid_from else ""
+            params: list[str] = [start_date, end_date]
+            if orders_valid_from:
+                params.append(orders_valid_from)
+            orders_sql = (
+                "SELECT lp_slug, COUNT(*) AS n FROM shopify_orders "
+                "WHERE financial_status = 'paid' AND order_date BETWEEN ? AND ?"
+                + valid_clause + " GROUP BY lp_slug"
+            )
+            for r in con.execute(orders_sql, params):
+                slug = str(r["lp_slug"] or "").strip()
+                if not slug or slug in NOT_SET_CAMPAIGN_VALUES:
+                    continue
+                _slot(slug)["orders"] += int(r["n"] or 0)
+    except sqlite3.OperationalError:
+        return []
+
+    out = list(rows.values())
+
+    if canonical_slugs is not None:
+        canonical_set = set(canonical_slugs)
+        keep = [r for r in out if r["lp_slug"] in canonical_set]
+        other = [r for r in out if r["lp_slug"] not in canonical_set]
+        if other:
+            keep.append({
+                "lp_slug": "(other)",
+                "spend": sum(r["spend"] for r in other),
+                "clicks": sum(r["clicks"] for r in other),
+                "impressions": sum(r["impressions"] for r in other),
+                "link_clicks": sum(r["link_clicks"] for r in other),
+                "link_clicks_available": any(r["link_clicks_available"] for r in other),
+                "lp_views": sum(r["lp_views"] for r in other),
+                "cta_clicks": sum(r["cta_clicks"] for r in other),
+                "sessions": sum(r["sessions"] for r in other),
+                "preorder_sessions": sum(r["preorder_sessions"] for r in other),
+                "orders": sum(r["orders"] for r in other),
+                "has_meta": any(r["has_meta"] for r in other),
+            })
+        out = keep
+
+    # Rates are derived after bucketing so the "(other)" row gets its own blended
+    # rate rather than an average of averages. Each is None when its denominator
+    # is zero — a missing rate, not a 0% one.
+    for row in out:
+        imp = row["impressions"]
+        row["ctr_pct"] = round(row["clicks"] * 100.0 / imp, 2) if imp else None
+        row["cpm"] = round(row["spend"] * 1000.0 / imp, 2) if imp else None
+        row["link_ctr_pct"] = (
+            round(row["link_clicks"] * 100.0 / imp, 2)
+            if imp and row["link_clicks_available"] else None
+        )
+        # % CTA click is against LP views (page-level events, both GA4) rather
+        # than sessions, so numerator and denominator share one scope.
+        row["cta_pct"] = (
+            round(row["cta_clicks"] * 100.0 / row["lp_views"], 1)
+            if row["lp_views"] else None
+        )
+        # % onward to /preorder is session-scoped on both sides, and is undefined
+        # for the offer page itself: "sessions that landed on /preorder and viewed
+        # /preorder" is the whole row, so a rate there measures nothing (it also
+        # exceeded 100% on live data, the two GA4 reports counting that page's
+        # sessions slightly differently).
+        row["preorder_pct"] = (
+            round(row["preorder_sessions"] * 100.0 / row["sessions"], 1)
+            if row["sessions"] and row["lp_slug"] != PREORDER_OFFER_SLUG else None
+        )
+        row["order_pct"] = (
+            round(row["orders"] * 100.0 / row["lp_views"], 2)
+            if row["lp_views"] else None
+        )
+
+    # Ad-funded pages first by spend; then pages that only receive internal
+    # traffic; "(other)" always last since it is a remainder, not a page.
+    out.sort(key=lambda r: (
+        r["lp_slug"] == "(other)", not r["has_meta"], -r["spend"], r["lp_slug"],
+    ))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Initiate Checkout reconciliation — Meta vs GA4 vs Shopify
+# ---------------------------------------------------------------------------
+def get_checkout_reconciliation(
+    db_path: Path, start_date: str, end_date: str, orders_valid_from: str = ""
+) -> dict[str, Any]:
+    """The same checkout step counted three ways, never combined.
+
+    - ``meta``: ad_metrics.meta_begin_checkout. Platform pixel, inflated by the
+      cart-permalink auto-redirect, so it reads closer to reserve-click intent.
+    - ``ga4``: the ga4_events `begin_checkout` event, property-wide.
+    - ``shopify``: abandoned checkouts created in the period PLUS paid orders
+      created in the period. A FLOOR, not a like-for-like counterpart: Shopify
+      only exposes an abandoned checkout once the shopper leaves contact details,
+      so anyone who opened checkout and left earlier is invisible to it. Adding
+      paid orders back in stops completed checkouts from vanishing (they leave
+      the abandoned-checkout endpoint once they convert).
+
+    Returns {"meta", "ga4", "shopify", "shopify_abandoned", "shopify_orders",
+    "shopify_available"}. shopify_available is False when the checkouts table is
+    missing or empty for the window, so the UI can say "not ingested" instead of
+    showing a zero that looks like a real measurement.
+    """
+    out: dict[str, Any] = {
+        "meta": 0, "ga4": 0, "shopify": 0,
+        "shopify_abandoned": 0, "shopify_orders": 0, "shopify_available": False,
+    }
+
+    out["meta"] = int(get_meta_begin_checkout_total(db_path, start_date, end_date) or 0)
+    ga4_steps = get_ga4_event_step_totals(db_path, start_date, end_date, ["begin_checkout"])
+    out["ga4"] = int(ga4_steps["begin_checkout"]["count"] or 0)
+
+    paid = get_shopify_paid_summary(db_path, start_date, end_date, orders_valid_from)
+    out["shopify_orders"] = int(paid["count"] or 0)
+
+    try:
+        with _conn(db_path) as con:
+            row = con.execute(
+                "SELECT COUNT(*) AS n FROM shopify_checkouts "
+                "WHERE checkout_date BETWEEN ? AND ?",
+                (start_date, end_date),
+            ).fetchone()
+            total_rows = con.execute(
+                "SELECT COUNT(*) AS n FROM shopify_checkouts"
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return out
+
+    out["shopify_abandoned"] = int(row["n"] or 0) if row else 0
+    out["shopify"] = out["shopify_abandoned"] + out["shopify_orders"]
+    # "Available" keys off the table having ANY rows, not rows in this window:
+    # a genuinely quiet week should read as zero checkouts, not as no data.
+    out["shopify_available"] = bool(total_rows and int(total_rows["n"] or 0) > 0)
+    return out
+
+
+def get_email_leads_daily_by_status(
+    db_path: Path, start_date: str, end_date: str
+) -> list[dict[str, Any]]:
+    """Leads per day, split by deposit status, for the Email-leads time series.
+
+    IMPORTANT semantics: email_leads stores one row per address carrying its
+    FIRST-SEEN date and its LATEST status — no status history. So a point on the
+    'paid' line means "leads first seen that day whose status is paid TODAY", not
+    "leads that became paid that day". It is a cohort view, and it is the only
+    view this data can support; reading it as status transitions would be wrong.
+
+    Scoped like get_email_leads_summary: internal/test excluded, restricted to the
+    deduped Leads tab, so the daily numbers add up to the headline Total leads.
+
+    Returns [{"lead_date", "deposit_status", "count"}], sorted by date then status.
+    [] on a missing table.
+    """
+    sql = (
+        "SELECT lead_date, "
+        "COALESCE(NULLIF(TRIM(deposit_status), ''), '(not set)') AS deposit_status, "
+        "COUNT(*) AS count "
+        "FROM email_leads "
+        "WHERE is_internal = 0 AND in_dedup_tab = 1 AND lead_date BETWEEN ? AND ? "
+        "GROUP BY lead_date, deposit_status "
+        "ORDER BY lead_date, deposit_status"
+    )
+    try:
+        with _conn(db_path) as con:
+            rows = con.execute(sql, (start_date, end_date)).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Quiz funnel — quiz page -> its segment LP -> /preorder
+# ---------------------------------------------------------------------------
+# Each quiz page belongs to one segment, and the mapping is a product fact that
+# no table encodes: the quiz page slug and the segment slug simply differ
+# ("screen-kid" is the quiz for the "screen-anxious" segment). Verified against
+# live GA4 flow data — each quiz page's onward traffic goes to exactly this
+# /for/* page — and against the leads sheet, whose QUIZNAME column stores the
+# SEGMENT slug, not the quiz page slug.
+QUIZ_TO_SEGMENT: list[tuple[str, str]] = [
+    ("routine-break", "routine"),
+    ("big-feelings-type", "big-feelings"),
+    ("screen-kid", "screen-anxious"),
+]
+
+
+def get_quiz_funnel_table(
+    db_path: Path,
+    start_date: str,
+    end_date: str,
+    orders_valid_from: str = "",
+    quiz_map: list[tuple[str, str]] | None = None,
+) -> list[dict[str, Any]]:
+    """One row per quiz page, tracing the full path a quiz lead can take.
+
+    quiz page sessions -> sessions that went on to the segment LP -> sessions that
+    reached /preorder -> email leads captured for that segment -> paid orders.
+
+    Sessions come from ga4_page_flow, where a (from == to) row is the page's own
+    session count. The "-> segment" and "-> /preorder" figures are session counts
+    for that same landing page, so all three share one denominator and the
+    percentages are honest.
+
+    Leads come from email_leads.quiz_name, which stores the SEGMENT slug — a quiz
+    lead is identified by the segment it answered for, not by the quiz page URL.
+    Internal/test addresses are excluded, matching every other lead figure.
+
+    Orders are Shopify paid orders whose lp_slug is the SEGMENT — last-touch, so
+    a quiz lead who eventually bought from the homepage will not appear here.
+    Stated in the UI rather than papered over.
+
+    Returns [] on missing tables (graceful degradation, as elsewhere here).
+    """
+    pairs = quiz_map if quiz_map is not None else QUIZ_TO_SEGMENT
+    out: list[dict[str, Any]] = []
+
+    try:
+        with _conn(db_path) as con:
+            def _flow(from_slug: str, to_slug: str) -> int:
+                row = con.execute(
+                    "SELECT COALESCE(SUM(sessions), 0) AS n FROM ga4_page_flow "
+                    "WHERE date BETWEEN ? AND ? AND from_slug = ? AND to_slug = ?",
+                    (start_date, end_date, from_slug, to_slug),
+                ).fetchone()
+                return int(row["n"] or 0) if row else 0
+
+            def _leads(segment: str) -> int:
+                try:
+                    row = con.execute(
+                        "SELECT COUNT(*) AS n FROM email_leads "
+                        "WHERE is_internal = 0 AND quiz_name = ? "
+                        "AND lead_date BETWEEN ? AND ?",
+                        (segment, start_date, end_date),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    return 0
+                return int(row["n"] or 0) if row else 0
+
+            def _orders(segment: str) -> int:
+                clause = " AND order_date >= ?" if orders_valid_from else ""
+                params: list[str] = [segment, start_date, end_date]
+                if orders_valid_from:
+                    params.append(orders_valid_from)
+                try:
+                    row = con.execute(
+                        "SELECT COUNT(*) AS n FROM shopify_orders "
+                        "WHERE financial_status = 'paid' AND lp_slug = ? "
+                        "AND order_date BETWEEN ? AND ?" + clause,
+                        params,
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    return 0
+                return int(row["n"] or 0) if row else 0
+
+            for quiz_slug, segment_slug in pairs:
+                sessions = _flow(quiz_slug, quiz_slug)
+                to_segment = _flow(quiz_slug, segment_slug)
+                to_preorder = _flow(quiz_slug, PREORDER_OFFER_SLUG)
+                out.append({
+                    "quiz_slug": quiz_slug,
+                    "segment_slug": segment_slug,
+                    "sessions": sessions,
+                    "to_segment": to_segment,
+                    "to_segment_pct": (
+                        round(to_segment * 100.0 / sessions, 1) if sessions else None
+                    ),
+                    "to_preorder": to_preorder,
+                    "to_preorder_pct": (
+                        round(to_preorder * 100.0 / sessions, 1) if sessions else None
+                    ),
+                    "leads": _leads(segment_slug),
+                    "orders": _orders(segment_slug),
+                })
+    except sqlite3.OperationalError:
+        return []
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Orders page — per-order journey with Meta ad traceback
+# ---------------------------------------------------------------------------
+def _looks_like_meta_id(value: str) -> bool:
+    """Meta ad/ad-set ids are long all-digit strings.
+
+    The length floor keeps a stray "1" from being read as an id. See
+    ORDER_UTM_SCHEMES for why utm_content needs this test at all.
+    """
+    v = str(value or "").strip()
+    return v.isdigit() and len(v) >= 10
+
+
+# Three tagging generations reach Shopify order records, and utm_content means
+# something different in each. Verified against the live data rather than assumed:
+#
+#   1. Numeric ad id   -- utm_content=120247134827400025, utm_term=<adset id>,
+#      utm_campaign=nowa-pre-order-img. These ids appear on NO ad destination URL
+#      in ad_creatives, so they are not hardcoded in the link: they come from
+#      Meta's own ad-level "URL parameters" field using the {{ad.id}} /
+#      {{adset.id}} macros, which Meta appends at click time. Only this generation
+#      identifies one specific ad.
+#   2. Creative code   -- utm_content=HOME-08 / ROUTINE-09 / QUIZ-03, with
+#      utm_term=homepage|preorder-lp. This is what every current destination URL
+#      in ad_creatives actually carries. The code appears inside ad_name, so it
+#      resolves to a CREATIVE, not to one ad: "HOME-04" matches 3 ads (different
+#      ad-sets/formats reuse the code).
+#   3. Page slug       -- utm_content=home / screen-anxious, no code and no id.
+#      The oldest generation; identifies the landing page only.
+#
+# A single order can mix generations: #1023 carries a page slug in utm_content
+# (gen 3) and a numeric ad-set id in utm_term (gen 1), which is exactly why it
+# traces to an ad-set but not to an ad.
+_CREATIVE_CODE_RE = re.compile(r"^[A-Z]+(?:-[A-Z]+)*-(?:CAR-)?\d{1,3}$", re.IGNORECASE)
+
+
+def _looks_like_creative_code(value: str) -> bool:
+    """True for utm_content values like HOME-08, ROUTINE-09, HOME-CAR-01."""
+    return bool(_CREATIVE_CODE_RE.match(str(value or "").strip()))
+
+
+def _order_number(order_name: str) -> int | None:
+    """'#1023' -> 1023. None when the name is not a plain #<number>."""
+    digits = "".join(ch for ch in str(order_name or "") if ch.isdigit())
+    return int(digits) if digits else None
+
+
+def get_order_journeys(
+    db_path: Path,
+    start_date: str = "",
+    end_date: str = "",
+    min_order_number: int = 0,
+) -> list[dict[str, Any]]:
+    """Per-order first/last touch, with the Meta ad resolved where traceable.
+
+    Date args are optional: the Orders page shows the whole (small) order history
+    by default, because "where did our handful of orders come from" is a
+    history question, not a this-week question. Pass both to window it.
+
+    Each row adds, on top of the stored journey columns:
+      - ``ad_id`` / ``adset_id``: from utm_content / utm_term when those hold a
+        numeric Meta id (see _looks_like_meta_id) — else "".
+      - ``ad_name``: resolved from ad_creatives when the ad id is known.
+      - ``lp_hint``: utm_content when it is a slug rather than an id, which is how
+        pre-24-Jul orders still reveal which landing page tagged them.
+      - ``traced``: "ad" when a single ad is identified, "adset" when only the
+        ad-set is, "" otherwise. This is what the page counts, rather than
+        re-deriving the rule in the UI.
+
+    Returns [] on a missing table (graceful degradation, as elsewhere here).
+    """
+    where, params = "", []
+    if start_date and end_date:
+        where = " WHERE order_date BETWEEN ? AND ?"
+        params = [start_date, end_date]
+
+    try:
+        with _conn(db_path) as con:
+            rows = [
+                dict(r) for r in con.execute(
+                    "SELECT * FROM shopify_order_journey" + where
+                    + " ORDER BY order_date DESC, order_name DESC",
+                    params,
+                )
+            ]
+            ad_names: dict[str, str] = {}
+            try:
+                for r in con.execute("SELECT ad_id, ad_name FROM ad_creatives"):
+                    ad_names[str(r["ad_id"])] = str(r["ad_name"] or "")
+            except sqlite3.OperationalError:
+                pass
+    except sqlite3.OperationalError:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        num = _order_number(row.get("order_name", ""))
+        if min_order_number and num is not None and num < min_order_number:
+            continue
+
+        # Prefer the LAST touch for attribution: that is the click that actually
+        # delivered the buyer. First-touch utm stays in its own columns for the
+        # introduction story.
+        content = row.get("last_utm_content") or row.get("first_utm_content") or ""
+        term = row.get("last_utm_term") or row.get("first_utm_term") or ""
+
+        row["order_number"] = num
+        row["ad_id"] = content if _looks_like_meta_id(content) else ""
+        row["adset_id"] = term if _looks_like_meta_id(term) else ""
+        row["creative_code"] = (
+            content if _looks_like_creative_code(content) else ""
+        )
+        row["lp_hint"] = (
+            "" if (row["ad_id"] or row["creative_code"]) else str(content or "")
+        )
+        row["ad_name"] = ad_names.get(row["ad_id"], "") if row["ad_id"] else ""
+
+        # A creative code names a creative reused across ad-sets/formats, so it is
+        # only an ad-level trace when exactly one ad carries it. Counting it as
+        # "traced to one ad" otherwise would overstate attribution.
+        code_matches: list[str] = []
+        if row["creative_code"]:
+            code = row["creative_code"].upper()
+            code_matches = sorted(
+                n for n in ad_names.values() if code in n.upper()
+            )
+        row["creative_ad_names"] = code_matches
+
+        if row["ad_id"]:
+            row["traced"] = "ad"
+        elif len(code_matches) == 1:
+            row["traced"] = "ad"
+            row["ad_name"] = row["ad_name"] or code_matches[0]
+        elif code_matches:
+            row["traced"] = "creative"
+        elif row["adset_id"]:
+            row["traced"] = "adset"
+        else:
+            row["traced"] = ""
+        out.append(row)
+    return out
