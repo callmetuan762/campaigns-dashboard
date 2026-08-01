@@ -144,10 +144,11 @@ def test_default_patterns_catch_the_whole_internal_set():
         # @nowaplanet.* debug accounts
         "debug-e2e-prod-test@nowaplanet.com", "debug-e2e-v2-test@nowaplanet.com",
         "debug-e2e-v3-test@nowaplanet.com",
-        # the 6 personal test accounts
+        # the 8 personal test accounts
         "parent@example.com", "thisisatest@testingthis.com",
         "tdnghia.sdh221@hcmut.edu.vn", "tradanghi1999chung@gmail.com",
         "tradanghi1999chuyennganh@gmail.com", "tradanghi1999try2@gmail.com",
+        "tai@tester.com", "contact.taihoang@gmail.com",
     ]
     for email in internal:
         assert is_internal_email(email, patterns), f"{email} should be internal"
@@ -159,6 +160,29 @@ def test_default_patterns_catch_the_whole_internal_set():
         "ddt.williams14@gmail.com",
     ):
         assert not is_internal_email(email, patterns), f"{email} should be external"
+
+
+def test_teammate_name_patterns_do_not_swallow_ordinary_english_handles():
+    """The internal set includes three addresses belonging to one teammate, and the
+    obvious way to catch them is a bare "tai" substring. That is a trap: "tai" sits
+    inside words US parents put in handles, and the failure is silent — the lead
+    count just reads low. Patterns must stay narrow enough to leave these alone."""
+    from src.config import Settings
+
+    patterns = [
+        p.strip()
+        for p in Settings.model_fields["leads_internal_email_patterns"].default.split(",")
+        if p.strip()
+    ]
+
+    for email in (
+        "mountainmama7@gmail.com", "retailtherapy@gmail.com", "detailedmom@gmail.com",
+        "captainkate@gmail.com", "sustainablysarah@gmail.com", "britainlee@gmail.com",
+        "certainlyjen@gmail.com", "fountainhouse@gmail.com",
+    ):
+        assert not is_internal_email(email, patterns), (
+            f"{email} is a plausible real lead and must not be filtered out"
+        )
 
 
 def test_internal_addresses_are_flagged_not_dropped():

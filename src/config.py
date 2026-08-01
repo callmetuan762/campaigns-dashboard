@@ -155,17 +155,27 @@ class Settings(BaseSettings):
     #
     # Matched case-insensitively anywhere in the address, so a bare domain also
     # catches plus-addressing (huyle+1@resonancetech.co) and "nowaplanet" catches
-    # any TLD. Verified against a live snapshot: this list flags exactly the 17
+    # any TLD. Verified against a live snapshot: this list flags exactly the 19
     # addresses the sheet itself describes as internal — 8 @resonancetech.co,
-    # 3 @nowaplanet, and the 6 personal test accounts — with no real lead caught.
+    # 3 @nowaplanet, and the 8 personal test accounts — with no real lead caught.
     #
     # "nghia" and "tradanghi" cover one teammate's test series (nghiatran@,
-    # tdnghia.sdh221@hcmut.edu.vn, tradanghi1999chung/chuyennganh/try2@gmail.com).
+    # tdnghia.sdh221@hcmut.edu.vn, tradanghi1999chung/chuyennganh/try2@gmail.com);
+    # "nghia" already subsumes "tdnghia", so that longer form is not listed again.
     # These are name substrings rather than domains, so they would also exclude a
     # real lead whose address contained them; acceptable while the campaigns target
     # US parents, and narrowable via this env var if that ever changes.
+    #
+    # Another teammate's addresses are matched as "tai@" + "taihoang" rather than a
+    # bare "tai" on purpose: "tai" is a substring of ordinary English words that US
+    # parents put in handles (mountain, retail, detail, captain, sustainable), and a
+    # false positive here is silent — the lead count just reads low with no error.
+    # The two narrow forms catch every known address (tai@resonancetech.co,
+    # tai@tester.com, contact.taihoang@gmail.com) with no such collision. A new test
+    # address in a different shape needs its own pattern added here.
     leads_internal_email_patterns: str = (
-        "resonancetech.co,nowaplanet,testingthis.com,example.com,nghia,tradanghi"
+        "resonancetech.co,nowaplanet,testingthis.com,example.com,"
+        "nghia,tradanghi,tai@,taihoang,tester"
     )
 
     # ---- Sentry (Phase 5) ----
