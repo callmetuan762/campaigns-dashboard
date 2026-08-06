@@ -78,6 +78,32 @@ def test_parse_landing_site_lp_slug_derived_from_utm_content():
     assert result["lp_slug"] == "big-feelings"
 
 
+def test_parse_landing_site_lp_slug_from_live_angle_id_convention():
+    """Live Meta preorder ads set utm_content to a bare angle-ID ("HOME-01",
+    "ROUTINE-03", ...) with no "__<creative-id>" suffix — confirmed via the
+    Marketing API 2026-08-06. Must still resolve to the canonical lp_slug."""
+    from src.shopify.client import _parse_landing_site
+    cases = {
+        "HOME-01": "home",
+        "ROUTINE-03": "routine",
+        "SCREEN-08": "screen-anxious",
+        "FEELINGS-01": "big-feelings",
+    }
+    for angle_id, expected_slug in cases.items():
+        result = _parse_landing_site(f"/cart/1?utm_content={angle_id}")
+        assert result["lp_slug"] == expected_slug
+        assert result["utm_content"] == angle_id
+
+
+def test_parse_landing_site_lp_slug_unknown_angle_prefix_falls_back_to_utm_content():
+    """An angle-ID whose prefix isn't in the known map (not "<slug>__..." either)
+    has no canonical slug to derive — fall back to utm_content itself rather than
+    silently mapping to the wrong landing page."""
+    from src.shopify.client import _parse_landing_site
+    result = _parse_landing_site("/cart/1?utm_content=ad_a")
+    assert result["lp_slug"] == "ad_a"
+
+
 def test_parse_landing_site_full_url_form():
     """landing_site can also be an absolute URL, not just a path — must still parse."""
     from src.shopify.client import _parse_landing_site
