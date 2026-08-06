@@ -47,6 +47,29 @@ _ORDER_FIELDS = [
 ]
 
 
+# Live Meta preorder ads (see nowa-meta-ads-automation ad-set/ad naming, e.g.
+# "Nowa | HOME-01 | broad | single_image | 20260715") set utm_content to the bare
+# angle-ID prefix ("HOME-01", "ROUTINE-03", ...) with no "__<creative-id>" suffix —
+# confirmed live via the Marketing API 2026-08-06, not the "<slug>__<creative-id>"
+# convention this parser originally assumed. Map the prefix to the canonical
+# PREORDER_LP_SLUGS value so real order traffic doesn't fall into "(other)".
+_ANGLE_PREFIX_TO_LP_SLUG = {
+    "HOME": "home",
+    "ROUTINE": "routine",
+    "SCREEN": "screen-anxious",
+    "FEELINGS": "big-feelings",
+}
+
+
+def _lp_slug_from_utm_content(utm_content: str) -> str:
+    """Derive lp_slug from utm_content, supporting both the intended "<slug>__<creative-id>"
+    convention and the bare angle-ID convention ("HOME-01") actually in use on live ads."""
+    if "__" in utm_content:
+        return utm_content.split("__", 1)[0]
+    prefix = utm_content.split("-", 1)[0].upper()
+    return _ANGLE_PREFIX_TO_LP_SLUG.get(prefix, utm_content)
+
+
 def _parse_landing_site(landing_site: str | None) -> dict:
     """Extract utm_source / utm_campaign / utm_content / lp_slug from a landing_site URL.
 
@@ -56,10 +79,9 @@ def _parse_landing_site(landing_site: str | None) -> dict:
     NOT NULL DEFAULT '' columns so joins/group-bys never have to special-case NULL.
 
     lp_slug: the LP tracking helper forwards only utm_* + fbclid/gclid to the shop
-    domain — there is no lp_slug query param on shop URLs. The segment is encoded in
-    utm_content as "<slug>__<creative-id>" (ads-side naming convention), so lp_slug is
-    derived by splitting utm_content on "__". An explicit lp_slug param, if one ever
-    appears, still wins.
+    domain — there is no lp_slug query param on shop URLs. The segment is derived from
+    utm_content via _lp_slug_from_utm_content (see its docstring for the two supported
+    conventions). An explicit lp_slug param, if one ever appears, still wins.
     """
     if not landing_site:
         return {"utm_source": "", "utm_campaign": "", "utm_content": "", "lp_slug": ""}
@@ -72,7 +94,7 @@ def _parse_landing_site(landing_site: str | None) -> dict:
         return values[0] if values else ""
 
     utm_content = _first("utm_content")
-    lp_slug = _first("lp_slug") or (utm_content.split("__", 1)[0] if utm_content else "")
+    lp_slug = _first("lp_slug") or (_lp_slug_from_utm_content(utm_content) if utm_content else "")
 
     return {
         "utm_source": _first("utm_source"),
