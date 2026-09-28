@@ -1,0 +1,44 @@
+# The policy source for the ad ↔ page ↔ policy offer check (M3).
+# Only Amy edits `value` / `status`. When an ad or page disagrees with a fact here, the
+# system flags `needs_review`. It never picks a winner and never edits copy.
+#
+# status: confirmed (with who + when) | unconfirmed (known conflict or not yet checked)
+
+brand: nowa
+as_of: 2026-09-28
+
+facts:
+  deposit_price_usd:
+    value: 99
+    status: unconfirmed
+    note: "In all Last Call ads + /pages/preorder. Confirm it is still the live offer."
+
+  shipping_usd:
+    value: 17
+    status: unconfirmed
+    note: "$116 checkout = $99 deposit + $17 ship on a ~$294 basket. Never treat $116 as revenue."
+
+  price_after_deadline_usd:
+    value: null
+    status: unconfirmed
+    known_conflict: "Ads say $149 after Oct 15; /pages/preorder says full package returns to $249 and title 'was $149' (found 2026-09-15)."
+
+  deadline:
+    value: null
+    status: unconfirmed
+    known_conflict: "Ads say 'until Oct 15'; /pages/preorder never mentions Oct 15 (2026-09-15)."
+
+  scarcity:
+    value: "first 500 families"
+    status: unconfirmed
+    note: "Page shows a live 'N of 500 left' counter; ads say 'first 500'."
+
+  refundable:
+    value: "refundable until ship"
+    status: unconfirmed
+
+  ship_date:
+    value: 2026-11-30
+    status: confirmed
+    confirmed_by: "Amy ↔ Dan"
+    known_conflict: "Legal copy (08-shopify) still says Oct 31."
