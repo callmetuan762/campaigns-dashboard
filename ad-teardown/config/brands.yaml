@@ -23,19 +23,20 @@ own:
 competitors:
   # parent_brand = which own brand this competitor is benchmarked against.
   # status: unconfirmed -> proposed (evidence found) -> confirmed (Amy) ; excluded = not crawled
+  # Amy confirmed the list below, incl. Finch in the Tamagotchi slot, on 2026-09-28.
   # Evidence (2026-09-28 probe, country=US): page name matches AND the ads link to the
   # brand's own US domain. Brands with several regional pages: only the US one is listed.
-  - {id: yoto,        name: Yoto,        parent_brand: nowa, domain: us.yotoplay.com,  page_id: "103863031502135", status: proposed,
+  - {id: yoto,        name: Yoto,        parent_brand: nowa, domain: us.yotoplay.com,  page_id: "103863031502135", status: confirmed,
      evidence: "~80 US ads, links us.yotoplay.com; 2nd 'Yoto' page 101664160449505 has 0 US ads"}
-  - {id: tonies,      name: Tonies,      parent_brand: nowa, domain: us.tonies.com,    page_id: "106372791041850", status: proposed,
+  - {id: tonies,      name: Tonies,      parent_brand: nowa, domain: us.tonies.com,    page_id: "106372791041850", status: confirmed,
      evidence: "~280 US ads, links us.tonies.com; pages 160444449033881/240130000066821 have 0 US ads"}
-  - {id: tincan,      name: Tin Can,     parent_brand: nowa, domain: tincan.kids,      page_id: "106073022148622", status: proposed,
+  - {id: tincan,      name: Tin Can,     parent_brand: nowa, domain: tincan.kids,      page_id: "106073022148622", status: confirmed,
      evidence: "~30 US ads, links tincan.kids"}
-  - {id: slumberkins, name: Slumberkins, parent_brand: nowa, domain: slumberkins.com,  page_id: "521943927984595", status: proposed,
+  - {id: slumberkins, name: Slumberkins, parent_brand: nowa, domain: slumberkins.com,  page_id: "521943927984595", status: confirmed,
      evidence: "~34 US ads, links slumberkins.com"}
-  - {id: goodinside,  name: Good Inside, parent_brand: nowa, domain: goodinside.com,   page_id: "102283138058577", status: proposed,
+  - {id: goodinside,  name: Good Inside, parent_brand: nowa, domain: goodinside.com,   page_id: "102283138058577", status: confirmed,
      evidence: "~37 US ads, page 'Dr. Becky at Good Inside', links goodinside.com"}
-  - {id: finch,       name: Finch,       parent_brand: nowa, domain: finchcare.com,    page_id: "112516667335834", status: proposed,
+  - {id: finch,       name: Finch,       parent_brand: nowa, domain: finchcare.com,    page_id: "112516667335834", status: confirmed,
      evidence: "~490 US ads; virtual-pet self-care app — proposed as the Tamagotchi slot"}
   - {id: tamagotchi,  name: Tamagotchi,  parent_brand: nowa, domain: tamagotchi.com,   page_id: null, status: excluded,
      evidence: "no Meta advertiser page found for US (2026-09-28)"}
