@@ -51,9 +51,37 @@ Run from `ad-teardown/`:
 .venv/bin/python -m teardown media                            # download + frames/audio, ~10 min
 .venv/bin/python -m teardown landing                          # landing pages, 24 h cache
 .venv/bin/python -m teardown evidence                         # OCR + ASR → evidence rows (slow first run)
+# M3 — classify + offer check (claude -p on your logged-in account)
+.venv/bin/python -m teardown analyze --dry-run                # cost estimate, calls nothing
+.venv/bin/python -m teardown analyze --budget 10              # hard USD cap per run (default 10)
+.venv/bin/python -m teardown analyze --campaign "Last Call" --budget 1   # pilot one campaign
 .venv/bin/python -m teardown status
 .venv/bin/python -m pytest -q
 ```
+
+### M3 — how classification works
+
+- **Route:** `claude -p` on the logged-in account (`claude auth status` must say `loggedIn: true`;
+  inside the desktop app's terminal, run `/login` once). Amy's choice, 2026-09-28: Haiku + Sonnet.
+- **Cascade:** deterministic first (format from media, `cta_intent` from the button text, the
+  policy check). Then **Claude Haiku 4.5**, 15 distinct ads per call. Then **Claude Sonnet 5**
+  (`--effort low`) for low-confidence critical labels, any mismatch, and (own ads only) a
+  low-confidence page comparison. **needs_review** for high-severity mismatches and policy
+  conflicts.
+- **Guarantees, enforced by `validate.py`, not by trusting the model:** labels only from
+  `taxonomy.py`; every cited id must exist in the ad's bundle; a mismatch needs an ad-side AND
+  a page-side evidence id; a page we couldn't read can never be a mismatch. Invalid output
+  gets one repair, then `analysis_failed`.
+- **Budget:** the estimated cost is reserved before every call. A call that would cross the cap
+  is not made; those ads become `budget_paused`, and the run is `partial` rather than overspent.
+- **Cost, measured:** about $0.004 per distinct ad on Haiku. Duplicated creatives (same
+  bundle, different ad set) are analyzed once and validated per ad (1,465 ads → ~950 distinct).
+  See `provider.py` for the four tuning steps and their measured effect.
+- **Cache:** re-runs skip ads whose evidence hash + taxonomy + prompt version are unchanged.
+  Bump `PROMPT_VERSION` / `TAXONOMY_VERSION` on any prompt or label change. Old analyses are
+  kept.
+- **Policy check (`policy.py`, own ads):** ad claims vs `config/offer_facts.yaml`. `unconfirmed`
+  facts go to Amy's queue; `conflict` with a confirmed fact → `needs_review`. Never auto-edited.
 
 M2 extra setup: `uv pip install --python .venv/bin/python pillow imagehash faster-whisper`.
 OCR uses macOS's built-in Vision framework via `tools/ocr.swift`, compiled on first use into
@@ -74,6 +102,13 @@ teardown/media.py      download (byte-sniffed, size-capped) → analysis image /
 teardown/landing.py    SSRF-guarded fetch, allowlist, robots, render fallback → page facts
 teardown/evidence.py   ad copy + OCR + ASR + landing_dom → citable evidence rows
 tools/ocr.swift        local OCR (macOS Vision)
+teardown/taxonomy.py   label lists (versioned) + deterministic CTA → intent + output schema
+teardown/bundle.py     compact per-ad evidence bundle with short ids (e1, e2…) + evidence_hash
+teardown/prompts.py    spec §4 system prompt + definitions; few-shots in config/prompts/fewshot.json
+teardown/provider.py   claude -p adapter (cost-tuned) + mock provider for tests
+teardown/validate.py   schema/evidence rules applied to every model result
+teardown/policy.py     deterministic ad ↔ offer_facts check (own ads)
+teardown/analyze.py    cascade, dedup, repair, escalation, budget cap
 config/offer_facts.yaml  the policy source for the M3 offer check — only Amy edits it
 data/                  teardown.db, raw/, media/, cache/ (gitignored — competitor media is internal only)
 tests/                 synthetic fixtures only, no network
@@ -107,5 +142,5 @@ tests/                 synthetic fixtures only, no network
 ## Status
 
 - [x] M0 skeleton · [x] M1 acquisition (own + competitor + CSV)
-- [x] M2 evidence (media, OCR, ASR, landing pages) · [ ] M3 analysis + offer check
+- [x] M2 evidence (media, OCR, ASR, landing pages) · [x] M3 analysis + offer check
 - [ ] M4 dashboard/export · [ ] M5 weekly run

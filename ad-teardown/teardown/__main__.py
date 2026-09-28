@@ -122,6 +122,17 @@ def cmd_evidence(args):
     print(evidence.build(conn, brands, with_asr=not args.no_asr))
 
 
+def cmd_analyze(args):
+    from . import analyze
+    from .provider import ClaudeCLIProvider
+
+    conn = db.connect()
+    brands = args.brands.split(",") if args.brands else None
+    print(analyze.run(conn, ClaudeCLIProvider(), brands, args.lane, budget_usd=args.budget,
+                      limit=args.limit, batch_size=args.batch_size, workers=args.workers,
+                      dry_run=args.dry_run, force=args.force, campaign=args.campaign))
+
+
 def cmd_import(args):
     from .sources import csv_import
 
@@ -175,6 +186,17 @@ def main(argv=None):
     p.add_argument("--brands")
     p.add_argument("--no-asr", action="store_true")
     p.set_defaults(fn=cmd_evidence)
+    p = sub.add_parser("analyze")
+    p.add_argument("--brands")
+    p.add_argument("--lane", choices=["own", "competitor"])
+    p.add_argument("--campaign", help="only ads whose campaign name contains this")
+    p.add_argument("--budget", type=float, default=10.0, help="hard cap in USD for this run")
+    p.add_argument("--limit", type=int)
+    p.add_argument("--batch-size", type=int, default=15)
+    p.add_argument("--workers", type=int, default=4)
+    p.add_argument("--dry-run", action="store_true", help="estimate cost, call nothing")
+    p.add_argument("--force", action="store_true", help="ignore cached analyses")
+    p.set_defaults(fn=cmd_analyze)
     p = sub.add_parser("import")
     p.add_argument("file")
     p.set_defaults(fn=cmd_import)

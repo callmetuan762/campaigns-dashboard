@@ -1,0 +1,47 @@
+[
+  {
+    "name": "clear_match",
+    "input": {"ad_id": "ex1", "facts": {"brand": "example", "lane": "competitor", "format": "static_image", "cta_button": "Shop Now", "landing_status": "ok"},
+      "evidence": [
+        {"id": "e1", "o": "ad_headline", "t": "Screen-free stories, 20% off this week"},
+        {"id": "e2", "o": "ad_copy", "t": "Tired of the tablet fight at bedtime? Kids pick a card and listen."},
+        {"id": "e3", "o": "landing_dom", "t": "…Player bundle $79.99 $99.99 · 20% off through Sunday…"}]},
+    "output": {"ad_id": "ex1",
+      "labels": {"hook_type": "problem", "offer_type": "discount", "awareness_stage": "problem_aware", "driver": "convenience", "funnel_stage": "bottom", "pain_point": "screen_time", "proof_type": "none"},
+      "offer_detail": {"price": null, "currency": null, "discount_percent": 20, "trial_days": null, "deadline": null, "later_price": null, "scarcity": null},
+      "claims": [{"field": "discount_percent", "value": "20", "evidence_id": "e1"}],
+      "landing_comparison": {"status": "match", "severity": null, "reason": "Ad 20% off matches page 20% off.", "ad_evidence_ids": ["e1"], "page_evidence_ids": ["e3"]},
+      "confidence": {"hook_type": 0.85, "offer_type": 0.97, "awareness_stage": 0.8, "driver": 0.7, "funnel_stage": 0.85, "pain_point": 0.9, "proof_type": 0.8, "landing_comparison": 0.92},
+      "review_flags": [], "model_notes": "Discount stated on both sides."}
+  },
+  {
+    "name": "true_price_mismatch",
+    "input": {"ad_id": "ex2", "facts": {"brand": "example", "lane": "own", "format": "static_image", "cta_button": "Shop Now", "landing_status": "ok"},
+      "evidence": [
+        {"id": "e1", "o": "ocr", "t": "$99 until Oct 15. Then it's $149."},
+        {"id": "e2", "o": "ad_copy", "t": "Reserve yours for $99, fully refundable."},
+        {"id": "e3", "o": "landing_dom", "t": "…When these spots are gone, the full package returns to $249…"},
+        {"id": "e4", "o": "landing_dom", "t": "…Founding preorder · $99…"}]},
+    "output": {"ad_id": "ex2",
+      "labels": {"hook_type": "urgency", "offer_type": "preorder_deposit", "awareness_stage": "product_aware", "driver": "save_money", "funnel_stage": "bottom", "pain_point": "none_explicit", "proof_type": "none"},
+      "offer_detail": {"price": 99, "currency": "USD", "discount_percent": null, "trial_days": null, "deadline": "Oct 15", "later_price": 149, "scarcity": null},
+      "claims": [{"field": "price", "value": "99", "evidence_id": "e1"}, {"field": "later_price", "value": "149", "evidence_id": "e1"}, {"field": "deadline", "value": "Oct 15", "evidence_id": "e1"}],
+      "landing_comparison": {"status": "mismatch", "severity": "high", "reason": "Ad says price after deadline is $149; page says it returns to $249. The $99 price matches. The page never states the Oct 15 deadline.", "ad_evidence_ids": ["e1"], "page_evidence_ids": ["e3"]},
+      "confidence": {"hook_type": 0.9, "offer_type": 0.93, "awareness_stage": 0.8, "driver": 0.8, "funnel_stage": 0.9, "pain_point": 0.75, "proof_type": 0.85, "landing_comparison": 0.9},
+      "review_flags": ["price_conflict", "claim_not_on_page"], "model_notes": "Later price conflicts: $149 (ad) vs $249 (page)."}
+  },
+  {
+    "name": "missing_page",
+    "input": {"ad_id": "ex3", "facts": {"brand": "example", "lane": "competitor", "format": "video", "cta_button": "Learn More", "landing_status": "blocked"},
+      "evidence": [
+        {"id": "e1", "o": "asr", "t": "My son used to melt down every morning. Now he does his routine by himself."},
+        {"id": "e2", "o": "ad_copy", "t": "Try it free for 14 days."}]},
+    "output": {"ad_id": "ex3",
+      "labels": {"hook_type": "story", "offer_type": "free_trial", "awareness_stage": "problem_aware", "driver": "convenience", "funnel_stage": "middle", "pain_point": "routines", "proof_type": "ugc"},
+      "offer_detail": {"price": null, "currency": null, "discount_percent": null, "trial_days": 14, "deadline": null, "later_price": null, "scarcity": null},
+      "claims": [{"field": "trial_days", "value": "14", "evidence_id": "e2"}],
+      "landing_comparison": {"status": "unverifiable", "severity": null, "reason": "Landing page blocked; nothing to compare.", "ad_evidence_ids": ["e2"], "page_evidence_ids": []},
+      "confidence": {"hook_type": 0.85, "offer_type": 0.97, "awareness_stage": 0.75, "driver": 0.6, "funnel_stage": 0.7, "pain_point": 0.9, "proof_type": 0.85, "landing_comparison": 0.0},
+      "review_flags": ["landing_unavailable"], "model_notes": "Parent testimonial about morning routines; trial stated in copy."}
+  }
+]

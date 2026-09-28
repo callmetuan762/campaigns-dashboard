@@ -140,7 +140,8 @@ def build(conn, brand_ids: list[str] | None = None, with_asr: bool = True, log=p
     counters = {"ads": len(ads), "copy": 0, "ocr": 0, "asr": 0, "asr_files": 0}
     for i, a in enumerate(ads, start=1):
         ad_id = a["id"]
-        conn.execute("DELETE FROM evidence WHERE ad_id=?", (ad_id,))
+        # landing_dom rows belong to landing.py; rebuild only what this module writes.
+        conn.execute("DELETE FROM evidence WHERE ad_id=? AND origin != 'landing_dom'", (ad_id,))
         n = 0
         for origin, field in (("ad_headline", "headline"), ("ad_copy", "body"),
                               ("ad_description", "description"), ("ad_cta", "cta_text")):

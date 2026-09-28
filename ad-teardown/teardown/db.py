@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS ads (
   UNIQUE(source, source_ad_id)
 );
 
+CREATE TABLE IF NOT EXISTS run_ads (
+  run_id text NOT NULL REFERENCES runs(id),
+  ad_id text NOT NULL REFERENCES ads(id),
+  state text NOT NULL,            -- queued|cached|completed|needs_review|escalated|analysis_failed|budget_paused
+  error_code text,
+  PRIMARY KEY (run_id, ad_id)
+);
+
 CREATE TABLE IF NOT EXISTS ad_metrics (
   ad_id text NOT NULL REFERENCES ads(id),
   window text NOT NULL,           -- lifetime | last_30d | last_7d
@@ -163,15 +171,33 @@ def connect(path: Path | str = DB_PATH) -> sqlite3.Connection:
     path = Path(path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=60)
+    conn = sqlite3.connect(path, timeout=60, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
+# Columns added after the first real data landed. CREATE TABLE IF NOT EXISTS won't add them to
+# an existing table, so add them here. Each one is idempotent.
+MIGRATIONS = [
+    ("model_calls", "detail", "text"),        # per-model usage breakdown from the CLI
+    ("analyses", "metadata", "text"),         # e.g. analyzed_as: the representative ad of a duplicate group
+]
+
+
+def _migrate(conn):
+    for table, col, typ in MIGRATIONS:
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    conn.commit()
+
+
 def dumps(value) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    # default=str: YAML turns `2026-11-30` into a date object (offer_facts), which would crash here.
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
 def save_raw(key: str, payload) -> str:
