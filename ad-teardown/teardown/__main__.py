@@ -92,6 +92,36 @@ def cmd_reparse_competitors(args):
     conn.commit()
 
 
+def cmd_media(args):
+    from . import media
+
+    conn = db.connect()
+    brands = args.brands.split(",") if args.brands else None
+    print(media.process(conn, brands, args.lane, workers=args.workers,
+                        retry_errors=args.retry_errors))
+
+
+def cmd_landing(args):
+    from . import landing
+
+    conn = db.connect()
+    brands = args.brands.split(",") if args.brands else None
+    run_id = db.create_run(conn, {"stage": "landing", "brand_ids": brands, "operator": "cli"})
+    conn.commit()
+    counters = landing.run(conn, run_id, brands, force=args.force)
+    db.finish_run(conn, run_id, "completed", counters)
+    conn.commit()
+    print(counters)
+
+
+def cmd_evidence(args):
+    from . import evidence
+
+    conn = db.connect()
+    brands = args.brands.split(",") if args.brands else None
+    print(evidence.build(conn, brands, with_asr=not args.no_asr))
+
+
 def cmd_import(args):
     from .sources import csv_import
 
@@ -131,6 +161,20 @@ def main(argv=None):
     p.add_argument("--max-scroll", type=int, default=40)
     p.set_defaults(fn=cmd_crawl_competitors)
     sub.add_parser("reparse-competitors").set_defaults(fn=cmd_reparse_competitors)
+    p = sub.add_parser("media")
+    p.add_argument("--brands")
+    p.add_argument("--lane", choices=["own", "competitor"])
+    p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--retry-errors", action="store_true")
+    p.set_defaults(fn=cmd_media)
+    p = sub.add_parser("landing")
+    p.add_argument("--brands")
+    p.add_argument("--force", action="store_true", help="ignore the 24 h page cache")
+    p.set_defaults(fn=cmd_landing)
+    p = sub.add_parser("evidence")
+    p.add_argument("--brands")
+    p.add_argument("--no-asr", action="store_true")
+    p.set_defaults(fn=cmd_evidence)
     p = sub.add_parser("import")
     p.add_argument("file")
     p.set_defaults(fn=cmd_import)

@@ -42,3 +42,15 @@ facts:
     status: confirmed
     confirmed_by: "Amy ↔ Dan"
     known_conflict: "Legal copy (08-shopify) still says Oct 31."
+    note: >-
+      2026-09-28 live /pages/preorder: "Ships October 2026" + "If your Nowa has not shipped by
+      November 30, 2026 …" — i.e. Nov 30 is the refund cutoff and the page's ship claim is October.
+      Amy to confirm which one this fact means; value left unchanged.
+
+  scarcity_counter:
+    value: null
+    status: unconfirmed
+    note: >-
+      Page counter read "139 of 500 left" on 2026-09-15 and "85 of 500 left" on 2026-09-28
+      (54 in 13 days). Check against Shopify $99 order count — a counter that doesn't track
+      real orders is a fake-scarcity risk.

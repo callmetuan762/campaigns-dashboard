@@ -43,12 +43,22 @@ never-expiring "n8n x RT" SYSTEM_USER token). It is never printed or written to 
 Run from `ad-teardown/`:
 
 ```bash
+# M1 — acquire
 .venv/bin/python -m teardown pull-own --brand nowa            # ~1 min, ~50 Graph calls
 .venv/bin/python -m teardown crawl-competitors --parent nowa  # ~1–2 min per brand
 .venv/bin/python -m teardown import my_ads.csv                # manual ads (see csv_import.py)
+# M2 — evidence (run media straight after a crawl: competitor media links expire)
+.venv/bin/python -m teardown media                            # download + frames/audio, ~10 min
+.venv/bin/python -m teardown landing                          # landing pages, 24 h cache
+.venv/bin/python -m teardown evidence                         # OCR + ASR → evidence rows (slow first run)
 .venv/bin/python -m teardown status
 .venv/bin/python -m pytest -q
 ```
+
+M2 extra setup: `uv pip install --python .venv/bin/python pillow imagehash faster-whisper`.
+OCR uses macOS's built-in Vision framework via `tools/ocr.swift`, compiled on first use into
+`data/bin/ocr` (needs Xcode command-line tools; runs locally, free). ASR uses faster-whisper
+`base.en` on CPU; the ~145 MB model downloads on first use.
 
 Every command is safe to re-run: ads are keyed by `(source, source_ad_id)`, so a re-run
 updates `last_seen_at` and never duplicates.
@@ -60,7 +70,12 @@ config/brands.yaml     who we analyze: own brands (campaign prefix) + competitor
 teardown/db.py         SQLite schema (spec §5, trimmed) + upsert helpers
 teardown/normalize.py  URL canonicalization, ad-code/format parsing (pure functions)
 teardown/sources/      meta_own.py (Marketing API) · meta_adlib.py (Ad Library) · csv_import.py
-data/                  teardown.db + raw/ payloads (gitignored — contains competitor media refs)
+teardown/media.py      download (byte-sniffed, size-capped) → analysis image / video frames + audio
+teardown/landing.py    SSRF-guarded fetch, allowlist, robots, render fallback → page facts
+teardown/evidence.py   ad copy + OCR + ASR + landing_dom → citable evidence rows
+tools/ocr.swift        local OCR (macOS Vision)
+config/offer_facts.yaml  the policy source for the M3 offer check — only Amy edits it
+data/                  teardown.db, raw/, media/, cache/ (gitignored — competitor media is internal only)
 tests/                 synthetic fixtures only, no network
 ```
 
@@ -80,8 +95,17 @@ tests/                 synthetic fixtures only, no network
   ads than one crawl captures are a sample, not a census; `reported_results` is stored next to
   the parsed count.
 
+- **Landing fetches must not pollute our own analytics.** We fetch the canonical URL (no UTMs),
+  and the browser render blocks GA4, Meta Pixel, Clarity, CookieHub and Shopify monorail.
+- **Our own pages are always rendered in a browser.** The `/pages/preorder` "N of 500 left"
+  counter is spread across DOM nodes ("85" / "of 500 left"), so the extraction patterns
+  match across line breaks.
+- **robots.txt:** respected for competitors. Our own domains are exempt (`go.nowaplanet.com`
+  disallows every crawler).
+- **Competitor videos are not kept.** Only frames, audio and the sha256 remain (rights decision).
+
 ## Status
 
 - [x] M0 skeleton · [x] M1 acquisition (own + competitor + CSV)
-- [ ] M2 evidence (image/video text, landing pages) · [ ] M3 analysis + offer check
+- [x] M2 evidence (media, OCR, ASR, landing pages) · [ ] M3 analysis + offer check
 - [ ] M4 dashboard/export · [ ] M5 weekly run
