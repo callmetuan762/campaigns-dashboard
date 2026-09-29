@@ -1,0 +1,439 @@
+# Editorial layer for `teardown video-report`. Humans own this file; the command owns the numbers.
+# When the report marks a top-set ad "new since notes", add it under ad_notes.
+# Copy here follows the nowa-content-writing skill (no em-dashes, no "screen-free" for Nowa,
+# pet never speaks words, "built with" advisors, no urgency) + offer facts confirmed 2026-09-29.
+version: 2
+updated: "2026-09-29"
+
+summary_extra:
+  - "Closest analogue to Nowa is Finch: a pet you care for by doing real-life tasks. Its longest runners show the pet UI by second 3 to 5, turn a chore into a game, and keep one primary text across every variant while creators rotate the video."
+
+label_meaning:
+  hook_type: "Open with the good outcome or a question, not the fight. Problem-first hooks are what competitors retire."
+  proof_type: "UGC wins pooled only because Finch is all UGC. Per brand, long-runners lean on the product in context."
+  pain_point: "Independence and connection rise per brand: kids doing it themselves, and kids connecting."
+  awareness_stage: "Durable ads speak to a parent who knows the situation, not the product."
+  driver: "Family closeness outlasts convenience."
+  funnel_stage: "Each brand's longest runners are top of funnel: built to be seen for months, not to close this week."
+  offer_type: "Long-runners carry offers as bundles, not discounts. No competitor video leads with a price."
+  cta_intent: "Download at 60+ days is Finch's app install. Physical products send Learn more to an occasion page."
+
+templates:
+  - id: A
+    name: "Myth-bust kinetic text"
+    seen_in: "Yoto 146 d, 88 d x2; Tin Can 103 d"
+    beats: "0-1 s common belief, then the contrast line · 1-4 s product in the occasion · promise for kid and parent · breadth flash · end card. 12-20 s, works silent."
+    hook_formula: "Most ___ get used once… / But not ___"
+    nowa_note: "Competitors say 'screen-free'. Nowa has a display, so the contrast is 'a pet, not a screen to scroll'."
+  - id: B
+    name: "Funny inversion UGC"
+    seen_in: "Tin Can 41 d; Yoto 88 d ('not to be dramatic but…')"
+    beats: "0-4 s kid out-does parent · 3 how-it-works facts, parent control first · the turn · close on connection. 20-25 s."
+    hook_formula: "My ___-year-old now ___ better than I do"
+    nowa_note: "Real families only, describing real use. Pre-launch that means beta families; outcome lines are placeholders until a family says them."
+  - id: C
+    name: "Reveal & reaction"
+    seen_in: "tonies Bluey 42 d (4 versions each)"
+    beats: "Set up the surprise · kid reaction · features as the child's independence · nostalgia or connection close. 20-25 s."
+    hook_formula: "I was so excited to surprise my ___ with ___"
+    nowa_note: "The pet-world moment (egg, pixel HUD) is where Tiny5 and the pet's sounds belong on screen."
+  - id: D
+    name: "Game-ify the routine"
+    seen_in: "Finch 130 d, 129 d, 116 d, 96 d"
+    beats: "0-3 s self-deprecating reframe · pet UI by 3-5 s · one concrete routine as a checklist · outcome · objection answered · CTA. Primary text constant, video rotates. 15-25 s."
+    hook_formula: "Turns out ___ wasn't ___. ___ just needed ___"
+    nowa_note: "Flip Finch's 'a bird tells me what to do' into the child looking after the pet. Never obedience framing."
+  - id: E
+    name: "Qualify → quiz"
+    seen_in: "Good Inside 42 d (listicle)"
+    beats: "Title card '3 signs…' · 3 recognisable moments as text over footage · 'Take the quiz' → quiz page. 12-15 s."
+    hook_formula: "3 signs your ___"
+    nowa_note: "Nowa's quiz is its cheapest lead source (about $3.8 CPL). Overview ideas point to the homepage instead."
+
+translation_rules:
+  - "Nowa has a display. Never say 'screen-free'. Say 'a pet, not a screen to scroll', or show what's different: no feed, no autoplay, no open internet, an ending built in."
+  - "The pet never speaks words. It chirps, sulks, celebrates and falls asleep. No voice-over in the pet's mouth."
+  - "No 'AI' in copy and never 'no AI'. Anti-chatbot lines from the swipe file are fine ('It doesn't talk back. That's the whole point.')."
+  - "'Built with' or 'shaped by' the advisors, never 'clinically proven'. Only cite stats exactly as on the site (Mindell et al., Sleep, 2009)."
+  - "No obedience or control framing ('makes kids listen', 'runs our house'). Routines run on skills the child is building."
+  - "No urgency and no live counts. Offer facts: $99 pre-order, fully refundable, ships October 2026, automatic refund if not shipped by November 30, 2026."
+  - "UGC (templates B, C) must be real families describing real use (FTC endorsement rules). Until launch that means beta families; scripted outcomes are placeholders."
+  - "Don't borrow competitors' lines or examples ('deeply feeling kid', Good Inside's sandwich, Finch's '245% happier'). Don't name Tamagotchi or competitors."
+  - "Never 'no microphone'. If the mic comes up: push-to-talk with a hardware mute switch."
+  - "No em-dashes in on-screen text or copy. 'Magical' needs a per-use sign-off."
+
+ad_notes:
+  "3979911272309601":
+    title: "Most birthday gifts get used once…"
+    copy: "Dynamic creative: copy comes from the catalog and the video does the work. Links to an occasion page (/lp/why-yoto/gifting)."
+    steal: "A myth-bust hook on screen. One occasion per ad with its own landing page. One line that promises for kid and parent."
+  "1683458632895596":
+    title: "Make a long trip feel mini…"
+    copy: "Dynamic creative, travel landing page. A near-identical cut ran just as long, so the concept was kept while the edit was tested."
+    steal: "The parenthetical parent win '(and parents happy)'. One concrete product detail. Kid audio as the payoff, not the opener."
+  "1336383434616692":
+    title: "Make a long trip feel mini… (cut 2)"
+    steal: "Same concept, second edit: evidence the brand iterates the cut instead of replacing the idea."
+  "1641367974218400":
+    title: "My 2-year-old might be the Beatles' biggest fan"
+    steal: "'Not to be dramatic but…' overstatement as the hook; the product appears as the kid's 'best friend'."
+  "1534471058116712":
+    title: "Social independence without the screens"
+    copy: "A 9 s text card: benefit, then a category reframe ('the new-school landline for friends')."
+    steal: "Name a new category in one line. Nowa's version: 'a pocket-sized pet, not a screen to scroll'."
+  "1725560258733941":
+    title: "My 3-year-old has a better social life than I do"
+    copy: "A 3-part joke list in the primary text (zero screens, zero spam calls, zero chance my toddler FaceTimes my boss)."
+    steal: "The inversion hook. Parent control stated early. 'Not another screen' as the pivot. Ends on connection, not features."
+  "1599123804948580":
+    title: "Pencils down, now pick up!"
+    steal: "A 3 s back-to-school pun card. Occasion + humour carries a tiny budget cut."
+  "1848312609481516":
+    title: "Surprising my toddler with Bluey Tonies"
+    copy: "First-person creator post, #ad disclosed, then 'comment BLUEY and I'll send you the link'."
+    steal: "Reveal, reaction, then features framed as the child's independence. Comment-keyword CTA (needs a DM tool)."
+  "1413922280553201":
+    title: "It feels like childhood again"
+    steal: "The nostalgia close lands with parents: 'childhood again, instead of just more screen time'."
+  "1746326456488858":
+    title: "Bluey gets everyone off the couch"
+    steal: "Family-connection close: the product as the thing that brings the family together."
+  "2115089116091507":
+    title: "Licensed character, 6 s"
+    steal: "A character the kid already loves does the stopping. Nowa's equivalent is the pet itself."
+  "1332218768994181":
+    title: "Monopoly, reimagined"
+    steal: "A 17 s demo: show the play, name the family moment ('Family game night starts now')."
+  "1951860762159141":
+    title: "Believe your ears: Bluey is on tonies"
+    steal: "Launch news as the hook, one line of benefit, logo. Short and repeatable."
+  "1372628207642777":
+    title: "It's when you stop liking your kid"
+    copy: "Headline as a quoted label ('Defiant' Kids); one-line body."
+    steal: "A taboo truth said plainly by an expert, then validation, then a reframe."
+    avoid: "Works because a named expert says it. Nowa: 'built with' advisors, and never Good Inside's phrases."
+  "2567203997055739":
+    title: "If you stay in your kid's bedroom…"
+    steal: "Permission-giving opener ('there's no problem with that') before the offer."
+    avoid: "Identity-level parent pain belongs in email and blog for Nowa, not cold ads."
+  "1112477591105182":
+    title: "3 signs… take this quiz"
+    steal: "A text-only listicle into a qualifying quiz. Cheap to make, easy to version."
+    avoid: "Don't reuse their examples or the 'deeply feeling kid' label."
+  "1488801682793327":
+    title: "Turns out I wasn't lazy…"
+    copy: "One primary text across every variant: 'OF COURSE I needed to take care of a pet to take care of myself'. The video is the variable."
+    steal: "Self-deprecating reframe, pet UI by second 3 to 5, one routine as a checklist."
+    avoid: "Invented stats, mental-health claims, and 'a bird that tells me what to do' (obedience framing for kids)."
+  "1889602741749444":
+    title: "5 things to clean every week"
+    steal: "A useful checklist is the spine; the pet is the reason to do it."
+    avoid: "'245% happier' and the depression framing."
+  "1994543121156248":
+    title: "Them: 'it's impossible…' / Me since…"
+    steal: "The 'Them vs Me' text hook sets up a proof-by-doing."
+  "27630412696592868":
+    title: "Habits that made me unrecognizable"
+    steal: "A numbered habit list over the pet UI, no voice needed."
+  "1685644489138574":
+    title: "20 squats so my bird gets rainbow stones"
+    steal: "The reward loop explained in one sentence by a creator mid-task."
+  "2106746903590706":
+    title: "Me vs My Brain skit"
+    steal: "Two-voice skits make the reframe funny instead of preachy."
+  "2127656931112516":
+    title: "Younger me vs older me"
+    steal: "Before/after as a conversation, not a claim."
+    avoid: "The mental-health recovery claim."
+
+  "1347078480809744":
+    title: "Looking for a gift they'll use every day?"
+    copy: "Dynamic creative. A second Yoto video at 146 days, also gifting."
+    steal: "A question hook that names the buyer's real worry (will they use it?), then the category line and 'the kind of gift they won't put down'."
+  "1565623128480207":
+    title: "Still their favorite gift. Years later."
+    copy: "Dynamic creative; text-only story in four cards."
+    steal: "Answers the 'played with once' objection with time: 'They didn't know it existed… still their favorite gift. Years later.'"
+    avoid: "Nowa hasn't shipped, so 'years later' is a claim we can't make yet. Use it after launch with real families."
+  "961201880024377":
+    title: "Imagine what you can look like in July…"
+    steal: "Future-self framing: small daily reps compound. Nowa's version is about a skill, not a body."
+    avoid: "Body-image framing. Never for kids."
+  "1036081149232494":
+    title: "Couldn't be just anyone! RING! RING!"
+    steal: "A 3 s card with one sound and one line. Cheap to make; a good cutdown format for any Nowa idea (the pet's chirp as the ring)."
+  "1054895460468456":
+    title: "Do you have a deeply feeling kid? Take the quiz"
+    copy: "Question hook straight into a quiz, voiced by the expert."
+    steal: "The qualify-then-quiz spine (template E)."
+    avoid: "Good Inside's 'deeply feeling kid' label is theirs and a Nowa brand rule forbids it. Echo the idea in our own words ('feels everything at ten times the size')."
+
+ideas_intro: "5 templates x 4 segments x 3 ideas. Each is a 9:16 master of 12 to 25 s with a hook written on screen at 0 s, built to work muted. Hold the primary text constant within an idea so the test is the video. Segment ideas link to their segment page; overview ideas link to the homepage only; template E links to that segment's quiz."
+
+segments:
+  routine:
+    label: "Routine"
+    lp: "/for/routine"
+    angle: "Less nagging. More follow-through. Mirror the ninth time asking; the win is the child doing it without the parent narrating."
+  big_feelings:
+    label: "Big feelings"
+    lp: "/for/big-feelings"
+    angle: "Calm is a rep, not a trait. Practice happens in calm moments, before the storm, never during it."
+  screen_anxious:
+    label: "Screen-anxious"
+    lp: "/for/screen-anxious"
+    angle: "It has a screen, and it has an ending. No feed, no autoplay, no open internet; the pet gets sleepy and play stops."
+  overview:
+    label: "Product overview"
+    lp: "/"
+    angle: "What Nowa is: a pocket-sized pet your child looks after through real-world missions. Links to the homepage only."
+
+ideas:
+  # ---------------- ROUTINE ----------------
+  - {id: R-A1, segment: routine, template: A, title: "Most chore charts last a week",
+     hook: "Most chore charts last a week… / This one needs breakfast.",
+     beats: [["0-1 s", "A sticker chart peeling off the fridge."], ["1-4 s", "Kid presses a chunky button; the pet on the display wants breakfast."], ["4-9 s", "Kid eats, brushes teeth; the pet perks up with a chirp."], ["9-13 s", "Super: 'You choose the routine. Nowa turns it into a mission.'"], ["13-15 s", "End card: Less reminding. More getting ready."]],
+     primary_text: "The routine lives in your head, so you're the one running it. Nowa hands it to someone your kid wants to help."}
+  - {id: R-A2, segment: routine, template: A, title: "Said 'shoes' nine times?",
+     hook: "Said 'shoes' nine times this morning? / Try zero.",
+     beats: [["0-2 s", "Kinetic count 1 to 9 over the front door."], ["2-6 s", "Kid picks up Nowa: the mission is 'get dressed'."], ["6-10 s", "Shoes on, the pet celebrates."], ["10-14 s", "Super: Less nagging. More follow-through."]],
+     primary_text: "The ninth 'shoes on' doesn't have to be yours."}
+  - {id: R-A3, segment: routine, template: A, title: "Timers ring. Pets wait.",
+     hook: "Bedtime timers get ignored… / A sleepy pet doesn't.",
+     beats: [["0-2 s", "A kitchen timer rings in an empty room."], ["2-6 s", "The pet yawns on the display, waiting to be tucked in."], ["6-11 s", "Pajamas, teeth, the kid tucks the pet in; it falls asleep."], ["11-15 s", "Super: 'Bedtime has an ending built in.'"]],
+     primary_text: "Kids with a consistent bedtime routine fell asleep faster (Mindell et al., Sleep, 2009). Nowa makes the routine something your child wants to finish."}
+  - {id: R-B1, segment: routine, template: B, title: "He reminds ME about teeth now",
+     hook: "My 5-year-old now reminds me to brush my teeth.",
+     vo: "Parent to camera, deadpan.",
+     beats: [["0-3 s", "The hook, straight to camera."], ["3-10 s", "Three facts: 'I picked the routine in the app. His pet needs his help with it. It chirps when he's done.'"], ["10-14 s", "The turn: 'And there's no feed to fall into.'"], ["14-22 s", "Close: 'Mornings are his now. I just drink the coffee.'"]],
+     primary_text: "I didn't get a different kid. I got a quieter morning."}
+  - {id: R-B2, segment: routine, template: B, title: "Her morning beats mine",
+     hook: "My daughter's morning routine is better than mine.",
+     beats: [["0-3 s", "Parent in a bathrobe, kid already dressed behind them."], ["3-10 s", "Facts: the pet wakes up, the mission is 'get dressed', then 'pack your bag'."], ["10-14 s", "Turn: 'I haven't narrated a morning in a week.'"], ["14-22 s", "Close: 'I'm working on mine.'"]],
+     primary_text: "Less narrating. More getting out the door."}
+  - {id: R-B3, segment: routine, template: B, title: "A 3-inch pet ends our bedtime",
+     hook: "Not to be dramatic, but a 3-inch pet ends our bedtime now.",
+     beats: [["0-3 s", "Dad whispering in a dark hallway."], ["3-10 s", "Facts: the pet gets sleepy, he helps it get ready, he tucks it in."], ["10-14 s", "Turn: 'It has an ending. It literally falls asleep.'"], ["14-22 s", "Close: 'Then so does he.'"]],
+     primary_text: "No 'one more'. The pet's asleep."}
+  - {id: R-C1, segment: routine, template: C, title: "By the toothbrush at 7 am",
+     hook: "I left this by his toothbrush. Watch 7 am.",
+     beats: [["0-5 s", "Night before: Nowa placed by the sink."], ["5-12 s", "Morning: he finds it; the pet needs help with a teeth mission."], ["12-18 s", "Parent in the doorway: 'I didn't say anything.'"], ["18-24 s", "Close: 'The first morning I didn't narrate.'"]],
+     primary_text: "We gave the morning to someone new. He's 3 inches tall and very sleepy at 7 am."}
+  - {id: R-C2, segment: routine, template: C, title: "Meet who helps her get ready",
+     hook: "Meet the one who helps her get ready now.",
+     beats: [["0-5 s", "Family table; the device is revealed."], ["5-12 s", "She names the pet; it celebrates."], ["12-20 s", "Next-morning montage: dressed, bag, water, each one a mission."], ["20-24 s", "Close: 'She does it for him. I just watch.'"]],
+     primary_text: "You choose the routine. Nowa turns it into a mission your child completes to help their pet."}
+  - {id: R-C3, segment: routine, template: C, title: "First morning, unedited",
+     hook: "Our first morning with Nowa. Unedited.",
+     beats: [["0-4 s", "Handheld phone POV, kid waking up."], ["4-12 s", "She grabs Nowa; the pet wants breakfast; she heads to the table."], ["12-18 s", "Parent whisper: 'She's doing it.'"], ["18-22 s", "Close: pet celebrates, kid grins."]],
+     primary_text: "Less reminding. More getting ready."}
+  - {id: R-D1, segment: routine, template: D, title: "Not bad at mornings",
+     hook: "Turns out he wasn't 'bad at mornings'. / He just needed a reason that wasn't me.",
+     beats: [["0-3 s", "The hook as text over a messy hallway."], ["3-5 s", "The pet and a mission card on the display."], ["5-15 s", "Checklist: teeth ✓ dressed ✓ bag ✓, the pet growing a little each time."], ["15-20 s", "Super: 'You choose the routine. The pet makes it a mission.'"], ["20-24 s", "Objection: 'No tablet. No app for the kid.'"]],
+     primary_text: "Of course he needed a pet to look after before he'd look after his own morning."}
+  - {id: R-D2, segment: routine, template: D, title: "Me at 7:40 vs him at 7:40",
+     hook: "Me at 7:40 / Him at 7:40",
+     beats: [["0-3 s", "Split screen: parent frantic, kid calm."], ["3-6 s", "Kid's side: pet on the display, mission 'shoes on'."], ["6-16 s", "His checklist ticks off while the parent's side stays chaotic."], ["16-22 s", "Both sides meet at the door; the pet celebrates."]],
+     primary_text: "Of course he needed a pet to look after before he'd look after his own morning."}
+  - {id: R-D3, segment: routine, template: D, title: "Bedtime without the negotiation",
+     hook: "POV: bedtime without the negotiation.",
+     beats: [["0-3 s", "Bath running, text hook."], ["3-5 s", "The pet yawns on the display."], ["5-16 s", "Checklist: pajamas ✓ teeth ✓ tuck the pet in ✓."], ["16-20 s", "The pet sleeps. Lights out."]],
+     primary_text: "Of course she needed a pet to look after before she'd look after her own bedtime."}
+  - {id: R-E1, segment: routine, template: E, title: "Mornings run on your voice",
+     hook: "3 signs your mornings run on your voice",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. You've said 'shoes' more than five times."], ["6-9 s", "2. You know the routine better than they do."], ["9-12 s", "3. You're the timer, the alarm and the reminder."], ["12-15 s", "'Take the 90-second quiz: where does your child's routine break?'"]],
+     primary_text: "Where does your child's routine break? The 90-second quiz tells you.", lp: "/resources/quiz/routine-break"}
+  - {id: R-E2, segment: routine, template: E, title: "A skill, not motivation",
+     hook: "3 signs it's a skill, not a motivation problem",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. Great at step one, lost by step two."], ["6-9 s", "2. Transitions are where it falls apart."], ["9-12 s", "3. Fine until the routine changes."], ["12-15 s", "'Find your child's routine type.'"]],
+     primary_text: "Routines run on skills that are still being built between 3 and 7. Find out which one.", lp: "/resources/quiz/routine-cliff"}
+  - {id: R-E3, segment: routine, template: E, title: "Bedtime moments you know",
+     hook: "3 bedtime moments every parent knows",
+     beats: [["0-3 s", "Title card over a hallway at night."], ["3-6 s", "1. 'One more.'"], ["6-9 s", "2. The water."], ["9-12 s", "3. You, still the alarm clock at 9 pm."], ["12-15 s", "'Where does your routine break? Take the quiz.'"]],
+     primary_text: "Bedtime runs late for a reason. The 90-second quiz finds it.", lp: "/resources/quiz/routine-break"}
+
+  # ---------------- BIG FEELINGS ----------------
+  - {id: F-A1, segment: big_feelings, template: A, title: "Calm is a rep",
+     hook: "Calm isn't a personality. / It's a rep.",
+     beats: [["0-2 s", "Kinetic text over a calm afternoon."], ["2-6 s", "The pet sulks on the display."], ["6-11 s", "Kid does a calm-down mission to help it; the pet settles."], ["11-15 s", "Super: 'Small reps, in calm moments.'"]],
+     primary_text: "Nobody learns calm mid-meltdown. Nowa lets your child practise it on a good day."}
+  - {id: F-A2, segment: big_feelings, template: A, title: "Name it first",
+     hook: "Most kids can't name the feeling… / until they've named it for someone smaller.",
+     beats: [["0-2 s", "Text over a kid's face, unsure."], ["2-7 s", "The pet looks sulky; the mission asks what it's feeling."], ["7-12 s", "Kid picks the feeling; the pet brightens."], ["12-15 s", "Super: 'A feeling has to be named before a child can do anything with it.'"]],
+     primary_text: "Know it. Show it. Bring it down. Practised with a pet your child looks after."}
+  - {id: F-A3, segment: big_feelings, template: A, title: "The theory evaporates",
+     hook: "You've read the books… / Your child never got the practice.",
+     beats: [["0-2 s", "A stack of parenting books."], ["2-7 s", "Cut to the kid helping the pet through a calm mission."], ["7-12 s", "Super: 'Built with the scientists who wrote the science.'"], ["12-15 s", "End card: Calm is a rep, not a trait."]],
+     primary_text: "The theory was only ever handed to you. Nowa gives your child a way to practise."}
+  - {id: F-B1, segment: big_feelings, template: B, title: "Better at calming down than me",
+     hook: "My son is now better at calming down than I am.",
+     beats: [["0-3 s", "Parent to camera, a little sheepish."], ["3-10 s", "Facts: 'His pet has feelings. When it's upset, he helps it through a mission. He practises on good days.'"], ["10-14 s", "Turn: 'It never talks back. It chirps and sulks, that's it.'"], ["14-22 s", "Close (real family line only): the moment he used it himself."]],
+     primary_text: "Calm is a rep, not a trait. He's been doing reps."}
+  - {id: F-B2, segment: big_feelings, template: B, title: "She taught her pet a calm-down trick",
+     hook: "She taught her pet a calm-down trick. Then she taught it to me.",
+     beats: [["0-3 s", "Parent laughing at the camera."], ["3-10 s", "Facts: the pet gets upset, the mission is a calm-down practice, the pet settles."], ["10-14 s", "Turn: 'We practise when nobody's upset.'"], ["14-22 s", "Close: kid demonstrates the trick on the parent."]],
+     primary_text: "Practice when calm, not in the storm."}
+  - {id: F-B3, segment: big_feelings, template: B, title: "A pet with a better feelings vocabulary",
+     hook: "Not to be dramatic, but a pixel pet has more feelings words than our whole family.",
+     beats: [["0-3 s", "Dad at the dinner table."], ["3-10 s", "Facts: the pet chirps, sulks, celebrates; the kid names what it feels."], ["10-14 s", "Turn: 'It never says a word. The kids do.'"], ["14-22 s", "Close: 'Dinner now starts with how's the pet feeling.'"]],
+     primary_text: "A pet, not an AI companion. It speaks in sound and feeling, never sentences."}
+  - {id: F-C1, segment: big_feelings, template: C, title: "After school, but different",
+     hook: "The after-school crash. Here's what changed.",
+     beats: [["0-5 s", "Set-up: Nowa tucked in the backpack pocket."], ["5-12 s", "Kid home, heavy; the pet on the display is sulky too."], ["12-20 s", "Kid helps the pet settle; shoulders drop."], ["20-24 s", "Close: 'She holds it together at school. Now she has somewhere to let it out.'"]],
+     primary_text: "The teacher sees a great kid. You get the crash. Nowa gives the feeling somewhere to go."}
+  - {id: F-C2, segment: big_feelings, template: C, title: "Meeting the pet on a calm Sunday",
+     hook: "We introduced the pet on a calm Sunday. On purpose.",
+     beats: [["0-5 s", "Quiet living room; the device is revealed."], ["5-12 s", "She names the pet; it celebrates."], ["12-20 s", "First feelings mission, easy and playful."], ["20-24 s", "Close: 'Practice on a good day, so it's there on a hard one.'"]],
+     primary_text: "Every part of calm can be practised, in small reps, in calm moments."}
+  - {id: F-C3, segment: big_feelings, template: C, title: "Grandma meets the pet that never talks",
+     hook: "Grandma's face when the pet didn't say a word.",
+     beats: [["0-5 s", "Kid hands the device to grandma."], ["5-12 s", "Grandma: 'It doesn't talk?' Kid: 'It sulks. You have to guess.'"], ["12-20 s", "They name the feeling together; the pet brightens."], ["20-24 s", "Close on the two of them laughing."]],
+     primary_text: "It doesn't talk back. That's the whole point."}
+  - {id: F-D1, segment: big_feelings, template: D, title: "Not too sensitive",
+     hook: "Turns out she wasn't 'too sensitive'. / She just needed somewhere to practise.",
+     beats: [["0-3 s", "Text over a quiet bedroom."], ["3-5 s", "The pet's mood on the display."], ["5-15 s", "Checklist: name it ✓ show it ✓ bring it down ✓, as a mission for the pet."], ["15-20 s", "Super: 'Built with child-development scientists.'"], ["20-24 s", "Objection: 'It never talks back. Sound and feeling only.'"]],
+     primary_text: "Of course she needed someone smaller to look after before she could look after her own big feelings."}
+  - {id: F-D2, segment: big_feelings, template: D, title: "Homework at 6:15",
+     hook: "Homework at 6:15 / The pet at 6:15",
+     beats: [["0-3 s", "Split screen: worksheet tears vs the pet sulking."], ["3-6 s", "Kid picks up Nowa; a calm mission starts."], ["6-16 s", "Reps: the pet settles, the kid's breathing slows."], ["16-22 s", "Back to the worksheet, calmer."]],
+     primary_text: "Of course she needed someone smaller to look after before she could look after her own big feelings."}
+  - {id: F-D3, segment: big_feelings, template: D, title: "The calm-down mission, on a good day",
+     hook: "POV: practising calm when nobody's upset.",
+     beats: [["0-3 s", "Sunny afternoon, text hook."], ["3-5 s", "The pet on the display, a little wobbly."], ["5-16 s", "The mission as a checklist, the pet settling step by step."], ["16-20 s", "The pet celebrates."]],
+     primary_text: "Of course he needed someone smaller to look after before he could look after his own big feelings."}
+  - {id: F-E1, segment: big_feelings, template: E, title: "Ten times the size",
+     hook: "3 signs your kid feels everything at ten times the size",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. Huge reactions to tiny things."], ["6-9 s", "2. Holds it together at school, crashes at home."], ["9-12 s", "3. Can't say it, so it comes out sideways."], ["12-15 s", "'What's your child's big-feelings type? 90-second quiz.'"]],
+     primary_text: "What's your child's big-feelings type? Find out in 90 seconds.", lp: "/resources/quiz/big-feelings-type"}
+  - {id: F-E2, segment: big_feelings, template: E, title: "It isn't about the shoes",
+     hook: "3 signs the meltdown isn't really about the shoes",
+     beats: [["0-3 s", "Title card over a pair of shoes."], ["3-6 s", "1. It's always at a transition."], ["6-9 s", "2. It's bigger when they're tired."], ["9-12 s", "3. Afterwards, they can't tell you why."], ["12-15 s", "'Find your child's big-feelings type.'"]],
+     primary_text: "The meltdown has a pattern. The quiz finds it.", lp: "/resources/quiz/big-feelings-type"}
+  - {id: F-E3, segment: big_feelings, template: E, title: "Before they can calm down",
+     hook: "3 things kids need before they can calm down",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. A name for the feeling."], ["6-9 s", "2. A way to show it that fits the moment."], ["9-12 s", "3. Practice on a calm day."], ["12-15 s", "'Which one does your child need most? Take the quiz.'"]],
+     primary_text: "Know it, show it, bring it down. Which one is your child working on?", lp: "/resources/quiz/big-feelings-type"}
+
+  # ---------------- SCREEN-ANXIOUS ----------------
+  - {id: S-A1, segment: screen_anxious, template: A, title: "Built to never end",
+     hook: "Most kid apps are built to never end… / This one falls asleep.",
+     beats: [["0-2 s", "An autoplay countdown: 'Next episode in 5'."], ["2-7 s", "The pet yawns on the display; the kid tucks it in."], ["7-11 s", "The pet sleeps; the kid puts it down and walks off."], ["11-15 s", "Super: 'An ending built in.'"]],
+     primary_text: "Nowa has a screen. It also has a bedtime."}
+  - {id: S-A2, segment: screen_anxious, template: A, title: "Just another screen?",
+     hook: "Is this just another screen? / The screen is the prompt. The play happens in the room.",
+     beats: [["0-2 s", "Text over the device in a kid's hand."], ["2-7 s", "The pet needs help; the kid runs off to do the mission in the real world."], ["7-11 s", "Super: 'No feed. No autoplay. No open internet.'"], ["11-15 s", "End card: A pocket-sized pet, not a screen to scroll."]],
+     primary_text: "It has a screen. Here's what your child does on it, and where play stops."}
+  - {id: S-A3, segment: screen_anxious, template: A, title: "We built the ending first",
+     hook: "The hardest part of screen time is the end… / So we built the ending first.",
+     beats: [["0-3 s", "A tablet being handed back (hands only, no tears on camera)."], ["3-8 s", "The pet gets sleepy; the kid tucks it in."], ["8-12 s", "Super: 'Care, wait, grow. A loop that moves in days, not seconds.'"], ["12-15 s", "End card."]],
+     primary_text: "I need the break the screen buys me. I just hate what it costs when it ends. (Every parent we talked to said a version of this.)"}
+  - {id: S-B1, segment: screen_anxious, template: B, title: "He ends his own screen time now",
+     hook: "My son ends his own screen time now. Because his pet gets sleepy.",
+     beats: [["0-3 s", "Parent to camera, still a bit amazed."], ["3-10 s", "Facts: 'No feed. No autoplay. The pet grows over days, then it needs sleep.'"], ["10-14 s", "Turn: 'There's no next episode.'"], ["14-22 s", "Close: 'Handing it back used to be the worst part of my day.'"]],
+     primary_text: "The first screen I don't have to fight to end."}
+  - {id: S-B2, segment: screen_anxious, template: B, title: "The break the screen buys me",
+     hook: "I need the break the screen buys me. I just hate what it costs.",
+     beats: [["0-3 s", "Parent making dinner, to camera."], ["3-10 s", "Facts: 'It has a screen. It has no feed, no autoplay, no internet. And the pet goes to sleep.'"], ["10-14 s", "Turn: 'So the break has an ending.'"], ["14-22 s", "Close: kid at the table, pet asleep beside the plate."]],
+     primary_text: "You still get the break. You just don't pay for it at the end."}
+  - {id: S-B3, segment: screen_anxious, template: B, title: "The first screen I don't feel guilty about",
+     hook: "Not to be dramatic, but this is the first screen I don't feel guilty about.",
+     beats: [["0-3 s", "Mom holding the device up."], ["3-10 s", "Facts: 'It's the size of my palm. Three buttons. The pet sends him off to do things.'"], ["10-14 s", "Turn: 'Not a friend in a screen. A reason to look up from one.'"], ["14-22 s", "Close: the kid outside, device in pocket."]],
+     primary_text: "No chat. No feed. No open internet. Just a small creature that needs your kid."}
+  - {id: S-C1, segment: screen_anxious, template: C, title: "Tablet for a pet, day one",
+     hook: "Day one of swapping the tablet for a pet.",
+     beats: [["0-5 s", "Parent announces the swap; kid skeptical."], ["5-12 s", "The pet appears; the kid names it; first mission."], ["12-20 s", "Evening: the pet gets sleepy; the kid tucks it in."], ["20-24 s", "Close (real family line only): the parent's reaction to the evening."]],
+     primary_text: "Care, wait, grow. A loop that moves in days, not seconds."}
+  - {id: S-C2, segment: screen_anxious, template: C, title: "Road trip, no tablet",
+     hook: "Four hours in the car. No tablet. Watch.",
+     beats: [["0-5 s", "Car packed; the tablet stays home."], ["5-12 s", "Kid shakes and tilts the device to play a mission."], ["12-20 s", "The pet sleeps; the kid looks out of the window."], ["20-24 s", "Close: 'It works offline. And then it naps.'"]],
+     primary_text: "Works offline. No feed to scroll. A pet that naps when the play is done."}
+  - {id: S-C3, segment: screen_anxious, template: C, title: "The moment it usually ends in tears",
+     hook: "This is usually where screen time ends in tears.",
+     beats: [["0-5 s", "Set-up: the bedtime clock."], ["5-12 s", "Instead, the pet yawns first."], ["12-20 s", "The kid tucks it in, then gets into bed."], ["20-24 s", "Close: the parent's exhale."]],
+     primary_text: "Screen time needs a clear stopping point. Nowa's pet gets tired and sleeps."}
+  - {id: S-D1, segment: screen_anxious, template: D, title: "A screen that says goodnight",
+     hook: "Turns out he didn't need more screen rules. / He needed a screen that says goodnight.",
+     beats: [["0-3 s", "Text over a fridge full of screen-time rules."], ["3-5 s", "The pet on the display."], ["5-15 s", "Checklist: feed the pet ✓ do the mission in the room ✓ tuck it in ✓."], ["15-20 s", "Super: 'No feed. No autoplay. No open internet.'"], ["20-24 s", "Objection: 'You set the missions and bedtime in the parent app.'"]],
+     primary_text: "Of course the one screen he'll put down on his own is the one that falls asleep first."}
+  - {id: S-D2, segment: screen_anxious, template: D, title: "Autoplay vs the pet",
+     hook: "Autoplay: 'Next episode in 5' / The pet: 'zzz'",
+     beats: [["0-3 s", "Split screen: an autoplay countdown vs the pet yawning."], ["3-10 s", "The countdown restarts; the pet is already asleep."], ["10-16 s", "The kid on the pet side puts the device down and goes to play."], ["16-20 s", "End card."]],
+     primary_text: "Of course the one screen he'll put down on his own is the one that falls asleep first."}
+  - {id: S-D3, segment: screen_anxious, template: D, title: "Care, wait, grow",
+     hook: "POV: the pet that grows in days, not seconds.",
+     beats: [["0-3 s", "Day 1: the kid feeds the pet."], ["3-8 s", "Wait: the kid goes outside; the device sits on the shelf."], ["8-15 s", "Day 2: the pet has changed; the kid is thrilled."], ["15-20 s", "Super: 'Care, wait, grow.'"]],
+     primary_text: "Of course the one screen she'll wait for is the one that makes her wait."}
+  - {id: S-E1, segment: screen_anxious, template: E, title: "Screen time with no ending",
+     hook: "3 signs your kid's screen time has no ending",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. Every stop is a negotiation."], ["6-9 s", "2. 'One more' is a whole episode."], ["9-12 s", "3. The crash lasts longer than the show."], ["12-15 s", "'What's your family's screen-time pattern? Take the quiz.'"]],
+     primary_text: "What's your family's screen-time pattern? Find it in 90 seconds.", lp: "/resources/quiz/screen-kid"}
+  - {id: S-E2, segment: screen_anxious, template: E, title: "Before any kids' device",
+     hook: "3 questions to ask before any kids' device",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. Does it have a feed?"], ["6-9 s", "2. Does it autoplay?"], ["9-12 s", "3. Does it talk back?"], ["12-15 s", "'Find the screen rules that fit your family.'"]],
+     primary_text: "The questions that matter more than the hours.", lp: "/resources/quiz/screen-rules"}
+  - {id: S-E3, segment: screen_anxious, template: E, title: "The screen-time referee",
+     hook: "3 signs you're the screen-time referee",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. You set a timer you have to enforce."], ["6-9 s", "2. You're the one who says 'off'."], ["9-12 s", "3. The replacement toy lasted a week."], ["12-15 s", "'Find your family's pattern.'"]],
+     primary_text: "Find your family's screen-time pattern in 90 seconds.", lp: "/resources/quiz/screen-rules"}
+
+  # ---------------- PRODUCT OVERVIEW (homepage only) ----------------
+  - {id: O-A1, segment: overview, template: A, title: "Most toys get played with once",
+     hook: "Most toys get played with once… / Nowa gets looked after every day.",
+     beats: [["0-1 s", "A pile of abandoned toys."], ["1-4 s", "Small hands pick up Nowa; the pet appears."], ["4-8 s", "Super: 'A pocket-sized pet, not a screen to scroll.'"], ["8-12 s", "Breadth flash: routines · feelings · focus."], ["12-15 s", "End card: $99 pre-order · ships October 2026 · fully refundable."]],
+     primary_text: "The pet that turns routines into play. Pre-order for $99, fully refundable until it ships."}
+  - {id: O-A2, segment: overview, template: A, title: "It doesn't talk back",
+     hook: "It doesn't talk back. / That's the whole point.",
+     beats: [["0-2 s", "Chat bubbles cross out, one by one."], ["2-7 s", "The pet chirps, sulks, celebrates. No words."], ["7-11 s", "Specs flash: three buttons, a scroll wheel, a hardware mic mute switch."], ["11-15 s", "Super: 'A creature to care for, not a chatbot to talk to.'"]],
+     primary_text: "No chat. No feed. No open internet. Just a small creature that needs your kid."}
+  - {id: O-A3, segment: overview, template: A, title: "Less nagging. More follow-through.",
+     hook: "Less nagging. / More follow-through.",
+     beats: [["0-2 s", "Kinetic text over a morning kitchen."], ["2-8 s", "The pet needs help; the kid does the mission."], ["8-12 s", "Super: 'The pet that turns routines into play.'"], ["12-15 s", "Super: 'Built with the scientists who wrote the science.'"]],
+     primary_text: "Small missions. Everyday practice. A pocket-sized pet your child looks after."}
+  - {id: O-B1, segment: overview, template: B, title: "They fight over feeding it",
+     hook: "My kids fight over who gets to feed the pet. The pet is 3 inches tall.",
+     beats: [["0-3 s", "Parent to camera, two kids arguing behind."], ["3-10 s", "Facts: 'It fits in a pocket. No tablet, no app for the kid. The missions happen in the real world.'"], ["10-14 s", "Turn: 'It never says a word.'"], ["14-22 s", "Close: the kids doing a mission together."]],
+     primary_text: "A pocket-sized pet, not a screen to scroll."}
+  - {id: O-B2, segment: overview, template: B, title: "I had a virtual pet in '98",
+     hook: "I had a virtual pet in 1998. My daughter's helps her get ready for school.",
+     beats: [["0-3 s", "Dad holding up the device, grinning."], ["3-10 s", "Facts: 'Same idea. You look after it. But this one turns her routine into missions.'"], ["10-14 s", "Turn: 'No internet, no feed.'"], ["14-22 s", "Close: 'Same joy. A better ending.'"]],
+     primary_text: "The pet you had as a kid, built for what your kid actually needs."}
+  - {id: O-B3, segment: overview, template: B, title: "More responsible for the pet than his shoes",
+     hook: "He's more responsible for his pet than his shoes. So the shoes joined the pet's routine.",
+     beats: [["0-3 s", "Parent to camera, amused."], ["3-10 s", "Facts: 'I choose the routine in the parent app. Nowa turns it into a mission. He does it for the pet.'"], ["10-14 s", "Turn: 'I didn't make a chart.'"], ["14-22 s", "Close: shoes on, the pet celebrates."]],
+     primary_text: "You choose the routine. Nowa turns it into a mission your child completes to help their pet."}
+  - {id: O-C1, segment: overview, template: C, title: "Opening Nowa for the first time",
+     hook: "Opening Nowa with my kids for the first time.",
+     beats: [["0-6 s", "Unboxing on the living-room floor."], ["6-12 s", "The pet appears; the kids name it."], ["12-20 s", "First mission; the pet celebrates."], ["20-24 s", "Close: 'The first thing she asked was what it needs.'"]],
+     primary_text: "Pre-order for $99. Ships October 2026. Fully refundable until it ships."}
+  - {id: O-C2, segment: overview, template: C, title: "The gift they'll still be looking after",
+     hook: "Hiding this in the stocking this year.",
+     beats: [["0-6 s", "Set-up: wrapping Nowa late at night."], ["6-12 s", "Morning: the reveal; the pet appears."], ["12-20 s", "The kid's first mission, straight away."], ["20-24 s", "Close: 'The gift they'll still be looking after in February.'"]],
+     primary_text: "Ships October 2026, in time for the holidays. Refunded automatically if it hasn't shipped by November 30."}
+  - {id: O-C3, segment: overview, template: C, title: "Showing grandpa the pet that never talks",
+     hook: "Showing grandpa the pet that never says a word.",
+     beats: [["0-5 s", "Kid hands grandpa the device."], ["5-12 s", "Grandpa: 'How does it tell you anything?' Kid shows the moods."], ["12-20 s", "They do a mission together."], ["20-24 s", "Close: 'Built to send your child back to you.'"]],
+     primary_text: "It speaks in squeaks and sighs and sleepy little sounds, never in sentences."}
+  - {id: O-D1, segment: overview, template: D, title: "Something to look after",
+     hook: "Turns out my kids didn't need another app. / They needed something to look after.",
+     beats: [["0-3 s", "Text over a kitchen table."], ["3-5 s", "The pet and a mission card on the display."], ["5-15 s", "Checklist across the day: morning routine ✓ calm-down mission ✓ bedtime tuck-in ✓."], ["15-20 s", "Super: 'Routines, feelings, focus. Practised by caring for a pet.'"], ["20-24 s", "Objection: 'Fully refundable until it ships.'"]],
+     primary_text: "Of course they needed a pet to take care of before they'd take care of the routine."}
+  - {id: O-D2, segment: overview, template: D, title: "Kid apps vs Nowa",
+     hook: "Kid apps: 'Watch next' / Nowa: 'I'm sleepy'",
+     beats: [["0-3 s", "Split screen: an app's infinite scroll vs the pet."], ["3-10 s", "App side keeps going; pet side: care, wait, grow."], ["10-16 s", "The pet sleeps; the kid goes to play."], ["16-20 s", "End card: A pocket-sized pet, not a screen to scroll."]],
+     primary_text: "Of course the pet they love most is the one that tells them to go play."}
+  - {id: O-D3, segment: overview, template: D, title: "One day with Nowa",
+     hook: "POV: one day with a pocket-sized pet.",
+     beats: [["0-4 s", "7 am: the pet wants breakfast, a routine mission."], ["4-9 s", "4 pm: the pet sulks, a calm-down mission."], ["9-15 s", "8 pm: the pet is sleepy, tuck-in."], ["15-20 s", "Super: 'Small missions. Everyday practice.'"]],
+     primary_text: "Of course they needed a pet to take care of before they'd take care of the routine."}
+  - {id: O-E1, segment: overview, template: E, title: "3 things it does, 3 it never will",
+     hook: "3 things Nowa does, and 3 it never will",
+     beats: [["0-3 s", "Title card."], ["3-8 s", "Does: turns routines into missions · practises calm · grows over days."], ["8-12 s", "Never: talks back · shows a feed · opens the internet."], ["12-15 s", "'See how it works.'"]],
+     primary_text: "A pocket-sized pet your child looks after. No feed, no autoplay, no open internet."}
+  - {id: O-E2, segment: overview, template: E, title: "The 3 questions parents ask first",
+     hook: "The 3 questions parents ask us first",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. 'Is it just another screen?' It has a screen, and an ending."], ["6-9 s", "2. 'Does it talk?' Never a word."], ["9-12 s", "3. 'What if it doesn't ship?' Automatic refund if not shipped by November 30."], ["12-15 s", "'See the rest.'"]],
+     primary_text: "$99 pre-order. Ships October 2026. Fully refundable until it ships."}
+  - {id: O-E3, segment: overview, template: E, title: "3 skills a pocket-sized pet can practise",
+     hook: "3 skills a pocket-sized pet can practise",
+     beats: [["0-3 s", "Title card."], ["3-6 s", "1. Routines: holding the steps in mind."], ["6-9 s", "2. Feelings: calm is a rep."], ["9-12 s", "3. Focus: planning before doing."], ["12-15 s", "'Built with the scientists who wrote the science.'"]],
+     primary_text: "Small missions. Everyday practice. Shaped with child-development scientists."}

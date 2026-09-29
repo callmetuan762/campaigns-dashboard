@@ -1,0 +1,528 @@
+<title>Nowa Ad Teardown</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@500;600;700;800&family=Noto+Sans:wght@400;500;600&display=swap">
+<style>
+/* Nowa Design System tokens (skill: nowa-design-system/assets/tokens.css), trimmed to what this page uses.
+   One deliberate light world: the Sunlit cream canvas is locked by the system, so no dark variant. */
+:root{
+  color-scheme:light;
+  --color-coral-flame:#ef493d; --color-coral-blush:#fececa; --color-ember-deep:#b9271c; --color-ember-darker:#7f241d;
+  --color-deep-ink:#161c24; --color-ink-charcoal:#212b36; --color-slate-mid:#454f5b; --color-mist-body:#637381;
+  --color-cloud-border:#c4cdd5; --color-chalk-surface:#dfe3e8; --color-warm-parchment:#fdf5dd;
+  --color-ghost-white:#f4f6f8; --color-pure-white:#ffffff; --color-amber-signal:#ffc107; --color-leaf-success:#54d62c;
+  --font-onest:'Onest',ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-noto-sans:'Noto Sans',ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --grid-line-dark:rgba(255,255,255,.06); --grid-cell:28px;
+  --px-shadow:3px 3px 0 rgba(22,28,36,.12);
+  --ease-out-strong:cubic-bezier(0.23,1,0.32,1);
+  --radius-inputs:8px;
+  --step-8:polygon(0 8px,4px 8px,4px 4px,8px 4px,8px 0,calc(100% - 8px) 0,calc(100% - 8px) 4px,calc(100% - 4px) 4px,calc(100% - 4px) 8px,100% 8px,100% calc(100% - 8px),calc(100% - 4px) calc(100% - 8px),calc(100% - 4px) calc(100% - 4px),calc(100% - 8px) calc(100% - 4px),calc(100% - 8px) 100%,8px 100%,8px calc(100% - 4px),4px calc(100% - 4px),4px calc(100% - 8px),0 calc(100% - 8px));
+  --step-12:polygon(0 12px,6px 12px,6px 6px,12px 6px,12px 0,calc(100% - 12px) 0,calc(100% - 12px) 6px,calc(100% - 6px) 6px,calc(100% - 6px) 12px,100% 12px,100% calc(100% - 12px),calc(100% - 6px) calc(100% - 12px),calc(100% - 6px) calc(100% - 6px),calc(100% - 12px) calc(100% - 6px),calc(100% - 12px) 100%,12px 100%,12px calc(100% - 6px),6px calc(100% - 6px),6px calc(100% - 12px),0 calc(100% - 12px));
+  /* page roles → system tokens. Nowa = ink, competitors = slate. Coral is reserved for action. */
+  --bg:var(--color-warm-parchment); --panel:var(--color-pure-white); --ink:var(--color-deep-ink);
+  --ink-2:var(--color-slate-mid); --ink-3:var(--color-mist-body); --rule:var(--color-chalk-surface); --rule-2:var(--color-ghost-white);
+  --own:var(--color-deep-ink); --comp:var(--color-mist-body);
+  --crit:var(--color-ember-darker); --warn:#6b4e00; --ok:#1f5e12;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--font-noto-sans);margin:0}
+.wrap{max-width:1152px;margin:0 auto;padding-inline:16px;padding-block:0 56px}
+h1,h2,h3{text-wrap:balance;margin:0;font-family:var(--font-onest)}
+h2{font-weight:700;font-size:18px;line-height:1.4}
+h3{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-2)}
+p{margin:0;max-width:72ch}
+.num,td.n,th.n,.facts b{font-variant-numeric:tabular-nums}
+a{color:var(--ink);text-decoration-color:var(--color-coral-flame);text-underline-offset:3px}
+a:hover{color:var(--color-coral-flame)}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--color-coral-flame);outline-offset:2px}
+
+/* ---- night band header (graph paper on ink) ---- */
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background-color:var(--color-deep-ink);
+  background-image:linear-gradient(var(--grid-line-dark) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line-dark) 1px,transparent 1px);
+  background-size:var(--grid-cell) var(--grid-cell);color:var(--color-pure-white)}
+.top-inner{max-width:1152px;margin:0 auto;padding-inline:16px;padding-block:14px 0;display:grid;gap:12px}
+.brandrow{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:10px;font:800 20px/1.2 var(--font-onest)}
+.brand .bcell{width:12px;height:12px;background:var(--color-coral-flame);transition:transform 300ms var(--ease-out-strong)}
+.brand:hover .bcell{transform:rotate(90deg)}
+.brand small{font:500 13px var(--font-noto-sans);color:var(--color-cloud-border)}
+.facts{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--color-cloud-border);font-size:12.5px}
+.facts b{color:var(--color-pure-white);font-weight:600}
+/* tabs = .mtab (active goes cream-on-night) */
+nav.tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:12px}
+nav.tabs button{--side:4px;--tab-top:var(--color-ink-charcoal);--tab-side:#0d1117;border:0;cursor:pointer;white-space:nowrap;
+  font:700 13.5px var(--font-onest);padding:9px 16px 13px;clip-path:var(--step-8);color:var(--color-cloud-border);
+  background:linear-gradient(var(--tab-top),var(--tab-top)) no-repeat 0 0/100% calc(100% - var(--side)),var(--tab-side);
+  transition:color 150ms ease,transform 70ms steps(2)}
+nav.tabs button[aria-selected="true"]{--side:2px;--tab-top:var(--color-warm-parchment);--tab-side:var(--color-cloud-border);color:var(--color-deep-ink);transform:translateY(2px)}
+@media(hover:hover) and (pointer:fine){nav.tabs button:not([aria-selected="true"]):hover{--side:6px;color:var(--color-pure-white);transform:translateY(-2px)}}
+nav.tabs .count{margin-left:8px;padding:1px 6px;background:var(--color-coral-flame);color:#fff;font-size:11.5px;clip-path:var(--step-8)}
+
+/* ---- day content ---- */
+section.view{display:grid;gap:22px;padding-top:24px}
+.intro{color:var(--ink-2);display:grid;gap:6px}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;font:700 14px var(--font-onest);color:var(--ink)}
+.eyebrow .cell{width:12px;height:12px;background:var(--color-deep-ink)}
+/* .pxcard — stepped corners + 1px border drawn behind + hard offset shadow */
+.panel,.stat{position:relative;--pxbg:var(--panel);--pxborder:var(--rule);filter:drop-shadow(var(--px-shadow))}
+.panel::before,.stat::before{content:"";position:absolute;inset:0;z-index:0;clip-path:var(--step-12);
+  background:linear-gradient(var(--pxbg),var(--pxbg)) 1px 1px/calc(100% - 2px) calc(100% - 2px) no-repeat,var(--pxborder)}
+.panel>*,.stat>*{position:relative;z-index:1}
+.panel{padding:20px;display:grid;gap:12px;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));gap:22px;padding:0 4px 4px 0}
+.controls{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center}
+.controls label{font:600 12.5px var(--font-onest);color:var(--ink-2);display:flex;gap:8px;align-items:center}
+select,input[type="search"]{background:var(--panel);border:1px solid var(--color-cloud-border);border-radius:var(--radius-inputs);padding:6px 10px;min-width:0;max-width:100%;font:400 13.5px var(--font-noto-sans)}
+input[type="checkbox"]{accent-color:var(--color-coral-flame);width:16px;height:16px}
+/* segmented control = light .mtab */
+.seg{display:inline-flex;gap:4px}
+.seg button{--side:3px;--tab-top:var(--color-pure-white);--tab-side:var(--color-cloud-border);border:0;cursor:pointer;
+  font:700 13px var(--font-onest);padding:7px 14px 10px;clip-path:var(--step-8);color:var(--ink-2);
+  background:linear-gradient(var(--tab-top),var(--tab-top)) no-repeat 0 0/100% calc(100% - var(--side)),var(--tab-side);transition:transform 70ms steps(2)}
+.seg button[aria-pressed="true"]{--side:2px;--tab-top:var(--color-deep-ink);--tab-side:var(--color-ink-charcoal);color:#fff;transform:translateY(2px)}
+
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{font:700 11px/1.3 var(--font-onest);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);text-align:left;padding:8px;border-bottom:2px solid var(--color-deep-ink);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right;white-space:nowrap}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--color-ghost-white)}
+.dim{color:var(--ink-3)}
+
+/* chips: stepped 8px, system signal colours (no coral: coral means "do this") */
+.chip{display:inline-flex;align-items:center;gap:4px;font:600 11.5px/1 var(--font-onest);padding:4px 8px;clip-path:var(--step-8);background:var(--color-chalk-surface);color:var(--ink-2);white-space:nowrap}
+.chip.crit{background:var(--color-ember-darker);color:#fff}
+.chip.warn{background:var(--color-amber-signal);color:var(--color-deep-ink)}
+.chip.ok{background:var(--color-leaf-success);color:var(--color-deep-ink)}
+.chip.own{background:var(--color-deep-ink);color:#fff}
+.chip.comp{background:var(--color-chalk-surface);color:var(--color-slate-mid)}
+.dir{font:600 10.5px var(--font-onest);color:var(--warn);margin-left:6px;text-transform:uppercase;letter-spacing:.06em}
+
+.stat-row{display:flex;flex-wrap:wrap;gap:14px;padding:0 4px 4px 0}
+.stat{display:grid;gap:4px;padding:14px 16px;min-width:130px}
+.stat .v{font:800 24px/1.1 var(--font-onest);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:8px}
+.stat .v::before{content:"";width:10px;height:10px;background:var(--color-cloud-border);flex:none}
+.stat.crit .v::before{background:var(--color-ember-darker)} .stat.warn .v::before{background:var(--color-amber-signal)}
+.stat.ok .v::before{background:var(--color-leaf-success)}
+.stat .k{font-size:12.5px;color:var(--ink-2)}
+
+/* bars: square ends, ink for Nowa, slate for competitors */
+.bar{height:10px;background:var(--own);min-width:1px}
+.bar.comp{background:var(--comp)} .bar.hollow{background:repeating-linear-gradient(90deg,var(--comp) 0 4px,transparent 4px 6px)}
+.barcell{display:flex;align-items:center;gap:8px;min-width:150px}
+.barcell .track{flex:1;background:var(--color-ghost-white);height:10px;display:flex}
+
+.heat{font-variant-numeric:tabular-nums;text-align:right;cursor:pointer}
+.heat span{display:inline-block;min-width:44px;padding:3px 5px}
+.heat:hover span{outline:2px solid var(--color-coral-flame);outline-offset:-2px}
+
+.quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
+.quote{background:var(--color-ghost-white);padding:10px 12px;display:grid;gap:4px;font-size:13px;border-left:4px solid var(--own)}
+.quote .src{font:700 10.5px/1 var(--font-onest);text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3)}
+.quote.page{border-left-color:var(--comp);background:var(--color-pure-white);outline:1px solid var(--rule);outline-offset:-1px}
+.mm{display:grid;gap:8px;padding:14px 0;border-bottom:1px solid var(--rule)}
+.mm:last-child{border-bottom:0}
+.mm-head{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.mm-head b{font:700 14px var(--font-onest)}
+
+/* risk callout — amber signal on a drawn card */
+.risk{--pxbg:#fff8e1;--pxborder:var(--color-amber-signal)}
+.risk .riskhead{display:flex;gap:10px;align-items:center}
+.risk .riskhead::before{content:"";width:12px;height:12px;background:var(--color-amber-signal);flex:none}
+
+dialog{border:0;background:transparent;color:var(--ink);width:min(880px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:0 4px 4px 0;overflow:visible}
+dialog::backdrop{background:rgba(22,28,36,.55)}
+/* The stepped card's fill is a ::before sized to the box, so the box itself must never scroll
+   (scrolled content would sit on no fill and show the page behind). Only .dlg-body scrolls. */
+.dlg{max-height:calc(100vh - 56px);display:flex;flex-direction:column;overflow:hidden;padding:0;gap:0}
+.dlg-head{flex:none;padding:16px 20px;border-bottom:2px solid var(--color-deep-ink);display:flex;justify-content:space-between;gap:12px;align-items:start}
+.dlg-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;background:var(--panel);margin:0 6px 6px 0;padding:18px 14px 18px 20px;display:grid;gap:16px;align-content:start}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:5px 16px;font-size:13px}
+.kv dt{color:var(--ink-3);font:600 12px var(--font-onest)} .kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+/* ghost button (Tier 3): coral underline on hover */
+.btn{background:none;border:0;border-bottom:2px solid transparent;padding:4px 2px;cursor:pointer;font:700 13px var(--font-onest);color:var(--ink);transition:border-color 200ms var(--ease-out-strong)}
+.btn:hover{border-bottom-color:var(--color-coral-flame)}
+.btn:disabled{color:var(--ink-3);cursor:default;border-bottom-color:transparent}
+.pager{display:flex;gap:14px;align-items:center;justify-content:flex-end;color:var(--ink-2);font-size:12.5px}
+.note{font-size:12.5px;color:var(--ink-2)}
+.empty{padding:20px;text-align:center;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brandrow">
+      <div class="brand"><span class="bcell" aria-hidden="true"></span>nowa <span style="font-weight:600">Ad Teardown</span> <small>Meta · US</small></div>
+      <div class="facts" id="facts"></div>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" data-tab="offers" aria-selected="true"><span>Offer check</span><span class="count" id="tab-offers-count" hidden></span></button>
+      <button role="tab" data-tab="performance" aria-selected="false"><span>Our ads × performance</span></button>
+      <button role="tab" data-tab="mix" aria-selected="false"><span>Label mix by brand</span></button>
+      <button role="tab" data-tab="gap" aria-selected="false"><span>Competitor gap</span></button>
+      <button role="tab" data-tab="ads" aria-selected="false"><span>All ads</span></button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- OFFER CHECK -->
+  <section class="view" id="view-offers">
+    <div class="intro">
+      <span class="eyebrow"><span class="cell"></span>Ad ↔ page ↔ offer facts</span>
+      <p>Every Nowa ad checked three ways: what the ad claims, what its landing page says, and what the confirmed offer facts say. The <b>price rule</b> compares the ad's "then $X" with the page's "returns to $X" and gives the same answer for the same claim. The model's page check is a second opinion that also looks at dates, scarcity and wording. A page we couldn't read is never counted as a mismatch.</p>
+    </div>
+    <div class="controls">
+      <div class="seg" id="offers-scope" role="group" aria-label="Which ads">
+        <button aria-pressed="true" data-v="all">All Nowa ads</button>
+        <button aria-pressed="false" data-v="active">Live ads</button>
+      </div>
+    </div>
+    <div class="stat-row" id="offers-stats"></div>
+    <div id="page-risks"></div>
+    <div class="grid2">
+      <div class="panel">
+        <h2>By landing page</h2>
+        <p class="note">Where the conflicts come from. Fixing one page clears every ad pointing to it.</p>
+        <div class="scroll"><table id="offers-pages"></table></div>
+      </div>
+      <div class="panel">
+        <h2>Offer facts</h2>
+        <p class="note">Claims our ads make, checked against <span class="num">config/offer_facts.yaml</span>. Only you confirm a fact. Nothing is changed automatically.</p>
+        <div class="scroll"><table id="offers-policy"></table></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Conflicts, side by side</h2>
+      <div id="offers-list"></div>
+    </div>
+  </section>
+
+  <!-- PERFORMANCE -->
+  <section class="view" id="view-performance" hidden>
+    <div class="intro">
+      <span class="eyebrow"><span class="cell"></span>Nowa ads, grouped by label</span>
+      <p>Meta-reported US results. Groups under $50 of spend or 1,000 impressions are marked <span class="dir">directional</span>. Meta purchases are not Shopify orders; judge Last Call on Shopify orders. Labels mix campaigns with different goals, so filter to one campaign for a fair comparison.</p>
+    </div>
+    <div class="controls">
+      <label>Group by <select id="perf-dim"></select></label>
+      <label>Campaign <select id="perf-campaign"><option value="">All Nowa campaigns</option></select></label>
+      <div class="seg" id="perf-window" role="group" aria-label="Time window">
+        <button aria-pressed="true" data-v="perf">Lifetime</button>
+        <button aria-pressed="false" data-v="perf_30d">Last 30 days</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="scroll"><table id="perf-table"></table></div>
+      <p class="note" id="perf-note"></p>
+    </div>
+  </section>
+
+  <!-- MIX -->
+  <section class="view" id="view-mix" hidden>
+    <div class="intro">
+      <span class="eyebrow"><span class="cell"></span>Label mix by brand</span>
+      <p>Share of each brand's ads carrying each label. <span class="num">unknown</span> stays in the denominator. Click a cell to see those ads.</p>
+    </div>
+    <div class="controls">
+      <label>Label <select id="mix-dim"></select></label>
+      <label><input type="checkbox" id="mix-active" checked> Live ads only</label>
+    </div>
+    <div class="panel"><div class="scroll"><table id="mix-table"></table></div></div>
+  </section>
+
+  <!-- GAP -->
+  <section class="view" id="view-gap" hidden>
+    <div class="intro">
+      <span class="eyebrow"><span class="cell"></span>Competitor gap</span>
+      <p>Where competitors keep paying and where Nowa spends. Ad Library shows no spend, so a competitor ad that has run 60+ days is the only signal it's working. Treat it as a proxy, not a result.</p>
+    </div>
+    <div class="controls"><label>Label <select id="gap-dim"></select></label></div>
+    <div class="panel">
+      <div class="scroll"><table id="gap-table"></table></div>
+      <p class="note" id="gap-note"></p>
+    </div>
+  </section>
+
+  <!-- ALL ADS -->
+  <section class="view" id="view-ads" hidden>
+    <div class="controls">
+      <label>Brand <select id="ads-brand"><option value="">All brands</option></select></label>
+      <label>Check <select id="ads-compare"><option value="">Any result</option></select></label>
+      <label>Status <select id="ads-analysis"><option value="">Any status</option></select></label>
+      <label><input type="checkbox" id="ads-active"> Live only</label>
+      <label style="flex:1;min-width:180px"><input type="search" id="ads-q" placeholder="Search copy, code, campaign" style="width:100%"></label>
+      <span class="chip" id="ads-filter-chip" hidden></span>
+    </div>
+    <div class="panel">
+      <div class="scroll"><table id="ads-table"></table></div>
+      <div class="pager"><span id="ads-count"></span><button class="btn" id="ads-prev">Previous</button><button class="btn" id="ads-next">Next</button></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg"><div class="panel dlg"><div class="dlg-head"><div id="dlg-title"></div><button class="btn" id="dlg-close">Close</button></div><div class="dlg-body" id="dlg-body"></div></div></dialog>
+
+<script>
+const DATA = /*__DATA__*/null;
+const P = DATA.provenance, ROWS = DATA.rows;
+const OWN = ROWS.filter(r => r.lane === "own"), COMP = ROWS.filter(r => r.lane === "competitor");
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (n, d = 0) => n == null || !isFinite(n) ? "–" : n.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = (n, d = 2) => n == null || !isFinite(n) ? "–" : "$" + fmt(n, d);
+const pct = (a, b, d = 1) => b ? fmt(100 * a / b, d) + "%" : "–";
+const pretty = s => String(s ?? "unknown").replaceAll("_", " ");
+const DIMLABEL = {format:"Format", hook_type:"Hook", offer_type:"Offer", cta_intent:"CTA intent", awareness_stage:"Awareness",
+  driver:"Driver", funnel_stage:"Funnel stage", pain_point:"Pain point", proof_type:"Proof"};
+const SEV = {high:"crit", medium:"warn", low:""};
+const STATUSCHIP = {mismatch:"crit", partial:"warn", match:"ok", unverifiable:"", no_landing_page:""};
+const isLive = r => r.active === "active";
+// The same sentence often appears in several DOM nodes (hero, sticky bar, footer CTA); show it once.
+const uniqQ = qs => { const seen = new Set(); return (qs || []).filter(q => { const k = String(q.text || "").toLowerCase().replace(/[^a-z0-9$]+/g, " ").trim().slice(0, 70);
+  if (!k || seen.has(k)) return false; seen.add(k); return true; }); };
+const quoteHtml = c => uniqQ(c.ad_quotes).map(q => `<div class="quote ad"><span class="src">Ad · ${esc(pretty(q.origin))}</span>${esc(q.text)}</div>`).join("")
+  + uniqQ(c.page_quotes).map(q => `<div class="quote page"><span class="src">Page · ${esc(pretty(q.origin))}</span>${esc(q.text)}</div>`).join("");
+const store = {get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+
+/* ---------- header ---------- */
+(function facts(){
+  const analyzed = ROWS.filter(r => r.analysis !== "pending").length;
+  const days = d => d ? d.slice(0, 10) : "–";
+  $("#facts").innerHTML = [
+    `<span><b>${fmt(OWN.length)}</b> Nowa ads</span>`,
+    `<span><b>${fmt(COMP.length)}</b> competitor ads</span>`,
+    `<span><b>${fmt(analyzed)}</b> analyzed${analyzed < ROWS.length ? ` · <b>${fmt(ROWS.length - analyzed)}</b> pending` : ""}</span>`,
+    `<span>observed ${days(P.observed_from)} → ${days(P.observed_to)}</span>`,
+    `<span>model cost <b>${usd(P.model_cost_usd)}</b></span>`,
+    `<span class="dim">${esc(P.taxonomy_version)} · ${esc(P.prompt_version)}</span>`].join("");
+})();
+
+/* ---------- tabs ---------- */
+function show(tab){
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+  document.querySelectorAll("section.view").forEach(s => s.hidden = s.id !== "view-" + tab);
+  store.set("tab", tab);
+  if (location.hash !== "#" + tab) history.replaceState(null, "", "#" + tab);
+}
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button"); if (b) show(b.dataset.tab); });
+
+function dimSelect(sel, def){
+  sel.innerHTML = P.dimensions.map(d => `<option value="${d}">${DIMLABEL[d] || d}</option>`).join("");
+  sel.value = def;
+}
+function seg(el, cb){
+  el.addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return;
+    el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); cb(b.dataset.v); });
+  return () => el.querySelector('[aria-pressed="true"]').dataset.v;
+}
+
+/* ---------- offer check ---------- */
+let offersScope = "all";
+const offersScopeGet = seg($("#offers-scope"), v => { offersScope = v; renderOffers(); });
+function renderOffers(){
+  const rs = OWN.filter(r => r.analysis !== "pending" && (offersScope === "all" || isLive(r)));
+  const by = s => rs.filter(r => (r.compare?.status || "unknown") === s).length;
+  const mm = rs.filter(r => r.compare?.status === "mismatch");
+  const high = mm.filter(r => r.compare.severity === "high").length;
+  const rule = v => rs.filter(r => r.price_rule?.verdict === v).length;
+  $("#offers-stats").innerHTML = [
+    ["crit", rule("conflict"), "price conflict (rule)"],
+    ["ok", rule("consistent"), "price agrees (rule)"],
+    ["crit", by("mismatch"), `model: mismatch${high ? ` · ${high} high` : ""}`],
+    ["warn", by("partial"), "model: partial"],
+    ["ok", by("match"), "model: match"],
+    ["muted", by("unverifiable") + by("no_landing_page"), "page unreadable"],
+    ["muted", rs.length, offersScope === "active" ? "live Nowa ads analyzed" : "Nowa ads analyzed"]]
+    .map(([c, v, k]) => `<div class="stat ${c}"><span class="v">${fmt(v)}</span><span class="k">${k}</span></div>`).join("");
+  const liveHigh = OWN.filter(r => isLive(r) && (r.compare?.status === "mismatch" || r.price_rule?.verdict === "conflict")).length;
+  const t = $("#tab-offers-count"); t.hidden = !liveHigh; t.textContent = liveHigh;
+
+  const pages = {};
+  rs.forEach(r => { const u = r.landing_final_url || r.destination || "(no link)";
+    const p = pages[u] ||= {n:0, mismatch:0, partial:0, match:0, other:0, reason:null, live:0, rule:0, ruleText:null};
+    p.n++; if (isLive(r)) p.live++;
+    if (r.price_rule?.verdict === "conflict"){ p.rule++; p.ruleText ||= `Ads say later price $${r.price_rule.ad_later.join("/$")}; page says $${r.price_rule.page_later.join("/$")}.`; }
+    const s = r.compare?.status; if (s in p) p[s]++; else p.other++;
+    if (s === "mismatch" && !p.reason) p.reason = r.compare.reason; });
+  const prow = Object.entries(pages).sort((a, b) => b[1].rule - a[1].rule || b[1].mismatch - a[1].mismatch || b[1].n - a[1].n);
+  $("#offers-pages").innerHTML = `<thead><tr><th>Page</th><th class="n">Ads</th><th class="n">Price rule</th><th class="n">Model mismatch</th><th class="n">Partial</th><th class="n">Match</th><th class="n">Unreadable</th></tr></thead><tbody>` +
+    prow.map(([u, p]) => `<tr><td style="max-width:320px;overflow-wrap:anywhere"><span class="num" style="font-size:12px">${esc(u.replace(/^https?:\/\//, ""))}</span>${p.ruleText || p.reason ? `<div class="dim" style="font-size:12px">${esc(p.ruleText || p.reason)}</div>` : ""}</td>
+      <td class="n">${p.n}</td><td class="n">${p.rule ? `<span class="chip crit">${p.rule} conflict</span>` : "0"}</td><td class="n">${p.mismatch ? `<span class="chip crit">${p.mismatch}</span>` : "0"}</td><td class="n">${p.partial || 0}</td><td class="n">${p.match || 0}</td><td class="n">${p.other || 0}</td></tr>`).join("") + "</tbody>";
+
+  $("#page-risks").innerHTML = (P.page_risks || []).map(k => `<div class="panel risk"><div class="riskhead"><h2>Page risk · live scarcity counter</h2></div>
+      <p><span class="num">${esc(k.url.replace(/^https?:\/\//, ""))}</span> shows <b>“${esc(k.seen)}”</b> (read ${esc((k.fetched_at || "").slice(0, 10))}). ${esc(k.note || "")}</p>
+      <p class="note">Confirmed by ${esc(k.confirmed_by || "–")}. Options: tie the counter to real Shopify orders, or state a fixed cap ("500 founding bundles") without a live number.</p></div>`).join("");
+
+  const facts = {};
+  rs.forEach(r => (r.policy || []).forEach(c => { const f = facts[c.fact] ||= {ads:new Set(), live:new Set(), values:{}, verdicts:{}, policy_value:c.policy_value, liveConflict:0};
+    f.ads.add(r.id); if (isLive(r)) f.live.add(r.id);
+    if (c.verdict === "conflict" && isLive(r)) f.liveConflict++;
+    f.values[c.ad_value] = (f.values[c.ad_value] || 0) + 1; f.verdicts[c.verdict] = (f.verdicts[c.verdict] || 0) + 1; }));
+  const frows = Object.entries(facts).sort((a, b) => b[1].ads.size - a[1].ads.size);
+  $("#offers-policy").innerHTML = frows.length ? `<thead><tr><th>Fact</th><th class="n">Ads</th><th class="n">Live</th><th>What the ads say</th><th>Offer facts file</th><th>Result</th></tr></thead><tbody>` +
+    frows.map(([k, f]) => { const v = Object.entries(f.values).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([x, n]) => `${esc(x)} <span class="dim">×${n}</span>`).join(", ");
+      const parts = [];
+      if (f.verdicts.conflict) parts.push(`<span class="chip crit">${f.verdicts.conflict} conflict</span>`);
+      if (f.verdicts.risk) parts.push(`<span class="chip crit">${f.verdicts.risk} risk</span>`);
+      if (f.verdicts.unconfirmed) parts.push(`<span class="chip warn">needs your confirmation</span>`);
+      if (f.verdicts.consistent) parts.push(`<span class="chip ok">${f.verdicts.consistent} consistent</span>`);
+      const hint = f.verdicts.conflict && !f.liveConflict ? `<div class="dim" style="font-size:12px">None live. Don't reuse these creatives without fixing the claim.</div>` : "";
+      return `<tr><td>${pretty(k)}</td><td class="n">${f.ads.size}</td><td class="n">${f.live.size}</td><td>${v}</td><td class="num" style="font-size:12px">${esc(f.policy_value ?? "not set")}</td><td><div style="display:flex;flex-wrap:wrap;gap:4px">${parts.join("")}</div>${hint}</td></tr>`; }).join("") + "</tbody>"
+    : `<tbody><tr><td class="empty">No offer claims found in these ads.</td></tr></tbody>`;
+
+  const list = rs.filter(r => r.price_rule?.verdict === "conflict" || r.compare?.status === "mismatch" || (r.compare?.status === "partial" && r.compare.severity === "high"))
+    .sort((a, b) => (isLive(b) - isLive(a)) || (b.perf?.spend || 0) - (a.perf?.spend || 0));
+  $("#offers-list").innerHTML = list.length ? list.slice(0, 40).map(r => `
+    <div class="mm"><div class="mm-head"><b>${esc(r.code || r.ad_name)}</b>
+      <span class="chip ${STATUSCHIP[r.compare.status]}">${esc(r.compare.status)}${r.compare.severity ? " · " + esc(r.compare.severity) : ""}</span>
+      ${isLive(r) ? '<span class="chip own">live</span>' : `<span class="chip">${esc(pretty(r.active))}</span>`}
+      <span class="dim" style="font-size:12.5px">${esc(r.campaign)}</span>
+      <span class="dim num" style="font-size:12px">${r.perf ? usd(r.perf.spend, 0) + " spent" : ""}</span>
+      <button class="btn" data-ad="${esc(r.id)}" style="margin-left:auto"><span>Open ad →</span></button></div>
+      ${r.price_rule?.verdict === "conflict" ? `<p><span class="chip crit">price rule</span> Ad: later price $${esc(r.price_rule.ad_later.join("/$"))}. Page: returns to $${esc(r.price_rule.page_later.join("/$"))}.${r.price_rule.page_other_mentions?.length ? ` <span class="dim">The page also shows $${esc(r.price_rule.ad_later[0])} as: ${r.price_rule.page_other_mentions.map(m => "“" + esc(m) + "”").join(", ")}.</span>` : ""}</p>` : ""}
+      <p><span class="chip">model</span> ${esc(r.compare.reason)}</p>
+      <div class="quotes">${r.price_rule?.ad_quote ? `<div class="quote ad"><span class="src">Ad · price rule</span>${esc(r.price_rule.ad_quote)}</div><div class="quote page"><span class="src">Page · price rule</span>${esc(r.price_rule.page_quote)}</div>` :
+        quoteHtml(r.compare)}</div>
+    </div>`).join("") + (list.length > 40 ? `<p class="note">Showing 40 of ${list.length}. The rest are in All ads.</p>` : "")
+    : `<div class="empty">No conflicts in these ads.</div>`;
+}
+$("#offers-list").addEventListener("click", e => { const b = e.target.closest("[data-ad]"); if (b) openAd(b.dataset.ad); });
+
+/* ---------- performance ---------- */
+dimSelect($("#perf-dim"), "hook_type");
+const camps = [...new Set(OWN.map(r => r.campaign))].sort();
+$("#perf-campaign").innerHTML += camps.map(c => `<option>${esc(c)}</option>`).join("");
+let perfWin = "perf";
+seg($("#perf-window"), v => { perfWin = v; renderPerf(); });
+function renderPerf(){
+  const d = $("#perf-dim").value, camp = $("#perf-campaign").value;
+  const rs = OWN.filter(r => r.analysis !== "pending" && (!camp || r.campaign === camp));
+  const g = {}; let totSpend = 0;
+  rs.forEach(r => { const m = r[perfWin]; const v = r.labels[d] || "unknown";
+    const x = g[v] ||= {ads:0, withSpend:0, spend:0, impressions:0, link_clicks:0, lpv:0, atc:0, purchases:0, leads:0};
+    x.ads++; if (m && m.spend > 0){ x.withSpend++; ["spend","impressions","link_clicks","lpv","atc","purchases","leads"].forEach(k => x[k] += m[k] || 0); totSpend += m.spend; } });
+  const rowsSorted = Object.entries(g).sort((a, b) => b[1].spend - a[1].spend);
+  const maxSpend = Math.max(1, ...rowsSorted.map(([, x]) => x.spend));
+  $("#perf-table").innerHTML = `<thead><tr><th>${DIMLABEL[d]}</th><th class="n">Ads</th><th>Spend</th><th class="n">Impr.</th><th class="n">Link CTR</th><th class="n">CPM</th><th class="n">Cost / LPV</th><th class="n">ATC</th><th class="n">Purch. (Meta)</th><th class="n">Leads (Meta)</th><th class="n">CPL</th></tr></thead><tbody>` +
+    rowsSorted.map(([v, x]) => { const dirn = x.spend < P.directional_spend || x.impressions < P.directional_impressions;
+      return `<tr class="click" data-dim="${d}" data-val="${esc(v)}"><td>${esc(pretty(v))}${dirn ? '<span class="dir">directional</span>' : ""}</td>
+      <td class="n">${x.ads}</td>
+      <td><div class="barcell"><div class="track"><div class="bar" style="width:${100 * x.spend / maxSpend}%"></div></div><span class="num">${usd(x.spend, 0)}</span></div></td>
+      <td class="n">${fmt(x.impressions)}</td><td class="n">${pct(x.link_clicks, x.impressions, 2)}</td>
+      <td class="n">${x.impressions ? usd(1000 * x.spend / x.impressions) : "–"}</td><td class="n">${x.lpv ? usd(x.spend / x.lpv) : "–"}</td>
+      <td class="n">${fmt(x.atc)}</td><td class="n">${fmt(x.purchases)}</td><td class="n">${fmt(x.leads)}</td><td class="n">${x.leads ? usd(x.spend / x.leads) : "–"}</td></tr>`; }).join("") + "</tbody>";
+  const w = rs.map(r => r[perfWin]).filter(Boolean);
+  const start = w.map(m => m.date_start).sort()[0], stop = w.map(m => m.date_stop).sort().pop();
+  $("#perf-note").textContent = `${fmt(rs.length)} ads · ${usd(totSpend, 0)} US spend · ${start || "–"} → ${stop || "–"} · click a row to see its ads.`;
+}
+["#perf-dim", "#perf-campaign"].forEach(s => $(s).addEventListener("change", renderPerf));
+$("#perf-table").addEventListener("click", e => { const tr = e.target.closest("tr[data-dim]"); if (tr) drill({lane:"own", dim:tr.dataset.dim, val:tr.dataset.val}); });
+
+/* ---------- mix ---------- */
+dimSelect($("#mix-dim"), "hook_type");
+function renderMix(){
+  const d = $("#mix-dim").value, live = $("#mix-active").checked;
+  const rs = ROWS.filter(r => r.analysis !== "pending" && (!live || isLive(r)));
+  const brands = [...new Set(rs.map(r => r.brand))].sort((a, b) => (a === "nowa" ? -1 : b === "nowa" ? 1 : a.localeCompare(b)));
+  const vals = P.labels[d] ? [...P.labels[d]] : [...new Set(rs.map(r => r.labels[d] || "unknown"))];
+  const n = {}, c = {};
+  rs.forEach(r => { n[r.brand] = (n[r.brand] || 0) + 1; const v = r.labels[d] || "unknown"; (c[r.brand] ||= {})[v] = (c[r.brand][v] || 0) + 1; });
+  const used = vals.filter(v => brands.some(b => c[b]?.[v]));
+  const names = Object.fromEntries(rs.map(r => [r.brand, r.brand_name]));
+  $("#mix-table").innerHTML = `<thead><tr><th>${DIMLABEL[d]}</th>${brands.map(b => `<th class="n">${esc(names[b])}<div class="dim" style="font:400 11px var(--mono)">n=${n[b]}</div></th>`).join("")}</tr></thead><tbody>` +
+    used.map(v => `<tr><td>${esc(pretty(v))}</td>${brands.map(b => { const k = c[b]?.[v] || 0, s = n[b] ? k / n[b] : 0;
+      const col = b === "nowa" ? "var(--own)" : "var(--comp)";
+      return `<td class="heat" data-brand="${b}" data-dim="${d}" data-val="${esc(v)}"><span style="background:color-mix(in srgb, ${col} ${Math.round(s * 85)}%, transparent);${s > .4 ? "color:#fff" : ""}">${k ? fmt(100 * s, 0) + "%" : "·"}</span></td>`; }).join("")}</tr>`).join("") + "</tbody>";
+}
+["#mix-dim", "#mix-active"].forEach(s => $(s).addEventListener("change", renderMix));
+$("#mix-table").addEventListener("click", e => { const td = e.target.closest("td[data-brand]"); if (td) drill({brand:td.dataset.brand, dim:td.dataset.dim, val:td.dataset.val, live:$("#mix-active").checked}); });
+
+/* ---------- gap ---------- */
+dimSelect($("#gap-dim"), "hook_type");
+function renderGap(){
+  const d = $("#gap-dim").value;
+  const comp = COMP.filter(r => r.analysis !== "pending"), longr = comp.filter(r => (r.days_running || 0) >= P.long_running_days);
+  const own = OWN.filter(r => r.analysis !== "pending"), ownLive = own.filter(isLive);
+  const spendTot = own.reduce((s, r) => s + (r.perf?.spend || 0), 0);
+  const vals = [...new Set([...comp, ...own].map(r => r.labels[d] || "unknown"))];
+  const share = (rs, v) => rs.length ? rs.filter(r => (r.labels[d] || "unknown") === v).length / rs.length : 0;
+  const rowsG = vals.map(v => ({v, comp: share(comp, v), longr: share(longr, v), live: share(ownLive, v),
+    spend: spendTot ? own.filter(r => (r.labels[d] || "unknown") === v).reduce((s, r) => s + (r.perf?.spend || 0), 0) / spendTot : 0}))
+    .sort((a, b) => b.longr - a.longr || b.comp - a.comp);
+  const bar = (s, cls) => `<div class="barcell"><div class="track"><div class="bar ${cls}" style="width:${100 * s}%"></div></div><span class="num">${fmt(100 * s, 0)}%</span></div>`;
+  $("#gap-table").innerHTML = `<thead><tr><th>${DIMLABEL[d]}</th><th>Competitors, 60+ days <span class="dim">(n=${longr.length})</span></th><th>Competitors, all <span class="dim">(n=${comp.length})</span></th><th>Nowa spend share</th><th>Nowa live ads <span class="dim">(n=${ownLive.length})</span></th><th></th></tr></thead><tbody>` +
+    rowsG.map(x => { const gap = x.longr >= .15 && x.spend < .05;
+      return `<tr><td>${esc(pretty(x.v))}</td><td>${bar(x.longr, "comp")}</td><td>${bar(x.comp, "hollow")}</td><td>${bar(x.spend, "")}</td><td class="n">${fmt(100 * x.live, 0)}%</td><td>${gap ? '<span class="chip warn">untested by Nowa</span>' : ""}</td></tr>`; }).join("") + "</tbody>";
+  $("#gap-note").textContent = `"Untested by Nowa": at least 15% of competitors' 60+ day ads use it, and it has under 5% of Nowa's US spend. Nowa spend covers ${usd(spendTot, 0)} lifetime.`;
+}
+$("#gap-dim").addEventListener("change", renderGap);
+
+/* ---------- all ads ---------- */
+const brandNames = Object.fromEntries(ROWS.map(r => [r.brand, r.brand_name]));
+$("#ads-brand").innerHTML += Object.entries(brandNames).map(([b, n]) => `<option value="${b}">${esc(n)}</option>`).join("");
+$("#ads-compare").innerHTML += ["mismatch","partial","match","unverifiable","no_landing_page"].map(s => `<option value="${s}">${pretty(s)}</option>`).join("");
+$("#ads-analysis").innerHTML += ["completed","needs_review","pending"].map(s => `<option value="${s}">${pretty(s)}</option>`).join("");
+let drillF = null, page = 0;
+function drill(f){ drillF = f; page = 0; if (f.brand) $("#ads-brand").value = f.brand; else $("#ads-brand").value = "";
+  $("#ads-active").checked = !!f.live; show("ads"); renderAds(); }
+function renderAds(){
+  const b = $("#ads-brand").value, c = $("#ads-compare").value, a = $("#ads-analysis").value, live = $("#ads-active").checked, q = $("#ads-q").value.trim().toLowerCase();
+  const chip = $("#ads-filter-chip");
+  chip.hidden = !drillF; if (drillF) chip.innerHTML = `${DIMLABEL[drillF.dim]}: ${esc(pretty(drillF.val))}${drillF.lane ? " · Nowa" : ""} <button class="btn" id="clear-drill" style="padding:0 6px">×</button>`;
+  const rs = ROWS.filter(r => (!b || r.brand === b) && (!c || r.compare?.status === c) && (!a || r.analysis === a) && (!live || isLive(r))
+    && (!drillF || ((!drillF.lane || r.lane === drillF.lane) && (r.labels[drillF.dim] || "unknown") === drillF.val && r.analysis !== "pending"))
+    && (!q || [r.headline, r.body, r.code, r.campaign, r.ad_name].some(x => (x || "").toLowerCase().includes(q))));
+  const per = 50, pages = Math.max(1, Math.ceil(rs.length / per)); page = Math.min(page, pages - 1);
+  $("#ads-count").textContent = `${fmt(rs.length)} ads · page ${page + 1} of ${pages}`;
+  $("#ads-prev").disabled = page === 0; $("#ads-next").disabled = page >= pages - 1;
+  $("#ads-table").innerHTML = `<thead><tr><th>Brand</th><th>Ad</th><th>Hook</th><th>Offer</th><th>Pain point</th><th>Page check</th><th class="n">Spend (US)</th><th class="n">Days running</th></tr></thead><tbody>` +
+    (rs.slice(page * per, page * per + per).map(r => `<tr class="click" data-ad="${esc(r.id)}">
+      <td><span class="chip ${r.lane === "own" ? "own" : "comp"}">${esc(r.brand_name)}</span></td>
+      <td style="max-width:360px"><div>${esc(r.headline || r.body?.slice(0, 90) || r.ad_name || "(no text)")}</div><div class="dim" style="font-size:12px">${esc(r.code || "")} ${isLive(r) ? "· live" : "· " + esc(pretty(r.active))}</div></td>
+      <td>${esc(pretty(r.labels.hook_type))}</td><td>${esc(pretty(r.labels.offer_type))}</td><td>${esc(pretty(r.labels.pain_point))}</td>
+      <td>${r.compare ? `<span class="chip ${STATUSCHIP[r.compare.status] || ""}">${esc(pretty(r.compare.status))}</span>` : '<span class="dim">pending</span>'}</td>
+      <td class="n">${r.perf ? usd(r.perf.spend, 0) : "–"}</td><td class="n">${r.days_running ?? "–"}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No ads match these filters.</td></tr>`) + "</tbody>";
+}
+["#ads-brand","#ads-compare","#ads-analysis","#ads-active"].forEach(s => $(s).addEventListener("change", () => { page = 0; renderAds(); }));
+$("#ads-q").addEventListener("input", () => { page = 0; renderAds(); });
+$("#ads-prev").addEventListener("click", () => { page--; renderAds(); });
+$("#ads-next").addEventListener("click", () => { page++; renderAds(); });
+$("#ads-filter-chip").addEventListener("click", e => { if (e.target.id === "clear-drill"){ drillF = null; renderAds(); } });
+$("#ads-table").addEventListener("click", e => { const tr = e.target.closest("tr[data-ad]"); if (tr) openAd(tr.dataset.ad); });
+
+/* ---------- ad detail ---------- */
+const byId = Object.fromEntries(ROWS.map(r => [r.id, r]));
+function openAd(id){
+  const r = byId[id]; if (!r) return;
+  $("#dlg-title").innerHTML = `<h2>${esc(r.code || r.headline || r.ad_name || r.id)}</h2><div class="dim" style="font-size:12.5px">${esc(r.brand_name)} · ${esc(r.campaign || "Ad Library")} ${r.adset ? "· " + esc(r.adset) : ""}</div>`;
+  const conf = k => r.confidence?.[k] != null ? `<span class="dim num" style="font-size:11.5px"> ${fmt(r.confidence[k], 2)}</span>` : "";
+  const labels = P.dimensions.map(d => `<dt>${DIMLABEL[d]}</dt><dd>${esc(pretty(r.labels[d]))}${d === "format" || d === "cta_intent" ? ' <span class="dim" style="font-size:11.5px">from source</span>' : conf(d)}</dd>`).join("");
+  const p = r.perf;
+  $("#dlg-body").innerHTML = `
+    <div class="kv"><dt>Status</dt><dd>${esc(pretty(r.active))} · analysis ${esc(pretty(r.analysis))}${r.model ? " · " + esc(r.model) : ""}${r.analyzed_as ? ' <span class="dim">(same creative as another ad; checked against this ad\'s own evidence)</span>' : ""}</dd>
+      <dt>Headline</dt><dd>${esc(r.headline || "–")}</dd><dt>Copy</dt><dd>${esc(r.body || "–")}</dd><dt>Button</dt><dd>${esc(r.cta || "–")}</dd>
+      <dt>Links to</dt><dd class="num" style="font-size:12px">${esc(r.landing_final_url || r.destination || "–")} <span class="chip">${esc(pretty(r.landing_status))}</span></dd>
+      ${r.lane === "competitor" ? `<dt>Running</dt><dd>${r.days_running ?? "–"} days (proxy) · ${r.versions || 1} version(s) · ${esc((r.platforms || []).join(", ").toLowerCase())}</dd>` : ""}
+      ${p ? `<dt>US lifetime</dt><dd class="num">${usd(p.spend)} · ${fmt(p.impressions)} impr · ${pct(p.link_clicks, p.impressions, 2)} link CTR · ${fmt(p.lpv)} LPV · ${fmt(p.atc)} ATC · ${fmt(p.purchases)} purch (Meta) · ${fmt(p.leads)} leads (Meta)</dd>` : ""}
+      <dt>Source</dt><dd><a href="${esc(r.source_url)}" target="_blank" rel="noopener">${r.lane === "own" ? "Open in Ads Manager" : "Open in Ad Library"}</a></dd></div>
+    ${r.analysis !== "pending" ? `<div><h3>Labels <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· model confidence is a routing hint, not accuracy</span></h3><dl class="kv" style="margin-top:8px">${labels}</dl></div>` : '<p class="note">Not analyzed yet.</p>'}
+    ${r.compare ? `<div style="display:grid;gap:8px"><h3>Page check</h3><div><span class="chip ${STATUSCHIP[r.compare.status] || ""}">${esc(pretty(r.compare.status))}${r.compare.severity ? " · " + esc(r.compare.severity) : ""}</span> ${esc(r.compare.reason || "")}</div>
+      <div class="quotes">${quoteHtml(r.compare)}</div></div>` : ""}
+    ${r.policy?.length ? `<div style="display:grid;gap:8px"><h3>Offer facts</h3><div class="scroll"><table><thead><tr><th>Fact</th><th>Ad says</th><th>Facts file</th><th>Result</th></tr></thead><tbody>${r.policy.map(c => `<tr><td>${pretty(c.fact)}</td><td>${esc(c.ad_value)}</td><td class="num" style="font-size:12px">${esc(c.policy_value ?? "not set")}</td><td><span class="chip ${c.verdict === "conflict" || c.verdict === "risk" ? "crit" : c.verdict === "unconfirmed" ? "warn" : "ok"}">${esc(c.verdict)}</span></td></tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${r.flags?.length ? `<div class="stat-row">${r.flags.map(f => `<span class="chip">${esc(pretty(f))}</span>`).join("")}</div>` : ""}
+    ${r.notes ? `<p class="note">${esc(r.notes)}</p>` : ""}`;
+  $("#dlg").showModal();
+  $("#dlg-body").scrollTop = 0;
+}
+$("#dlg-close").addEventListener("click", () => $("#dlg").close());
+$("#dlg").addEventListener("click", e => { if (e.target === $("#dlg")) $("#dlg").close(); });
+
+/* ---------- boot ---------- */
+renderOffers(); renderPerf(); renderMix(); renderGap(); renderAds();
+const start = (location.hash || "").slice(1) || store.get("tab") || "offers";
+show(["offers","performance","mix","gap","ads"].includes(start) ? start : "offers");
+</script>
