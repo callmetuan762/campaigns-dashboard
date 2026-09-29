@@ -55,9 +55,28 @@ Run from `ad-teardown/`:
 .venv/bin/python -m teardown analyze --dry-run                # cost estimate, calls nothing
 .venv/bin/python -m teardown analyze --budget 10              # hard USD cap per run (default 10)
 .venv/bin/python -m teardown analyze --campaign "Last Call" --budget 1   # pilot one campaign
+# M4 — reports
+.venv/bin/python -m teardown report                           # dashboard.html, report.json, ads.csv
+.venv/bin/python -m teardown video-report                     # video-teardown.html (+ .json), no model calls
+.venv/bin/python -m teardown repolicy                         # after editing config/offer_facts.yaml
 .venv/bin/python -m teardown status
 .venv/bin/python -m pytest -q
 ```
+
+### video-report: computed vs editorial
+
+`video-report` recomputes everything measurable on each run: longevity tiers (`--min-days`, default
+30; proven = 60), label over-index pooled and **brand-balanced** (each brand's longest-running quarter
+vs its own average, so one brand can't dominate), spine metrics (length, speech, hook text at 0 s,
+"screen-free" claims, templated copy), the top distinct videos per brand (`--per-brand`, default 4) with
+hooks and timed beats pulled from OCR + ASR, and Nowa's video vs static baselines.
+
+The interpretation lives in `report/video_notes.yaml` and is written by people: the spine templates,
+notes per competitor ad, the Nowa translation rules, and the 60-idea bank (5 templates × 4 segments ×
+3). A top-set ad without a note is marked **"new since notes"** on the page. Add a note for it rather
+than letting the page present stale interpretation as current. `tests/test_video_report.py` enforces the
+idea grid, homepage-only links for overview ideas, and the banned-copy list (no em-dashes, no
+"screen-free" for Nowa, no "magical", "clinically", competitor labels).
 
 ### M3 — how classification works
 
@@ -113,6 +132,9 @@ teardown/provider.py   claude -p adapter (cost-tuned) + mock provider for tests
 teardown/validate.py   schema/evidence rules applied to every model result
 teardown/policy.py     deterministic ad ↔ offer_facts check (own ads)
 teardown/analyze.py    cascade, dedup, repair, escalation, budget cap
+teardown/video_report.py  competitor video teardown (computed) + renders report/video_notes.yaml (editorial)
+report/video_notes.yaml   templates, ad notes, translation rules, 60-idea bank — edit by hand
+report/video.css          page style for the video report (Nowa design system)
 teardown/report.py     one row per ad → report.json, ads.csv, dashboard.html (same rows → counts reconcile)
 report/dashboard.template.html  the dashboard page; data is injected at /*__DATA__*/
 config/offer_facts.yaml  the policy source for the M3 offer check — only Amy edits it

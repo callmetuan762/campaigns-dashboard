@@ -5,6 +5,7 @@
   import <file.csv|file.json>       manual ads (validated; rejects written to a file)
   analyze [--budget 10] [--dry-run]  Haiku→Sonnet classification + offer check (hard USD cap)
   report                            data/report/: dashboard.html, report.json, ads.csv
+  video-report                      data/report/video-teardown.html (numbers computed; notes in report/video_notes.yaml)
   status                            what's in the database, per brand and lane
 """
 
@@ -135,6 +136,12 @@ def cmd_analyze(args):
                       dry_run=args.dry_run, force=args.force, campaign=args.campaign))
 
 
+def cmd_video_report(args):
+    from . import video_report
+
+    print(video_report.build(db.connect(), min_days=args.min_days, per_brand=args.per_brand))
+
+
 def cmd_repolicy(args):
     from . import analyze
 
@@ -212,6 +219,10 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="ignore cached analyses")
     p.set_defaults(fn=cmd_analyze)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+    p = sub.add_parser("video-report", help="competitor video teardown + Nowa idea bank (no model calls)")
+    p.add_argument("--min-days", type=int, default=30, help="days running that counts as long-running")
+    p.add_argument("--per-brand", type=int, default=4, help="distinct top videos per brand")
+    p.set_defaults(fn=cmd_video_report)
     sub.add_parser("repolicy", help="re-apply offer_facts.yaml to stored analyses (no model calls)").set_defaults(fn=cmd_repolicy)
     p = sub.add_parser("import")
     p.add_argument("file")
