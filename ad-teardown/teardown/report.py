@@ -154,8 +154,23 @@ def build(conn, out_dir: Path | None = None, log=print) -> dict:
     agg = aggregate(rs)
     runs = [dict(r) for r in conn.execute(
         "SELECT id, status, created_at, spent_usd FROM runs WHERE request LIKE '%analyze%' ORDER BY created_at")]
+    facts = policy.load_facts()
+    counter = facts.get("scarcity_counter") or {}
+    page_risks = []
+    if counter.get("risk"):
+        # Pages that display a live "N left" count Amy has confirmed isn't tied to orders.
+        for s in conn.execute("SELECT DISTINCT canonical_url, final_url, fetched_at, extracted FROM landing_snapshots "
+                              "WHERE status='ok' AND final_url LIKE '%nowaplanet.com%'"):
+            for sn in (json.loads(s["extracted"] or "{}").get("scarcity") or []):
+                m = policy.PATTERNS["scarcity_counter"].search(sn["match"])
+                if m:
+                    page_risks.append({"url": s["final_url"], "fact": "scarcity_counter", "seen": sn["match"].replace("\n", " "),
+                                       "context": sn["context"][:200], "fetched_at": s["fetched_at"],
+                                       "note": counter.get("note"), "confirmed_by": counter.get("confirmed_by")})
+                    break
     provenance = {
         "generated_at": db.now(), "taxonomy_version": TAXONOMY_VERSION, "prompt_version": prompts.PROMPT_VERSION,
+        "page_risks": page_risks,
         "labels": LABELS, "dimensions": DIMENSIONS, "analysis_runs": runs,
         "model_cost_usd": round(conn.execute("SELECT COALESCE(SUM(cost_usd),0) FROM model_calls").fetchone()[0], 2),
         "observed_from": min((r["observed_at"] for r in rs), default=None),

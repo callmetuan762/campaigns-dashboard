@@ -26,6 +26,10 @@ PATTERNS = {
                            re.IGNORECASE),
     "ship_date": re.compile(rf"ships?\s+(?:in\s+|by\s+)?((?:{MONTHS})[a-z]*(?:\s+\d{{1,2}})?(?:,?\s+\d{{4}})?)", re.IGNORECASE),
     "refundable": re.compile(r"\b(fully refundable|refundable|money[- ]back)\b", re.IGNORECASE),
+    "refund_by": re.compile(
+        rf"(?:refund(?:able|ed)?|not shipped)[^.\n]{{0,50}}?(?:until|by|before)\s+((?:{MONTHS})[a-z]*\.?\s+\d{{1,2}}(?:,?\s*\d{{4}})?)",
+        re.IGNORECASE),
+    "scarcity_counter": re.compile(r"\b(\d{1,4})\s+(?:of\s+\d{2,5}\s+)?(?:left|remaining)\b", re.IGNORECASE),
 }
 
 
@@ -39,18 +43,37 @@ def _norm_date(s: str) -> str:
     return s[:3] + s[s.find(" "):] if " " in s else s[:3]
 
 
+MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def _human_date(value) -> str:
+    """2026-11-30 (or a YAML date) -> "nov 30 2026"; anything else passes through."""
+    pv = str(value)
+    if re.match(r"\d{4}-\d{2}-\d{2}", pv):
+        y, m, d = pv[:10].split("-")
+        return f"{MONTH_NAMES[int(m) - 1]} {int(d)} {y}"
+    return pv
+
+
 def _same(fact: str, ad_value: str, policy_value) -> bool:
     if policy_value is None:
         return False
     if fact.endswith("_usd"):
         return float(ad_value) == float(policy_value)
-    if fact in ("deadline", "ship_date"):
-        pv = str(policy_value)
-        if re.match(r"\d{4}-\d{2}-\d{2}", pv):  # 2026-11-30 -> "nov 30"
-            months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-            _y, m, d = pv.split("-")
-            pv = f"{months[int(m) - 1]} {int(d)}"
-        return _norm_date(ad_value).startswith(_norm_date(pv)[:6])
+    pv = _human_date(policy_value)
+    if fact == "ship_date":
+        # "October", "Oct 2026", "October 2026" all match a confirmed "October 2026": same month,
+        # and the same year when both state one; a day is compared only when both state one.
+        a, p = _norm_date(ad_value), _norm_date(pv)
+        if a[:3] != p[:3]:
+            return False
+        day_a, day_p = re.search(r"\b(\d{1,2})\b", a), re.search(r"\b(\d{1,2})\b", p)
+        if day_a and day_p and day_a.group(1) != day_p.group(1):
+            return False
+        y_a, y_p = re.search(r"\d{4}", a), re.search(r"\d{4}", p)
+        return not (y_a and y_p) or y_a.group(0) == y_p.group(0)
+    if fact in ("deadline", "refund_by"):
+        return _norm_date(ad_value).startswith(" ".join(_norm_date(pv).split()[:2]))
     if fact == "scarcity":
         return ad_value in str(policy_value)
     return True  # refundable: presence claim only
@@ -62,15 +85,27 @@ def check(bundle: dict, facts: dict | None = None) -> list[dict]:
     for item in bundle["payload"]["evidence"]:
         if item["o"] == "landing_dom":
             continue
+        # A refund cutoff ("refundable until Nov 30") is not an offer deadline.
+        refund_dates = {_norm_date(m.group(1)) for m in PATTERNS["refund_by"].finditer(item["t"])}
         for fact, rx in PATTERNS.items():
             for m in rx.finditer(item["t"]):
                 value = next(g for g in m.groups() if g) if m.groups() else m.group(0)
+                if fact == "deadline" and _norm_date(value) in refund_dates:
+                    continue
                 key = (fact, value.lower())
                 if key in seen:
                     continue
                 seen.add(key)
                 f = facts.get(fact) or {}
-                if f.get("status") != "confirmed":
+                backstop = facts.get("refund_by") or {}
+                if (fact == "ship_date" and backstop.get("status") == "confirmed"
+                        and _same("refund_by", value, backstop.get("value"))):
+                    # "Ships by Nov 30" states the contractual outer bound. The October target
+                    # sits inside it, so the claim is true, not a conflict.
+                    verdict = "consistent"
+                elif f.get("risk"):
+                    verdict = "risk"  # a claim Amy has confirmed is not backed by reality
+                elif f.get("status") != "confirmed":
                     verdict = "unconfirmed"
                 elif _same(fact, value, f.get("value")):
                     verdict = "consistent"

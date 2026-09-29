@@ -205,3 +205,28 @@ def test_price_rule_is_deterministic_and_two_sided():
     same = [{**ev[0]}, {"id": "p1", "origin": "landing_dom", "text": "then $149 after launch"}]
     assert policy.price_rule(same)["verdict"] == "consistent"
     assert policy.price_rule([{"id": "a", "origin": "ad_copy", "text": "Big feelings?"}])["verdict"] == "no_claim"
+
+
+def test_ship_refund_and_counter_facts():
+    bundle = {"payload": {"evidence": [
+        {"id": "e1", "o": "ad_copy", "t": "Ships October 2026. Fully refundable until Nov 30. Only 85 left!"}]},
+        "id_map": {"e1": "ad:ad_copy"}}
+    facts = {"ship_date": {"value": "October 2026", "status": "confirmed"},
+             "refund_by": {"value": "2026-11-30", "status": "confirmed"},
+             "deadline": {"value": None, "status": "unconfirmed"},
+             "scarcity_counter": {"value": "not tied to real orders", "status": "confirmed", "risk": True}}
+    got = {c["fact"]: c["verdict"] for c in policy.check(bundle, facts)}
+    assert got["ship_date"] == "consistent"
+    assert got["refund_by"] == "consistent"
+    assert "deadline" not in got  # the refund cutoff is not an offer deadline
+    assert got["scarcity_counter"] == "risk"
+    assert policy._same("ship_date", "October", "October 2026")
+    assert not policy._same("ship_date", "November 2026", "October 2026")
+
+
+def test_ship_by_backstop_is_consistent_and_old_month_conflicts():
+    facts = {"ship_date": {"value": "October 2026", "status": "confirmed"},
+             "refund_by": {"value": "2026-11-30", "status": "confirmed"}}
+    b = lambda t: {"payload": {"evidence": [{"id": "e1", "o": "ad_copy", "t": t}]}, "id_map": {"e1": "x"}}
+    assert {c["verdict"] for c in policy.check(b("Ships by November 30"), facts) if c["fact"] == "ship_date"} == {"consistent"}
+    assert {c["verdict"] for c in policy.check(b("Ships September 2026"), facts) if c["fact"] == "ship_date"} == {"conflict"}

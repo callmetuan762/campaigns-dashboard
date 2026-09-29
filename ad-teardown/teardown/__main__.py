@@ -135,6 +135,12 @@ def cmd_analyze(args):
                       dry_run=args.dry_run, force=args.force, campaign=args.campaign))
 
 
+def cmd_repolicy(args):
+    from . import analyze
+
+    print(analyze.repolicy(db.connect()))
+
+
 def cmd_report(args):
     from . import report
 
@@ -206,6 +212,7 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="ignore cached analyses")
     p.set_defaults(fn=cmd_analyze)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+    sub.add_parser("repolicy", help="re-apply offer_facts.yaml to stored analyses (no model calls)").set_defaults(fn=cmd_repolicy)
     p = sub.add_parser("import")
     p.add_argument("file")
     p.set_defaults(fn=cmd_import)

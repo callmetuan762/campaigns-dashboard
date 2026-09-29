@@ -5,7 +5,7 @@
 # status: confirmed (with who + when) | unconfirmed (known conflict or not yet checked)
 
 brand: nowa
-as_of: 2026-09-28
+as_of: 2026-09-29
 
 facts:
   deposit_price_usd:
@@ -38,19 +38,24 @@ facts:
     status: unconfirmed
 
   ship_date:
+    value: "October 2026"
+    status: confirmed
+    confirmed_by: "Amy, 2026-09-29 (same pair confirmed 2026-08-22)"
+    note: "Ship target. The page says 'Ships October 2026'. Legal copy in 08-shopify still says Oct 31."
+
+  refund_by:
     value: 2026-11-30
     status: confirmed
-    confirmed_by: "Amy ↔ Dan"
-    known_conflict: "Legal copy (08-shopify) still says Oct 31."
-    note: >-
-      2026-09-28 live /pages/preorder: "Ships October 2026" + "If your Nowa has not shipped by
-      November 30, 2026 …" — i.e. Nov 30 is the refund cutoff and the page's ship claim is October.
-      Amy to confirm which one this fact means; value left unchanged.
+    confirmed_by: "Amy with Dan, 2026-07-12; pair re-confirmed 2026-08-22"
+    note: "Contractual backstop: if not shipped by Nov 30, 2026, automatic refund. Not the ship date."
 
   scarcity_counter:
-    value: null
-    status: unconfirmed
+    value: "not tied to real orders"
+    status: confirmed
+    confirmed_by: "Amy, 2026-09-29"
+    risk: true
     note: >-
-      Page counter read "139 of 500 left" on 2026-09-15 and "85 of 500 left" on 2026-09-28
-      (54 in 13 days). Check against Shopify $99 order count — a counter that doesn't track
-      real orders is a fake-scarcity risk.
+      The /pages/preorder "N of 500 left" counter doesn't track Shopify orders; it exists to create
+      FOMO (139 left on 2026-09-15, 85 on 2026-09-28). Any ad or page stating a live count is flagged
+      as a risk: fake scarcity is a deceptive practice under FTC guidance, and the page ties the price
+      change to it ("When these spots are gone ... returns to $249").

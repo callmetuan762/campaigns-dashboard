@@ -319,3 +319,35 @@ def _run_stages(conn, provider, run_id, ads, bundles, cached, batches, groups, f
     conn.commit()
     counts["run_id"] = run_id
     return counts
+
+
+def repolicy(conn, log=print) -> dict:
+    """Re-run the deterministic policy check on stored analyses after offer_facts.yaml changes.
+    No model calls. Status is recomputed from the stored model verdict + the new policy result."""
+    facts = policy.load_facts()
+    counts: dict[str, int] = {}
+    rows = conn.execute(
+        """SELECT an.id, an.ad_id, an.status, an.landing_comparison, an.review_flags, a.lane
+           FROM analyses an JOIN ads a ON a.id = an.ad_id
+           WHERE an.status IN ('completed','needs_review') AND an.prompt_version=? AND an.taxonomy_version=?""",
+        (prompts.PROMPT_VERSION, TAXONOMY_VERSION)).fetchall()
+    for r in rows:
+        if r["lane"] != "own":
+            continue
+        ad = dict(conn.execute("SELECT * FROM ads WHERE id=?", (r["ad_id"],)).fetchone())
+        checks = policy.check(B.build(conn, ad), facts)
+        lc = json.loads(r["landing_comparison"])
+        lc["policy"] = checks
+        flags = set(json.loads(r["review_flags"] or "[]")) - {"policy_sensitive_claim"}
+        if any(c["verdict"] in ("conflict", "risk") for c in checks):
+            flags.add("policy_sensitive_claim")
+        needs = ((lc.get("status") == "mismatch" and lc.get("severity") == "high")
+                 or "policy_sensitive_claim" in flags or "low_confidence" in flags)
+        status = "needs_review" if needs else "completed"
+        conn.execute("UPDATE analyses SET landing_comparison=?, review_flags=?, status=? WHERE id=?",
+                     (db.dumps(lc), db.dumps(sorted(flags)), status, r["id"]))
+        key = f"{r['status']}->{status}"
+        counts[key] = counts.get(key, 0) + 1
+    conn.commit()
+    log(f"  re-checked {sum(counts.values())} own-ad analyses against offer_facts.yaml")
+    return counts
