@@ -3,3 +3,6 @@ data/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# The repo root ignores *.html (generated reports). The dashboard TEMPLATE is source, keep it.
+!report/dashboard.template.html
