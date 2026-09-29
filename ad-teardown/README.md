@@ -80,6 +80,10 @@ Run from `ad-teardown/`:
 - **Cache:** re-runs skip ads whose evidence hash + taxonomy + prompt version are unchanged.
   Bump `PROMPT_VERSION` / `TAXONOMY_VERSION` on any prompt or label change. Old analyses are
   kept.
+- **Price rule (`policy.price_rule`, own ads):** the ad's "then $X" vs the page's "returns to $X", by
+  rule. It exists because the model split 15 near-identical Last Call ads into 5 mismatch / 5 partial
+  / 5 match: `/pages/preorder` shows both "$149 at retail" and "returns to $249". The dashboard
+  leads with the rule and shows the model verdict as a second opinion.
 - **Policy check (`policy.py`, own ads):** ad claims vs `config/offer_facts.yaml`. `unconfirmed`
   facts go to Amy's queue; `conflict` with a confirmed fact → `needs_review`. Never auto-edited.
 
@@ -109,6 +113,8 @@ teardown/provider.py   claude -p adapter (cost-tuned) + mock provider for tests
 teardown/validate.py   schema/evidence rules applied to every model result
 teardown/policy.py     deterministic ad ↔ offer_facts check (own ads)
 teardown/analyze.py    cascade, dedup, repair, escalation, budget cap
+teardown/report.py     one row per ad → report.json, ads.csv, dashboard.html (same rows → counts reconcile)
+report/dashboard.template.html  the dashboard page; data is injected at /*__DATA__*/
 config/offer_facts.yaml  the policy source for the M3 offer check — only Amy edits it
 data/                  teardown.db, raw/, media/, cache/ (gitignored — competitor media is internal only)
 tests/                 synthetic fixtures only, no network
@@ -143,4 +149,4 @@ tests/                 synthetic fixtures only, no network
 
 - [x] M0 skeleton · [x] M1 acquisition (own + competitor + CSV)
 - [x] M2 evidence (media, OCR, ASR, landing pages) · [x] M3 analysis + offer check
-- [ ] M4 dashboard/export · [ ] M5 weekly run
+- [x] M4 dashboard/export (`teardown report` → data/report/; published as a private Artifact) · [ ] M5 weekly run

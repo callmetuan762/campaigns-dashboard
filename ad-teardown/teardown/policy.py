@@ -80,3 +80,45 @@ def check(bundle: dict, facts: dict | None = None) -> list[dict]:
                             "policy_value": f.get("value"), "policy_status": f.get("status", "missing"),
                             "verdict": verdict})
     return out
+
+
+# ---------- rule-based ad ↔ page price check ----------
+# Why: on 2026-09-29 the model split 15 near-identical Last Call ads into 5 mismatch / 5 partial
+# / 5 match, because /pages/preorder carries two "later" prices ($249 "full package returns to"
+# and $149 "at retail" / "was $149"). A price comparison must give the same verdict for the
+# same claim, so it is done by rule, and the model's verdict is kept as a second opinion.
+PAGE_LATER = re.compile(r"(?:returns? to|goes (?:up )?to|jumps to|then(?: it'?s)?|after [^$\n]{0,40}?)\s*\$\s?(\d{2,4})",
+                        re.IGNORECASE)
+PAGE_PRICE = re.compile(r"\$\s?(\d{2,4})(?:\.\d{2})?")
+
+
+def price_rule(evidence: list[dict]) -> dict:
+    """evidence: [{"id", "origin", "text"}] for one ad (ad side + landing_dom).
+    verdict: conflict | consistent | no_claim | no_page_price."""
+    ad_later, page_later, page_mentions = {}, {}, {}
+    for e in evidence:
+        text = e["text"] or ""
+        if e["origin"] == "landing_dom":
+            for m in PAGE_LATER.finditer(text):
+                page_later.setdefault(m.group(1), e["id"])
+            for m in PAGE_PRICE.finditer(text):
+                ctx = text[max(0, m.start() - 30): m.end() + 30].replace("\n", " ").strip()
+                page_mentions.setdefault(m.group(1), [])
+                if ctx not in page_mentions[m.group(1)] and len(page_mentions[m.group(1)]) < 3:
+                    page_mentions[m.group(1)].append(ctx)
+        else:
+            for m in PATTERNS["price_after_deadline_usd"].finditer(text):
+                ad_later.setdefault(m.group(1), e["id"])
+    if not ad_later:
+        return {"verdict": "no_claim"}
+    if not page_later:
+        return {"verdict": "no_page_price", "ad_later": sorted(ad_later)}
+    missing = [p for p in ad_later if p not in page_later]
+    res = {"ad_later": sorted(ad_later), "page_later": sorted(page_later),
+           "verdict": "conflict" if missing else "consistent"}
+    if missing:
+        p = missing[0]
+        res.update(ad_evidence=ad_later[p], page_evidence=next(iter(page_later.values())),
+                   # the page may still show the ad's number in another role (retail, "was")
+                   page_other_mentions=page_mentions.get(p, []))
+    return res

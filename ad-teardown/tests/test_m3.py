@@ -179,3 +179,29 @@ def test_policy_result_with_yaml_date_serializes():
     checks = policy.check(bundle, {"ship_date": {"value": datetime.date(2026, 11, 30), "status": "confirmed"}})
     assert checks[0]["verdict"] == "consistent"
     assert '"policy_value": "2026-11-30"' in db.dumps(checks)
+
+
+def test_malformed_model_output_is_an_error_not_a_crash():
+    from teardown.validate import validate
+
+    bundle = {"id_map": {"e1": "ad:ad_copy"}, "payload": {"evidence": [{"id": "e1", "o": "ad_copy", "t": "x"}]},
+              "landing_status": "ok"}
+    bad = _result("ad", "match", ["e1"])
+    bad["claims"] = [{"field": "price", "value": "99", "evidence_id": ["e1"]}]  # list, seen in a real run
+    clean, errs = validate(bad, bundle)
+    assert clean is None and errs
+    assert validate("not an object", bundle)[0] is None
+    assert validate({**_result("ad"), "landing_comparison": "oops"}, bundle)[0] is None
+
+
+def test_price_rule_is_deterministic_and_two_sided():
+    ev = [{"id": "a1", "origin": "ocr", "t": None, "text": "$99 until Oct 15. Then it's $149, for the same bundle."},
+          {"id": "p1", "origin": "landing_dom", "text": "Founding preorder · $99 85 of 500 left Full package returns to $249"},
+          {"id": "p2", "origin": "landing_dom", "text": "$99 today · $149 at retail"}]
+    r = policy.price_rule(ev)
+    assert r["verdict"] == "conflict" and r["ad_later"] == ["149"] and r["page_later"] == ["249"]
+    assert r["ad_evidence"] == "a1" and r["page_evidence"] == "p1"
+    assert any("retail" in m for m in r["page_other_mentions"])
+    same = [{**ev[0]}, {"id": "p1", "origin": "landing_dom", "text": "then $149 after launch"}]
+    assert policy.price_rule(same)["verdict"] == "consistent"
+    assert policy.price_rule([{"id": "a", "origin": "ad_copy", "text": "Big feelings?"}])["verdict"] == "no_claim"

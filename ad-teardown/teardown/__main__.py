@@ -3,6 +3,8 @@
   pull-own --brand nowa             own ads + creatives + insights from the Marketing API
   crawl-competitors --parent nowa   US Ad Library crawl for that brand's competitor set
   import <file.csv|file.json>       manual ads (validated; rejects written to a file)
+  analyze [--budget 10] [--dry-run]  Haiku→Sonnet classification + offer check (hard USD cap)
+  report                            data/report/: dashboard.html, report.json, ads.csv
   status                            what's in the database, per brand and lane
 """
 
@@ -133,6 +135,12 @@ def cmd_analyze(args):
                       dry_run=args.dry_run, force=args.force, campaign=args.campaign))
 
 
+def cmd_report(args):
+    from . import report
+
+    print(report.build(db.connect()))
+
+
 def cmd_import(args):
     from .sources import csv_import
 
@@ -197,6 +205,7 @@ def main(argv=None):
     p.add_argument("--dry-run", action="store_true", help="estimate cost, call nothing")
     p.add_argument("--force", action="store_true", help="ignore cached analyses")
     p.set_defaults(fn=cmd_analyze)
+    sub.add_parser("report").set_defaults(fn=cmd_report)
     p = sub.add_parser("import")
     p.add_argument("file")
     p.set_defaults(fn=cmd_import)

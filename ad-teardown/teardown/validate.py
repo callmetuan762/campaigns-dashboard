@@ -15,7 +15,18 @@ import copy
 from .taxonomy import COMPARISON_STATUS, LABELS, REVIEW_FLAGS, SEVERITY
 
 
-def validate(result: dict, bundle: dict) -> tuple[dict | None, list[str]]:
+def validate(result, bundle: dict) -> tuple[dict | None, list[str]]:
+    """Never raises on model output. A wrong shape (a list where an id belongs, a string where
+    an object belongs) is a validation error like any other, so it gets the one repair."""
+    if not isinstance(result, dict):
+        return None, [f"result is {type(result).__name__}, expected an object"]
+    try:
+        return _validate(result, bundle)
+    except (TypeError, AttributeError, KeyError, ValueError) as e:
+        return None, [f"malformed output ({type(e).__name__}: {str(e)[:120]})"]
+
+
+def _validate(result: dict, bundle: dict) -> tuple[dict | None, list[str]]:
     errs: list[str] = []
     r = copy.deepcopy(result)
     ids = bundle["id_map"]
@@ -32,7 +43,7 @@ def validate(result: dict, bundle: dict) -> tuple[dict | None, list[str]]:
         errs.append(f"unexpected labels {sorted(extra)}")
 
     for c in r.get("claims") or []:
-        if c.get("evidence_id") not in ids:
+        if not isinstance(c.get("evidence_id"), str) or c["evidence_id"] not in ids:
             errs.append(f"claim {c.get('field')} cites unknown evidence {c.get('evidence_id')!r}")
 
     lc = r.get("landing_comparison") or {}
@@ -41,7 +52,7 @@ def validate(result: dict, bundle: dict) -> tuple[dict | None, list[str]]:
     if status not in COMPARISON_STATUS:
         errs.append(f"landing status {status!r} not allowed")
     for side in ("ad_evidence_ids", "page_evidence_ids"):
-        bad = [x for x in lc.get(side) or [] if x not in ids]
+        bad = [x for x in lc.get(side) or [] if not isinstance(x, str) or x not in ids]
         if bad:
             errs.append(f"{side} has unknown ids {bad}")
     page_ok = bundle["landing_status"] == "ok"
