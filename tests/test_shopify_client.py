@@ -260,3 +260,14 @@ async def test_fetch_orders_paginates_and_parses(monkeypatch):
 
     assert call_count == 2
     assert {r["order_id"] for r in rows} == {"1", "2"}
+
+
+
+def test_order_page_utm_content_maps_to_order_slug():
+    """BF price-test ads use utm_content=order__<ad name> (lands on /pages/order)."""
+    from src.shopify.client import _parse_landing_site
+    from src.config import PREORDER_LP_SLUGS
+    r = _parse_landing_site("/pages/order?utm_source=facebook&utm_campaign=nowa_bf_price_test&utm_content=order__BF-30-video-01")
+    assert r["utm_campaign"] == "nowa_bf_price_test"
+    assert r["lp_slug"] == "order"
+    assert "order" in PREORDER_LP_SLUGS
