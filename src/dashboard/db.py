@@ -511,8 +511,9 @@ def match_campaign_to_utm(
     """
     if campaign_name in utm_campaign_map:
         return campaign_name
+    name_cf = campaign_name.casefold()
     for utm, substring in utm_campaign_map.items():
-        if substring in campaign_name:
+        if substring.casefold() in name_cf:  # case-insensitive ("BF price test" vs "BF Price Test")
             return utm
     return None
 

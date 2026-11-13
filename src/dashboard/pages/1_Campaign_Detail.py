@@ -51,9 +51,9 @@ COLOR_CPD = "#f59e0b"  # name kept for continuity w/ Overview/Ads -- now colors 
 UTM_CAMPAIGN_MAP = {
     # Black Friday price test (12% vs 30% code, 13-30 Nov 2026). Listed BEFORE
     # nowa_preorder: its Meta campaign is also a SALES campaign, and the reverse
-    # substring match takes the first hit. Substring = the BF campaign name part;
-    # confirm against the live Meta campaign name once it exists.
-    "nowa_bf_price_test": "BF Price Test",
+    # substring match takes the first hit. Substring = from the planned name
+    # "Nowa | SALES | BF price test | US | 202611" (ads handover, Nov 13); the match is case-insensitive.
+    "nowa_bf_price_test": "BF price test",
     "nowa_preorder": "SALES",
     "nowa_quiz": "LEADS",
 }
