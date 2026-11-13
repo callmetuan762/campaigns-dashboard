@@ -28,7 +28,8 @@ QUIZ_LP_SLUGS: list[str] = ["routine-break", "big-feelings-type", "screen-kid"]
 # Any lp_slug NOT in QUIZ_LP_SLUGS or PREORDER_LP_SLUGS is bucketed into a
 # single "(other)" group by get_segment_mini_funnels so the segment
 # comparison only ever shows the current, real landing pages individually.
-PREORDER_LP_SLUGS: list[str] = ["home", "routine", "big-feelings", "screen-anxious", "preorder"]
+# "order" = /pages/order (Order Now + BF price test ads, utm_content=order__<ad name>).
+PREORDER_LP_SLUGS: list[str] = ["home", "routine", "big-feelings", "screen-anxious", "preorder", "order"]
 
 # UTM <-> campaign-name mapping (Campaign Detail "Meta vs GA4 attribution"
 # fix, 2026-07-22). GA4's utm_campaign values for this campaign generation
@@ -40,7 +41,15 @@ PREORDER_LP_SLUGS: list[str] = ["home", "routine", "big-feelings", "screen-anxio
 # utm_campaign value -> the Meta campaign-name substring shared by every
 # campaign under that utm, so callers can look up GA4 data by utm when the
 # exact-name join comes back empty (see pages/1_Campaign_Detail.py).
-utm_campaign_map: dict[str, str] = {"nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
+utm_campaign_map: dict[str, str] = {
+    # Black Friday price test (12% vs 30% code, 13-30 Nov 2026). Listed BEFORE
+    # nowa_preorder: its Meta campaign is also a SALES campaign, and the reverse
+    # substring match takes the first hit. Substring = from the planned name
+    # "Nowa | SALES | BF price test | US | 202611" (ads handover, Nov 13); the match is case-insensitive.
+    "nowa_bf_price_test": "BF price test",
+    "nowa_preorder": "SALES",
+    "nowa_quiz": "LEADS",
+}
 
 
 class Settings(BaseSettings):

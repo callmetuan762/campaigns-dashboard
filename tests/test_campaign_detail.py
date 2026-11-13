@@ -242,6 +242,17 @@ class TestMatchCampaignToUtm:
         assert match_campaign_to_utm("sales", tricky_map) == "sales"
 
 
+    def test_bf_price_test_listed_before_sales(self):
+        """The BF price-test campaign is also a SALES campaign: the shared map
+        lists it first, so its Meta name resolves to nowa_bf_price_test while
+        other SALES campaigns still resolve to nowa_preorder."""
+        bf_map = {"nowa_bf_price_test": "BF price test", "nowa_preorder": "SALES", "nowa_quiz": "LEADS"}
+        assert match_campaign_to_utm("Nowa | SALES | BF price test | US | 202611", bf_map) == "nowa_bf_price_test"
+        assert match_campaign_to_utm("Nowa | SALES | BF Price Test | US | 202611", bf_map) == "nowa_bf_price_test"
+        assert match_campaign_to_utm("Nowa | SALES | Creative Test | US | 202611", bf_map) == "nowa_preorder"
+        assert match_campaign_to_utm("nowa_bf_price_test", bf_map) == "nowa_bf_price_test"
+
+
 # --- Page module importability --------------------------------------------
 
 class TestPageModule:

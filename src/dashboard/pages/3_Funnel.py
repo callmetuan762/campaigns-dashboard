@@ -55,7 +55,7 @@ QUIZ_LP_SLUGS = ["routine-break", "big-feelings-type", "screen-kid"]
 # junk/legacy lp_slug values (old display-name-style slugs, '(not set)',
 # near-duplicates) into a single "(other)" group in the segment comparison
 # below, instead of showing them as individual bars.
-PREORDER_LP_SLUGS = ["home", "routine", "big-feelings", "screen-anxious", "preorder"]
+PREORDER_LP_SLUGS = ["home", "routine", "big-feelings", "screen-anxious", "preorder", "order"]
 
 _BAND_EMOJI = {"green": "🟢", "amber": "🟡", "red": "🔴", "gray": "⚪"}
 
